@@ -9,6 +9,8 @@ An MCP (Model Context Protocol) server that enables LLM agents to run end-to-end
 - **Quality metrics** - All designs include pLDDT, pTM, and interface scores
 - **Interface analysis** - Analyze protein-protein interfaces
 - **Hotspot suggestion** - Identify potential binding sites on targets
+- **AlphaFold2 support** - Structure validation with ColabFold (uses API backend by default, no local databases needed)
+- **Complex prediction** - Predict binder-target complexes with AlphaFold2-Multimer
 
 ## Quick Start
 
@@ -116,7 +118,8 @@ python -m protein_design_mcp.server
 |------|-------------|
 | `design_binder` | Complete binder design pipeline (RFdiffusion → ProteinMPNN → ESMFold) |
 | `analyze_interface` | Analyze protein-protein interface properties |
-| `validate_design` | Validate a sequence with ESMFold structure prediction |
+| `validate_design` | Validate a sequence with ESMFold or AlphaFold2 structure prediction |
+| `predict_complex` | Predict binder-target complex structure with AlphaFold2-Multimer |
 | `optimize_sequence` | Optimize a binder sequence for stability/affinity |
 | `suggest_hotspots` | Suggest potential binding sites on a target |
 | `get_design_status` | Check status of running design jobs |
@@ -163,9 +166,25 @@ This runs the full pipeline: RFdiffusion → ProteinMPNN → ESMFold, returning 
 **Step 3: Validate top designs**
 
 ```python
-# Tool: validate_design
+# Tool: validate_design (ESMFold - faster)
 {
     "sequence": "MTKLYV..."
+}
+
+# Or use AlphaFold2 for potentially higher accuracy
+{
+    "sequence": "MTKLYV...",
+    "predictor": "alphafold2"
+}
+```
+
+**Step 4: Predict binder-target complex structure**
+
+```python
+# Tool: predict_complex (AlphaFold2-Multimer)
+{
+    "sequences": ["MTKLYV...", "EGFR_SEQUENCE..."],
+    "chain_names": ["binder", "target"]
 }
 ```
 
@@ -202,7 +221,20 @@ Set environment variables to configure external tool paths:
 export RFDIFFUSION_PATH=/path/to/RFdiffusion
 export PROTEINMPNN_PATH=/path/to/ProteinMPNN
 export CACHE_DIR=~/.cache/protein-design-mcp
+
+# ColabFold/AlphaFold2 settings
+export COLABFOLD_PATH=/path/to/colabfold_batch  # Path to colabfold_batch executable
+export COLABFOLD_BACKEND=api                     # "api" (default) or "local"
 ```
+
+### AlphaFold2/ColabFold Configuration
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `COLABFOLD_PATH` | Path to colabfold_batch executable | `/opt/localcolabfold/colabfold-conda/bin/colabfold_batch` |
+| `COLABFOLD_BACKEND` | Backend mode: `api` (uses MMseqs2 server, no local DB) or `local` | `api` |
+
+**Note**: The Docker image uses API backend by default, which sends MSA queries to ColabFold's public server. This avoids the need to download large databases (~2TB). For high-throughput or offline use, configure `COLABFOLD_BACKEND=local` with local MMseqs2 databases.
 
 ## Installing with MCP Clients
 
@@ -319,7 +351,7 @@ After configuration, you can verify the server is working by asking the LLM:
 
 > "What protein design tools are available?"
 
-The LLM should list the 6 available tools: `design_binder`, `analyze_interface`, `validate_design`, `optimize_sequence`, `suggest_hotspots`, and `get_design_status`.
+The LLM should list the 7 available tools: `design_binder`, `analyze_interface`, `validate_design`, `predict_complex`, `optimize_sequence`, `suggest_hotspots`, and `get_design_status`.
 
 ## Development
 
@@ -343,11 +375,15 @@ mypy src/
 ┌─────────────────────────────────────────────────────────────┐
 │                      MCP Server                              │
 ├─────────────────────────────────────────────────────────────┤
-│  Tools Layer (6 high-level tools)                           │
+│  Tools Layer (7 high-level tools)                           │
 ├─────────────────────────────────────────────────────────────┤
 │  Orchestration Layer (Pipeline management, caching)         │
 ├─────────────────────────────────────────────────────────────┤
-│  Computation Layer (RFdiffusion, ProteinMPNN, ESMFold)      │
+│  Computation Layer                                           │
+│  ├─ RFdiffusion (backbone generation)                       │
+│  ├─ ProteinMPNN (sequence design)                           │
+│  ├─ ESMFold (fast structure prediction)                     │
+│  └─ ColabFold/AlphaFold2 (accurate structure & complexes)   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -361,3 +397,5 @@ Apache License 2.0 - see [LICENSE](LICENSE) for details.
 - [RFdiffusion](https://github.com/RosettaCommons/RFdiffusion)
 - [ProteinMPNN](https://github.com/dauparas/ProteinMPNN)
 - [ESMFold](https://github.com/facebookresearch/esm)
+- [ColabFold](https://github.com/sokrypton/ColabFold) - Fast AlphaFold2 predictions with MMseqs2
+- [AlphaFold2](https://github.com/deepmind/alphafold)
