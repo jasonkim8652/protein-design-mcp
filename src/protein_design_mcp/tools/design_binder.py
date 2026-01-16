@@ -7,8 +7,16 @@ This tool orchestrates:
 3. ESMFold for structure validation
 """
 
+import tempfile
+import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
+
+from protein_design_mcp.pipelines.rfdiffusion import RFdiffusionRunner
+from protein_design_mcp.pipelines.proteinmpnn import ProteinMPNNRunner
+from protein_design_mcp.pipelines.esmfold import ESMFoldRunner
+from protein_design_mcp.utils.metrics import calculate_metrics, filter_designs, rank_designs
 
 
 @dataclass
@@ -30,21 +38,113 @@ async def design_binder(
     """
     Design protein binders for a target protein.
 
+    This is the main end-to-end pipeline that orchestrates:
+    1. RFdiffusion - Generate backbone structures for binders
+    2. ProteinMPNN - Design sequences for each backbone
+    3. ESMFold - Validate designed sequences by structure prediction
+
     Args:
         target_pdb: Path to target protein PDB file
         hotspot_residues: Residues on target for binder interface (e.g., ["A45", "A46"])
-        num_designs: Number of designs to generate
+        num_designs: Number of backbone designs to generate
         binder_length: Length of binder in residues
 
     Returns:
-        Dictionary containing designed binders with metrics
-    """
-    # TODO: Implement full pipeline
-    # 1. Validate inputs
-    # 2. Run RFdiffusion
-    # 3. Run ProteinMPNN
-    # 4. Run ESMFold
-    # 5. Calculate metrics
-    # 6. Return ranked results
+        Dictionary containing:
+        - designs: List of design results with sequences and metrics
+        - summary: Statistics about the design run
 
-    raise NotImplementedError("design_binder pipeline not yet implemented")
+    Raises:
+        FileNotFoundError: If target PDB doesn't exist
+        ValueError: If hotspot_residues is empty
+    """
+    # Validate inputs
+    target_path = Path(target_pdb)
+    if not target_path.exists():
+        raise FileNotFoundError(f"Target PDB not found: {target_pdb}")
+
+    if not hotspot_residues:
+        raise ValueError("Hotspot residues cannot be empty")
+
+    # Create temporary working directory
+    job_id = str(uuid.uuid4())[:8]
+    work_dir = Path(tempfile.mkdtemp(prefix=f"design_{job_id}_"))
+
+    # Initialize runners
+    rfdiffusion = RFdiffusionRunner()
+    proteinmpnn = ProteinMPNNRunner()
+    esmfold = ESMFoldRunner()
+
+    all_designs = []
+
+    # Step 1: Generate backbones with RFdiffusion
+    backbone_dir = work_dir / "backbones"
+    backbones = await rfdiffusion.generate_backbones(
+        target_pdb=str(target_path),
+        hotspot_residues=hotspot_residues,
+        output_dir=str(backbone_dir),
+        num_designs=num_designs,
+        binder_length=binder_length,
+    )
+
+    # Step 2: Design sequences for each backbone with ProteinMPNN
+    for backbone in backbones:
+        backbone_id = backbone["id"]
+        backbone_pdb = backbone["pdb_path"]
+
+        # Skip if backbone file doesn't exist (e.g., mock scenario)
+        if not Path(backbone_pdb).exists():
+            continue
+
+        mpnn_dir = work_dir / "sequences" / backbone_id
+        sequences = await proteinmpnn.design_sequences(
+            backbone_pdb=backbone_pdb,
+            output_dir=str(mpnn_dir),
+        )
+
+        # Step 3: Validate each sequence with ESMFold
+        for seq_info in sequences:
+            sequence = seq_info["sequence"]
+            seq_id = seq_info["id"]
+
+            # Predict structure
+            prediction = await esmfold.predict_structure(sequence)
+
+            # Calculate metrics
+            metrics = calculate_metrics(
+                plddt_per_residue=prediction.plddt_per_residue,
+                ptm=prediction.ptm,
+            )
+
+            # Create design result
+            design_id = f"{backbone_id}_{seq_id}"
+            design = {
+                "id": design_id,
+                "sequence": sequence,
+                "structure_pdb": prediction.pdb_string,
+                "backbone_id": backbone_id,
+                "metrics": {
+                    "plddt": metrics.plddt,
+                    "ptm": metrics.ptm,
+                    "mpnn_score": seq_info.get("score"),
+                },
+            }
+
+            all_designs.append(design)
+
+    # Filter and rank designs
+    filtered = filter_designs(all_designs, min_plddt=70.0, min_ptm=0.5)
+    ranked = rank_designs(filtered)
+
+    # Build summary
+    summary = {
+        "total_generated": len(all_designs),
+        "passed_filters": len(filtered),
+        "best_design_id": ranked[0]["id"] if ranked else None,
+        "job_id": job_id,
+    }
+
+    return {
+        "designs": ranked,
+        "summary": summary,
+    }
