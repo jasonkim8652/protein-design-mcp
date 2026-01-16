@@ -17,6 +17,7 @@ from protein_design_mcp.utils.sasa import calculate_sasa, detect_pockets
 from protein_design_mcp.utils.uniprot import fetch_uniprot_features
 from protein_design_mcp.utils.conservation import calculate_conservation_scores
 from protein_design_mcp.utils.pubmed import search_binding_partners
+from protein_design_mcp.utils.fetch_structure import fetch_structure
 
 
 # Valid criteria for hotspot selection
@@ -32,7 +33,7 @@ AVG_SURFACE_AREA_PER_RESIDUE = 120.0
 
 
 async def suggest_hotspots(
-    target_pdb: str,
+    target: str,
     chain_id: str | None = None,
     criteria: str = "exposed",
     uniprot_id: str | None = None,
@@ -45,13 +46,17 @@ async def suggest_hotspots(
     regions suitable for binder design.
 
     Args:
-        target_pdb: Path to target protein PDB file
+        target: Target protein - can be:
+            - Protein name (e.g., "EGFR", "insulin receptor")
+            - UniProt ID (e.g., "P00533")
+            - PDB ID (e.g., "1IVO")
+            - Path to local PDB file
         chain_id: Specific chain to analyze (default: first chain)
         criteria: Hotspot selection criteria:
             - "exposed": Surface-exposed residues
             - "druggable": Hydrophobic pockets suitable for small molecules
             - "conserved": Conserved residues
-        uniprot_id: UniProt ID for retrieving known binding sites
+        uniprot_id: UniProt ID for retrieving known binding sites (auto-detected if not provided)
         include_literature: Search PubMed for known binding partners
 
     Returns:
@@ -61,15 +66,19 @@ async def suggest_hotspots(
         - conservation_profile: Per-residue conservation (if available)
         - uniprot_features: Binding sites from UniProt (if uniprot_id provided)
         - literature_insights: PubMed search results (if include_literature)
+        - structure_source: Where the structure came from (local/rcsb/alphafold)
 
     Raises:
         FileNotFoundError: If PDB file doesn't exist
         ValueError: If chain_id is invalid or criteria is not recognized
     """
-    # Validate PDB path
-    pdb_path = Path(target_pdb)
-    if not pdb_path.exists():
-        raise FileNotFoundError(f"PDB file not found: {target_pdb}")
+    # Fetch structure if needed (supports protein name, UniProt ID, PDB ID, or path)
+    fetched = await fetch_structure(target)
+    pdb_path = Path(fetched.pdb_path)
+
+    # Auto-detect UniProt ID if not provided
+    if uniprot_id is None and fetched.uniprot_id:
+        uniprot_id = fetched.uniprot_id
 
     # Validate criteria
     if criteria not in VALID_CRITERIA:
@@ -78,7 +87,7 @@ async def suggest_hotspots(
         )
 
     # Parse structure
-    structure = parse_pdb(target_pdb)
+    structure = parse_pdb(str(pdb_path))
 
     # Get target chain
     if chain_id is None:
@@ -107,13 +116,13 @@ async def suggest_hotspots(
 
     # 1. Calculate SASA
     try:
-        sasa_result = calculate_sasa(target_pdb)
+        sasa_result = calculate_sasa(str(pdb_path))
     except Exception:
         sasa_result = None
 
     # 2. Detect pockets
     try:
-        pockets = detect_pockets(target_pdb)
+        pockets = detect_pockets(str(pdb_path))
     except Exception:
         pockets = []
 
@@ -160,6 +169,13 @@ async def suggest_hotspots(
     result = {
         "suggested_hotspots": hotspots,
         "surface_analysis": surface_analysis,
+        "structure_source": {
+            "source": fetched.source,
+            "pdb_path": fetched.pdb_path,
+            "pdb_id": fetched.pdb_id,
+            "uniprot_id": fetched.uniprot_id,
+            "resolution": fetched.resolution,
+        },
     }
 
     # Add conservation profile if available

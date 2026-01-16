@@ -146,15 +146,21 @@ TOOLS = [
     Tool(
         name="suggest_hotspots",
         description=(
-            "Analyze a target protein and suggest potential binding hotspots based on "
-            "surface properties and structural features."
+            "Analyze a target protein and suggest potential binding hotspots. "
+            "Can fetch structures automatically - just provide a protein name like 'EGFR', "
+            "a UniProt ID like 'P00533', a PDB ID like '1IVO', or a local PDB file path. "
+            "Integrates UniProt annotations, conservation, and literature for evidence-based suggestions."
         ),
         inputSchema={
             "type": "object",
             "properties": {
-                "target_pdb": {
+                "target": {
                     "type": "string",
-                    "description": "Path to target protein PDB file",
+                    "description": (
+                        "Target protein - can be a protein name (e.g., 'EGFR'), "
+                        "UniProt ID (e.g., 'P00533'), PDB ID (e.g., '1IVO'), "
+                        "or path to a local PDB file"
+                    ),
                 },
                 "chain_id": {
                     "type": "string",
@@ -166,8 +172,13 @@ TOOLS = [
                     "description": "Hotspot selection criteria (default: exposed)",
                     "default": "exposed",
                 },
+                "include_literature": {
+                    "type": "boolean",
+                    "description": "Search PubMed for known binding partners (default: false)",
+                    "default": False,
+                },
             },
-            "required": ["target_pdb"],
+            "required": ["target"],
         },
     ),
     Tool(
@@ -277,12 +288,19 @@ async def handle_optimize_sequence(arguments: dict[str, Any]) -> dict[str, Any]:
 
 async def handle_suggest_hotspots(arguments: dict[str, Any]) -> dict[str, Any]:
     """Handle suggest_hotspots tool call."""
-    # TODO: Implement hotspot suggestion
-    return {
-        "status": "not_implemented",
-        "message": "suggest_hotspots not yet implemented",
-        "received_arguments": arguments,
-    }
+    from protein_design_mcp.tools.hotspots import suggest_hotspots
+
+    target = arguments.get("target")
+    if not target:
+        return {"error": "target is required"}
+
+    result = await suggest_hotspots(
+        target=target,
+        chain_id=arguments.get("chain_id"),
+        criteria=arguments.get("criteria", "exposed"),
+        include_literature=arguments.get("include_literature", False),
+    )
+    return result
 
 
 async def handle_get_design_status(arguments: dict[str, Any]) -> dict[str, Any]:

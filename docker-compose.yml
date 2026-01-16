@@ -10,18 +10,19 @@
 
 services:
   protein-design:
-    image: ghcr.io/jasonkim8652/protein-design-mcp:latest
+    image: protein-design-mcp:local
     build:
       context: .
       dockerfile: Dockerfile
 
     # GPU support (requires nvidia-docker runtime)
+    # Using device_ids to specify GPU 7
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
-              count: 1
+              device_ids: ['7']
               capabilities: [gpu]
 
     # Volume mounts
@@ -42,15 +43,15 @@ services:
       - MODELS_DIR=/models
       - CACHE_DIR=/cache
       - LOG_LEVEL=INFO
-      # Set to "true" to skip model download check on startup
-      # - SKIP_MODEL_DOWNLOAD=false
+      # Models already downloaded, skip check
+      - SKIP_MODEL_DOWNLOAD=true
 
     # Network mode for MCP (uses stdio, no network needed)
     network_mode: none
 
   # Alternative service for downloading models only
   download-models:
-    image: ghcr.io/jasonkim8652/protein-design-mcp:latest
+    image: protein-design-mcp:local
     build:
       context: .
       dockerfile: Dockerfile
@@ -62,7 +63,7 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              count: 1
+              device_ids: ['7']
               capabilities: [gpu]
 
 # Named volumes (alternative to bind mounts)

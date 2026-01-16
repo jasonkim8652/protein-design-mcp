@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "protein-design": {
+      "type": "stdio",
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "--network", "host",
+        "--gpus", "device=7",
+        "-e", "SKIP_MODEL_DOWNLOAD=true",
+        "-v", "/home/jk661/projects/protein-design-mcp/models:/models",
+        "-v", "/home/jk661/projects/protein-design-mcp/data:/data",
+        "protein-design-mcp:local"
+      ]
+    }
+  }
+}
