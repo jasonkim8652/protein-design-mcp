@@ -123,7 +123,55 @@ python -m protein_design_mcp.server
 
 ## Example Usage
 
-### Designing a Binder
+### Real-World Example: Designing an EGFR Binder
+
+Here's a complete workflow for designing a binder against EGFR (Epidermal Growth Factor Receptor), a key cancer drug target:
+
+**Step 1: Find binding hotspots on EGFR**
+
+```python
+# Tool: suggest_hotspots
+{
+    "target": "EGFR",
+    "criteria": "exposed",
+    "include_literature": true
+}
+```
+
+The tool automatically fetches the EGFR structure (PDB: 3VRP) and returns:
+
+| Residues | Score | Rationale |
+|----------|-------|-----------|
+| A98-A100 | 0.97 | Exposed surface region (SASA: 95.8 Å²) |
+| A199 | 0.95 | Ca²⁺ binding site (UniProt annotated) |
+| A264 | 0.95 | Phosphotyrosine binding site |
+
+**Step 2: Design binders targeting the hotspot**
+
+```python
+# Tool: design_binder
+{
+    "target_pdb": "EGFR",
+    "hotspot_residues": ["A98", "A99", "A100"],
+    "num_designs": 10,
+    "binder_length": 80
+}
+```
+
+This runs the full pipeline: RFdiffusion → ProteinMPNN → ESMFold, returning ranked designs with quality metrics (pLDDT, pTM, interface scores).
+
+**Step 3: Validate top designs**
+
+```python
+# Tool: validate_design
+{
+    "sequence": "MTKLYV..."
+}
+```
+
+### Basic Tool Examples
+
+#### Designing a Binder
 
 ```python
 # Tool: design_binder
@@ -135,7 +183,7 @@ python -m protein_design_mcp.server
 }
 ```
 
-### Analyzing an Interface
+#### Analyzing an Interface
 
 ```python
 # Tool: analyze_interface
@@ -305,7 +353,7 @@ mypy src/
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+Apache License 2.0 - see [LICENSE](LICENSE) for details.
 
 ## References
 
