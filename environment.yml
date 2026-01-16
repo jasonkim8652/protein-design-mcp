@@ -1,0 +1,59 @@
+name: protein-design-mcp
+channels:
+  - conda-forge
+  - pytorch
+  - nvidia
+  - defaults
+
+dependencies:
+  # Python version
+  - python=3.10
+
+  # PyTorch with CUDA support
+  - pytorch>=2.0
+  - pytorch-cuda=11.8
+  - torchvision
+  - torchaudio
+
+  # Scientific computing
+  - numpy>=1.24
+  - scipy>=1.10
+  - pandas>=2.0
+
+  # Bioinformatics
+  - biopython>=1.81
+
+  # Development tools
+  - pip>=23.0
+  - pytest>=7.0
+  - pytest-cov>=4.0
+  - pytest-asyncio>=0.21
+
+  # Code quality
+  - ruff>=0.1.0
+  - black>=23.0
+  - mypy>=1.0
+
+  # Utilities
+  - pyyaml>=6.0
+  - requests>=2.28
+  - tqdm>=4.65
+  - aiofiles>=23.0
+
+  # Pip dependencies
+  - pip:
+      # MCP SDK
+      - mcp>=0.1.0
+
+      # ESM for structure prediction
+      - fair-esm>=2.0.0
+
+      # Additional utilities
+      - biotite>=0.37.0
+      - py3Dmol>=2.0.0
+
+      # Typing extensions
+      - typing-extensions>=4.5.0
+
+      # Async support
+      - anyio>=3.7.0
