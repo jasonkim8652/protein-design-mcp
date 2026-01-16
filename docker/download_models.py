@@ -16,7 +16,7 @@ from pathlib import Path
 # Model weight URLs and checksums
 RFDIFFUSION_WEIGHTS = {
     "Complex_base_ckpt.pt": {
-        "url": "http://files.ipd.uw.edu/pub/RFdiffusion/6f5902ac237024bdd0c176cb93063dc4/Complex_base_ckpt.pt",
+        "url": "http://files.ipd.uw.edu/pub/RFdiffusion/e29311f6f1bf1af907f9ef9f44b8328b/Complex_base_ckpt.pt",
         "size": "1.5GB",
     },
     "Base_ckpt.pt": {

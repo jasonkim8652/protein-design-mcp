@@ -38,11 +38,28 @@ FROM base AS tools
 
 WORKDIR /opt
 
-# Clone RFdiffusion
+# Install PyTorch first (required for se3-transformer)
+RUN pip install --no-cache-dir \
+    torch==2.0.1+cu118 \
+    torchvision==0.15.2+cu118 \
+    --index-url https://download.pytorch.org/whl/cu118
+
+# Clone RFdiffusion and install dependencies manually
 RUN git clone --depth 1 https://github.com/RosettaCommons/RFdiffusion.git \
-    && cd RFdiffusion \
-    && pip install --no-cache-dir -e . \
-    && mkdir -p models
+    && mkdir -p RFdiffusion/models
+
+# Install se3-transformer from RFdiffusion's env
+RUN cd RFdiffusion/env/SE3Transformer \
+    && pip install --no-cache-dir -e .
+
+# Install RFdiffusion dependencies (without full package install)
+RUN pip install --no-cache-dir \
+    hydra-core \
+    omegaconf \
+    icecream \
+    pyrsistent \
+    e3nn \
+    dgl
 
 # Clone ProteinMPNN
 RUN git clone --depth 1 https://github.com/dauparas/ProteinMPNN.git \
@@ -56,7 +73,7 @@ FROM tools AS app
 WORKDIR /app
 
 # Copy requirements first for better caching
-COPY pyproject.toml setup.py ./
+COPY pyproject.toml ./
 COPY src/ ./src/
 
 # Install the package with all dependencies
