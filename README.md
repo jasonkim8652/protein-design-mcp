@@ -1,11 +1,11 @@
 # Protein Binder Design MCP Server
 
-An MCP (Model Context Protocol) server that enables LLM agents to run end-to-end protein binder design pipelines using RFdiffusion, ProteinMPNN, and ESMFold.
+An MCP (Model Context Protocol) server that enables LLM agents to run end-to-end protein binder design pipelines using RFdiffusion, ProteinMPNN, ESMFold, and AlphaFold2.
 
 ## Features
 
 - **High-level, workflow-based tools** - Designed for LLM agents with <10 tools total
-- **End-to-end design pipeline** - Single tool call runs RFdiffusion → ProteinMPNN → ESMFold
+- **End-to-end design pipeline** - Single tool call runs RFdiffusion → ProteinMPNN → ESMFold/AlphaFold2
 - **Quality metrics** - All designs include pLDDT, pTM, and interface scores
 - **Interface analysis** - Analyze protein-protein interfaces
 - **Hotspot suggestion** - Identify potential binding sites on targets
@@ -116,7 +116,7 @@ python -m protein_design_mcp.server
 
 | Tool | Description |
 |------|-------------|
-| `design_binder` | Complete binder design pipeline (RFdiffusion → ProteinMPNN → ESMFold) |
+| `design_binder` | Complete binder design pipeline (RFdiffusion → ProteinMPNN → ESMFold/AlphaFold2) |
 | `analyze_interface` | Analyze protein-protein interface properties |
 | `validate_design` | Validate a sequence with ESMFold or AlphaFold2 structure prediction |
 | `predict_complex` | Predict binder-target complex structure with AlphaFold2-Multimer |
@@ -161,7 +161,7 @@ The tool automatically fetches the EGFR structure (PDB: 3VRP) and returns:
 }
 ```
 
-This runs the full pipeline: RFdiffusion → ProteinMPNN → ESMFold, returning ranked designs with quality metrics (pLDDT, pTM, interface scores).
+This runs the full pipeline: RFdiffusion → ProteinMPNN → ESMFold/AlphaFold2, returning ranked designs with quality metrics (pLDDT, pTM, interface scores).
 
 **Step 3: Validate top designs**
 
