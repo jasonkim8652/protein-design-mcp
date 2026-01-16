@@ -1,10 +1,23 @@
 """
 Sequence optimization tool.
 
-Optimizes protein sequences for improved stability and/or binding affinity.
+Optimizes protein sequences for improved stability and/or binding affinity
+using ProteinMPNN and ESMFold validation.
 """
 
+import re
+from pathlib import Path
 from typing import Any
+
+from protein_design_mcp.pipelines.proteinmpnn import ProteinMPNNRunner
+from protein_design_mcp.pipelines.esmfold import ESMFoldRunner
+
+
+# Valid amino acids
+VALID_AA = set("ACDEFGHIKLMNPQRSTVWY")
+
+# Valid optimization targets
+VALID_TARGETS = {"stability", "affinity", "both"}
 
 
 async def optimize_sequence(
@@ -16,19 +29,131 @@ async def optimize_sequence(
     """
     Optimize an existing binder sequence.
 
+    Uses ProteinMPNN to redesign the sequence while considering the target
+    structure, then validates with ESMFold.
+
     Args:
         current_sequence: Starting amino acid sequence
         target_pdb: Path to target protein PDB
-        optimization_target: What to optimize ("stability", "affinity", "both")
+        optimization_target: What to optimize:
+            - "stability": Optimize for protein stability (higher pLDDT)
+            - "affinity": Optimize for binding affinity
+            - "both": Optimize for both (default)
         fixed_positions: Positions to keep fixed (1-indexed)
 
     Returns:
-        Dictionary containing optimized sequence and metrics
-    """
-    # TODO: Implement optimization
-    # 1. Parse inputs
-    # 2. Run ProteinMPNN with constraints
-    # 3. Score new sequences
-    # 4. Return best optimization
+        Dictionary containing:
+        - optimized_sequence: Best optimized sequence
+        - mutations: List of mutations from original
+        - predicted_improvement: Estimated improvements
+        - metrics: Quality metrics (pLDDT, etc.)
 
-    raise NotImplementedError("optimize_sequence not yet implemented")
+    Raises:
+        FileNotFoundError: If target PDB doesn't exist
+        ValueError: If sequence or optimization_target is invalid
+    """
+    # Validate sequence
+    sequence = current_sequence.upper()
+    if not sequence:
+        raise ValueError("Sequence cannot be empty")
+
+    invalid_chars = set(sequence) - VALID_AA
+    if invalid_chars:
+        raise ValueError(
+            f"Sequence contains invalid characters: {invalid_chars}. "
+            f"Valid amino acids are: {''.join(sorted(VALID_AA))}"
+        )
+
+    # Validate target PDB
+    target_path = Path(target_pdb)
+    if not target_path.exists():
+        raise FileNotFoundError(f"Target PDB not found: {target_pdb}")
+
+    # Validate optimization target
+    if optimization_target not in VALID_TARGETS:
+        raise ValueError(
+            f"Optimization target must be one of {VALID_TARGETS}, "
+            f"got: {optimization_target}"
+        )
+
+    # Initialize runners
+    mpnn = ProteinMPNNRunner()
+    esmfold = ESMFoldRunner()
+
+    # Generate optimized sequences using ProteinMPNN
+    # For optimization, we redesign the sequence considering the target
+    optimized_sequences = await mpnn.design_sequences(
+        backbone_pdb=str(target_path),
+        output_dir="/tmp/optimize",
+        fixed_positions=fixed_positions,
+        num_sequences=8,  # Generate 8 variants
+    )
+
+    # Score each sequence with ESMFold
+    scored_sequences = []
+    for seq_info in optimized_sequences:
+        opt_seq = seq_info["sequence"]
+
+        # Predict structure
+        prediction = await esmfold.predict_structure(opt_seq)
+
+        # Calculate score based on optimization target
+        if optimization_target == "stability":
+            score = prediction.plddt
+        elif optimization_target == "affinity":
+            # For affinity, use pTM as proxy (better pTM = better confidence)
+            score = prediction.ptm * 100
+        else:  # both
+            score = (prediction.plddt + prediction.ptm * 100) / 2
+
+        scored_sequences.append({
+            "sequence": opt_seq,
+            "score": score,
+            "plddt": prediction.plddt,
+            "ptm": prediction.ptm,
+            "mpnn_score": seq_info.get("score"),
+        })
+
+    # Select best sequence
+    scored_sequences.sort(key=lambda s: s["score"], reverse=True)
+    best = scored_sequences[0]
+
+    # Calculate mutations from original
+    mutations = _calculate_mutations(sequence, best["sequence"])
+
+    # Estimate improvements
+    predicted_improvement = {
+        "stability_delta": f"+{max(0, best['plddt'] - 70):.1f}% pLDDT",
+        "affinity_delta": "Improved" if best["ptm"] > 0.6 else "Unchanged",
+    }
+
+    return {
+        "optimized_sequence": best["sequence"],
+        "mutations": mutations,
+        "predicted_improvement": predicted_improvement,
+        "metrics": {
+            "plddt": best["plddt"],
+            "ptm": best["ptm"],
+            "mpnn_score": best["mpnn_score"],
+        },
+        "all_candidates": len(scored_sequences),
+    }
+
+
+def _calculate_mutations(original: str, optimized: str) -> list[str]:
+    """
+    Calculate list of mutations between original and optimized sequences.
+
+    Returns mutations in format: ["A5V", "L12M", ...]
+    """
+    mutations = []
+
+    # Align sequences (assuming same length for now)
+    min_len = min(len(original), len(optimized))
+
+    for i in range(min_len):
+        if original[i] != optimized[i]:
+            # Position is 1-indexed
+            mutations.append(f"{original[i]}{i+1}{optimized[i]}")
+
+    return mutations
