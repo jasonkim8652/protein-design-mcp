@@ -12,11 +12,79 @@ An MCP (Model Context Protocol) server that enables LLM agents to run end-to-end
 
 ## Quick Start
 
-### Installation
+### Option 1: Docker (Recommended)
+
+The easiest way to get started is using Docker. Everything is pre-configured - just pull and run:
+
+```bash
+# Pull the image
+docker pull ghcr.io/jasonkim8652/protein-design-mcp:latest
+
+# Create directories for models and data
+mkdir -p models data cache
+
+# Run with docker-compose (recommended)
+wget https://raw.githubusercontent.com/jasonkim8652/protein-design-mcp/main/docker-compose.yml
+docker-compose up
+```
+
+**First run will download model weights (~10GB)**. These are cached in the `models/` directory for future runs.
+
+#### Docker with Claude Desktop
+
+Configure Claude Desktop to use the Docker container:
+
+```json
+{
+  "mcpServers": {
+    "protein-design": {
+      "command": "docker",
+      "args": [
+        "compose", "run", "--rm", "-T", "protein-design", "server"
+      ],
+      "cwd": "/path/to/protein-design-mcp"
+    }
+  }
+}
+```
+
+#### Docker Commands
+
+```bash
+# Start MCP server
+docker-compose up
+
+# Download models only (without starting server)
+docker-compose run --rm download-models
+
+# Interactive shell
+docker-compose run --rm protein-design bash
+
+# Build locally (instead of pulling from ghcr.io)
+docker-compose build
+```
+
+#### GPU Requirements
+
+Docker requires NVIDIA Container Toolkit for GPU support:
+
+```bash
+# Install nvidia-container-toolkit (Ubuntu/Debian)
+distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
+curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -
+curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | \
+  sudo tee /etc/apt/sources.list.d/nvidia-docker.list
+sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
+sudo systemctl restart docker
+```
+
+### Option 2: Local Installation
+
+For development or if you prefer a local installation:
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/protein-design-mcp.git
+git clone https://github.com/jasonkim8652/protein-design-mcp.git
 cd protein-design-mcp
 
 # Create conda environment
@@ -27,7 +95,7 @@ conda activate protein-design-mcp
 pip install -e ".[dev]"
 ```
 
-### Prerequisites
+#### Prerequisites (Local Installation)
 
 The following tools must be installed separately:
 
@@ -35,7 +103,7 @@ The following tools must be installed separately:
 - **ProteinMPNN** - For sequence design (included in RFdiffusion)
 - **ESMFold** - Installed via `fair-esm` package
 
-### Running the Server
+#### Running the Server (Local)
 
 ```bash
 # Start the MCP server

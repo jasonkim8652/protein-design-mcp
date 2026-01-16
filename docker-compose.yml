@@ -1,0 +1,73 @@
+# Docker Compose for Protein Design MCP Server
+#
+# Usage:
+#   docker-compose up              # Start MCP server (downloads models on first run)
+#   docker-compose run app bash    # Interactive shell
+#   docker-compose run app download # Download models only
+#
+# For Claude Desktop, configure the MCP client to run:
+#   docker-compose run --rm app server
+
+services:
+  protein-design:
+    image: ghcr.io/jasonkim8652/protein-design-mcp:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    # GPU support (requires nvidia-docker runtime)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+    # Volume mounts
+    volumes:
+      # Model weights (persistent, ~10GB)
+      - ./models:/models
+      # Input/output data
+      - ./data:/data
+      # Cache directory
+      - ./cache:/cache
+
+    # Required for MCP stdio transport
+    stdin_open: true
+    tty: true
+
+    # Environment variables (optional overrides)
+    environment:
+      - MODELS_DIR=/models
+      - CACHE_DIR=/cache
+      - LOG_LEVEL=INFO
+      # Set to "true" to skip model download check on startup
+      # - SKIP_MODEL_DOWNLOAD=false
+
+    # Network mode for MCP (uses stdio, no network needed)
+    network_mode: none
+
+  # Alternative service for downloading models only
+  download-models:
+    image: ghcr.io/jasonkim8652/protein-design-mcp:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: download
+    volumes:
+      - ./models:/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+# Named volumes (alternative to bind mounts)
+# Uncomment to use Docker-managed volumes instead of local directories
+# volumes:
+#   models:
+#   data:
+#   cache:

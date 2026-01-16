@@ -1,0 +1,60 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info
+*.egg
+dist
+build
+.eggs
+
+# Virtual environments
+.venv
+venv
+ENV
+env
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Testing
+.pytest_cache
+.coverage
+htmlcov
+.tox
+.nox
+
+# Documentation
+docs/_build
+
+# Local development
+*.log
+.env
+.env.local
+
+# Model weights (downloaded at runtime)
+models/
+*.pt
+*.pth
+
+# Data directories
+data/
+cache/
+
+# CI/CD
+.github
+
+# Misc
+*.md
+!README.md
+LICENSE
+Makefile
