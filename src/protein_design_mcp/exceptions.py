@@ -41,6 +41,12 @@ class ESMFoldError(PipelineError):
     pass
 
 
+class AlphaFold2Error(PipelineError):
+    """Raised when AlphaFold2/ColabFold prediction fails."""
+
+    pass
+
+
 class ValidationError(ProteinDesignError):
     """Raised when validation fails."""
 

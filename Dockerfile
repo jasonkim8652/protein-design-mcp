@@ -1,10 +1,14 @@
 # Protein Design MCP Server - All-in-One Docker Image
 #
 # This Dockerfile creates an image with RFdiffusion, ProteinMPNN,
-# ESMFold, and the MCP server. Model weights are downloaded at runtime.
+# ESMFold, ColabFold/AlphaFold2, and the MCP server.
+# Model weights are downloaded at runtime.
 #
 # Build: docker build -t protein-design-mcp .
 # Run:   docker-compose up
+#
+# ColabFold uses --msa-mode server by default to avoid large database downloads.
+# The AlphaFold2 model weights (~5GB) are downloaded on first use.
 
 # =============================================================================
 # Stage 1: Base image with CUDA and Python
@@ -65,6 +69,16 @@ RUN pip install --no-cache-dir \
 RUN git clone --depth 1 https://github.com/dauparas/ProteinMPNN.git \
     && mkdir -p ProteinMPNN/vanilla_model_weights
 
+# Install ColabFold with AlphaFold2 support
+# ColabFold provides fast AlphaFold2 predictions with MMseqs2 server API
+# avoiding the need for large local databases (~2TB)
+RUN pip install --no-cache-dir \
+    "colabfold[alphafold] @ git+https://github.com/sokrypton/ColabFold.git" \
+    && mkdir -p /root/.cache/colabfold
+
+# Create symlink for colabfold_batch command
+RUN ln -sf $(python -c "import colabfold; print(colabfold.__path__[0])")/batch.py /usr/local/bin/colabfold_batch || true
+
 # =============================================================================
 # Stage 3: Install Python dependencies and MCP server
 # =============================================================================
@@ -97,9 +111,12 @@ FROM app AS final
 # Set environment variables
 ENV RFDIFFUSION_PATH=/opt/RFdiffusion
 ENV PROTEINMPNN_PATH=/opt/ProteinMPNN
+ENV COLABFOLD_PATH=/usr/local/bin/colabfold_batch
+ENV COLABFOLD_BACKEND=api
 ENV MODELS_DIR=/models
 ENV CACHE_DIR=/cache
 ENV TORCH_HOME=/models/esm
+ENV COLABFOLD_WEIGHTS_DIR=/models/colabfold
 ENV PYTHONUNBUFFERED=1
 
 # Create volume mount points
@@ -119,6 +136,6 @@ CMD ["server"]
 
 # Labels
 LABEL org.opencontainers.image.title="Protein Design MCP Server"
-LABEL org.opencontainers.image.description="MCP server for protein binder design with RFdiffusion, ProteinMPNN, and ESMFold"
+LABEL org.opencontainers.image.description="MCP server for protein binder design with RFdiffusion, ProteinMPNN, ESMFold, and AlphaFold2/ColabFold"
 LABEL org.opencontainers.image.source="https://github.com/jasonkim8652/protein-design-mcp"
 LABEL org.opencontainers.image.licenses="MIT"

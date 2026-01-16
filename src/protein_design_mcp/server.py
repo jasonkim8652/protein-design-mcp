@@ -95,7 +95,7 @@ TOOLS = [
         name="validate_design",
         description=(
             "Validate a designed protein sequence by predicting its structure with ESMFold "
-            "and calculating quality metrics (pLDDT, pTM)."
+            "or AlphaFold2 and calculating quality metrics (pLDDT, pTM)."
         ),
         inputSchema={
             "type": "object",
@@ -107,6 +107,14 @@ TOOLS = [
                 "expected_structure": {
                     "type": "string",
                     "description": "Optional path to expected structure PDB for RMSD comparison",
+                },
+                "predictor": {
+                    "type": "string",
+                    "enum": ["esmfold", "alphafold2"],
+                    "default": "esmfold",
+                    "description": (
+                        "Structure predictor to use. ESMFold is faster, AlphaFold2 may be more accurate."
+                    ),
                 },
             },
             "required": ["sequence"],
@@ -195,6 +203,32 @@ TOOLS = [
             "required": ["job_id"],
         },
     ),
+    Tool(
+        name="predict_complex",
+        description=(
+            "Predict the structure of a protein complex using AlphaFold2-Multimer. "
+            "Use this to validate binder-target complexes and assess interface quality."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "sequences": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "List of amino acid sequences, one per chain. "
+                        "E.g., [binder_sequence, target_sequence]"
+                    ),
+                },
+                "chain_names": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional chain identifiers (default: A, B, C, ...)",
+                },
+            },
+            "required": ["sequences"],
+        },
+    ),
 ]
 
 
@@ -222,6 +256,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             result = await handle_suggest_hotspots(arguments)
         elif name == "get_design_status":
             result = await handle_get_design_status(arguments)
+        elif name == "predict_complex":
+            result = await handle_predict_complex(arguments)
         else:
             result = {"error": f"Unknown tool: {name}"}
 
@@ -268,12 +304,18 @@ async def handle_analyze_interface(arguments: dict[str, Any]) -> dict[str, Any]:
 
 async def handle_validate_design(arguments: dict[str, Any]) -> dict[str, Any]:
     """Handle validate_design tool call."""
-    # TODO: Implement ESMFold validation
-    return {
-        "status": "not_implemented",
-        "message": "validate_design not yet implemented",
-        "received_arguments": arguments,
-    }
+    from protein_design_mcp.tools.validate import validate_design
+
+    sequence = arguments.get("sequence")
+    if not sequence:
+        return {"error": "sequence is required"}
+
+    result = await validate_design(
+        sequence=sequence,
+        expected_structure=arguments.get("expected_structure"),
+        predictor=arguments.get("predictor", "esmfold"),
+    )
+    return result
 
 
 async def handle_optimize_sequence(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -310,6 +352,34 @@ async def handle_get_design_status(arguments: dict[str, Any]) -> dict[str, Any]:
         "status": "not_implemented",
         "message": "get_design_status not yet implemented",
         "received_arguments": arguments,
+    }
+
+
+async def handle_predict_complex(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Handle predict_complex tool call using AlphaFold2-Multimer."""
+    from protein_design_mcp.pipelines.alphafold2 import AlphaFold2Runner
+
+    sequences = arguments.get("sequences")
+    if not sequences:
+        return {"error": "sequences is required"}
+
+    if len(sequences) < 2:
+        return {"error": "At least 2 sequences are required for complex prediction"}
+
+    runner = AlphaFold2Runner()
+    result = await runner.predict_complex(
+        sequences=sequences,
+        chain_names=arguments.get("chain_names"),
+    )
+
+    return {
+        "predicted_structure_pdb": result.pdb_string,
+        "plddt": result.plddt,
+        "ptm": result.ptm,
+        "plddt_per_residue": result.plddt_per_residue.tolist(),
+        "pae_matrix": result.pae_matrix.tolist() if result.pae_matrix is not None else None,
+        "sequences": sequences,
+        "num_chains": len(sequences),
     }
 
 

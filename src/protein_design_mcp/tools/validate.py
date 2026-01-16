@@ -1,5 +1,5 @@
 """
-Validation tool using ESMFold.
+Validation tool using ESMFold or AlphaFold2.
 
 Validates designed protein sequences by predicting their structure
 and calculating quality metrics.
@@ -7,13 +7,17 @@ and calculating quality metrics.
 
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from protein_design_mcp.pipelines.esmfold import ESMFoldRunner, PredictionResult
+from protein_design_mcp.pipelines.alphafold2 import AlphaFold2Runner
 
 
 # Valid amino acid characters
 VALID_AA = set("ACDEFGHIKLMNPQRSTVWY")
+
+# Supported structure predictors
+SUPPORTED_PREDICTORS = ("esmfold", "alphafold2")
 
 
 def _validate_sequence(sequence: str) -> bool:
@@ -39,15 +43,19 @@ def _validate_sequence(sequence: str) -> bool:
 async def validate_design(
     sequence: str,
     expected_structure: str | None = None,
+    predictor: str = "esmfold",
 ) -> dict[str, Any]:
     """
     Validate a designed protein sequence.
 
-    Uses ESMFold to predict the structure and calculate quality metrics.
+    Uses ESMFold or AlphaFold2 to predict the structure and calculate quality metrics.
 
     Args:
         sequence: Amino acid sequence to validate
         expected_structure: Optional path to expected structure for RMSD comparison
+        predictor: Structure predictor to use ("esmfold" or "alphafold2").
+            Default is "esmfold" for faster predictions.
+            Use "alphafold2" for potentially higher accuracy (requires ColabFold).
 
     Returns:
         Dictionary containing validation results and metrics:
@@ -58,10 +66,18 @@ async def validate_design(
         - pae_matrix: Optional predicted aligned error matrix
         - rmsd_to_expected: Optional RMSD to expected structure
         - secondary_structure: Optional secondary structure string
+        - predictor: The predictor used for this validation
 
     Raises:
-        ValueError: If sequence is invalid
+        ValueError: If sequence is invalid or predictor is not supported
     """
+    # Validate predictor
+    if predictor not in SUPPORTED_PREDICTORS:
+        raise ValueError(
+            f"Unknown predictor: {predictor}. "
+            f"Supported predictors: {SUPPORTED_PREDICTORS}"
+        )
+
     # Validate sequence
     if not _validate_sequence(sequence):
         raise ValueError(
@@ -69,8 +85,12 @@ async def validate_design(
             f"{sorted(VALID_AA)}"
         )
 
-    # Create ESMFold runner and predict structure
-    runner = ESMFoldRunner()
+    # Create appropriate runner based on predictor
+    if predictor == "esmfold":
+        runner = ESMFoldRunner()
+    elif predictor == "alphafold2":
+        runner = AlphaFold2Runner()
+
     result = await runner.predict_structure(sequence.upper())
 
     # Build response dictionary
@@ -79,6 +99,7 @@ async def validate_design(
         "plddt": result.plddt,
         "ptm": result.ptm,
         "plddt_per_residue": result.plddt_per_residue.tolist(),
+        "predictor": predictor,
     }
 
     # Add PAE matrix if available
