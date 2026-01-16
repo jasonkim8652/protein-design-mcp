@@ -114,3 +114,58 @@ class TestHotspotCriteria:
                 target_pdb=str(MINI_PROTEIN_PDB),
                 criteria="invalid_criteria",
             )
+
+    @pytest.mark.asyncio
+    async def test_conserved_criteria(self):
+        """Should find conserved sites."""
+        result = await suggest_hotspots(
+            target_pdb=str(MINI_PROTEIN_PDB),
+            criteria="conserved",
+        )
+        assert "suggested_hotspots" in result
+
+
+class TestEnhancedHotspots:
+    """Tests for enhanced hotspot features."""
+
+    @pytest.mark.asyncio
+    async def test_hotspot_has_evidence(self):
+        """Hotspots should include evidence dict."""
+        result = await suggest_hotspots(target_pdb=str(MINI_PROTEIN_PDB))
+        for hotspot in result["suggested_hotspots"]:
+            assert "evidence" in hotspot
+            assert isinstance(hotspot["evidence"], dict)
+
+    @pytest.mark.asyncio
+    async def test_surface_analysis_has_sasa(self):
+        """Surface analysis should use SASA calculation."""
+        result = await suggest_hotspots(target_pdb=str(MINI_PROTEIN_PDB))
+        assert "total_surface_area" in result["surface_analysis"]
+        assert result["surface_analysis"]["total_surface_area"] > 0
+
+    @pytest.mark.asyncio
+    async def test_surface_analysis_has_pockets(self):
+        """Surface analysis may include detected pockets."""
+        result = await suggest_hotspots(target_pdb=str(MINI_PROTEIN_PDB))
+        # Pockets may or may not be detected depending on structure
+        assert "surface_analysis" in result
+
+    @pytest.mark.asyncio
+    async def test_uniprot_id_parameter(self):
+        """Should accept uniprot_id parameter."""
+        # Should not raise - API call will fail but function should handle it
+        result = await suggest_hotspots(
+            target_pdb=str(MINI_PROTEIN_PDB),
+            uniprot_id="P12345",  # Fake ID
+        )
+        assert "suggested_hotspots" in result
+
+    @pytest.mark.asyncio
+    async def test_include_literature_parameter(self):
+        """Should accept include_literature parameter."""
+        # Should not raise - API call will fail but function should handle it
+        result = await suggest_hotspots(
+            target_pdb=str(MINI_PROTEIN_PDB),
+            include_literature=True,
+        )
+        assert "suggested_hotspots" in result

@@ -170,7 +170,7 @@ Complex multi-step pipelines should be handled internally:
 ```
 
 #### 5. `suggest_hotspots`
-**Purpose**: Analyze a target protein and suggest potential binding hotspots
+**Purpose**: Analyze a target protein and suggest potential binding hotspots using multiple data sources
 
 **Inputs**:
 | Parameter | Type | Required | Description |
@@ -178,6 +178,14 @@ Complex multi-step pipelines should be handled internally:
 | `target_pdb` | string | Yes | Path to target protein PDB |
 | `chain_id` | string | No | Specific chain to analyze (default: first chain) |
 | `criteria` | string | No | "druggable", "exposed", "conserved" (default: "exposed") |
+| `uniprot_id` | string | No | UniProt ID for retrieving known binding sites and functional annotations |
+| `include_literature` | bool | No | Search PubMed for known binding partners (default: false) |
+
+**Data Sources**:
+1. **Structural Analysis**: SASA-based surface exposure, pocket detection, hydrophobic patches
+2. **UniProt Integration**: Known binding sites, active sites, functional regions from UniProt API
+3. **Conservation Scoring**: Evolutionary conservation from BLAST/MSA analysis
+4. **Literature Mining**: PubMed search for known binding partners and interaction sites
 
 **Outputs**:
 ```json
@@ -186,18 +194,48 @@ Complex multi-step pipelines should be handled internally:
     {
       "residues": ["A45", "A46", "A49"],
       "score": 0.92,
-      "rationale": "Large exposed hydrophobic patch"
+      "rationale": "Large exposed hydrophobic patch",
+      "evidence": {
+        "structural": {"sasa": 245.3, "pocket_score": 0.85},
+        "conservation": 0.78,
+        "uniprot_annotation": "Catalytic site",
+        "literature_support": ["PMID:12345678"]
+      }
     },
     {
       "residues": ["A120", "A123", "A124"],
       "score": 0.85,
-      "rationale": "Known functional site"
+      "rationale": "Known functional site from UniProt",
+      "evidence": {
+        "structural": {"sasa": 180.2, "pocket_score": 0.65},
+        "conservation": 0.92,
+        "uniprot_annotation": "Binding site for ATP",
+        "literature_support": []
+      }
     }
   ],
   "surface_analysis": {
     "total_surface_area": 15230.5,
     "hydrophobic_patches": 3,
-    "charged_regions": 5
+    "charged_regions": 5,
+    "detected_pockets": [
+      {"center": [12.3, 45.6, 78.9], "volume": 523.4, "druggability": 0.82}
+    ]
+  },
+  "conservation_profile": {
+    "average_conservation": 0.65,
+    "highly_conserved_residues": ["A45", "A120", "A121"]
+  },
+  "uniprot_features": {
+    "binding_sites": [{"position": "45-49", "ligand": "ATP"}],
+    "active_sites": [{"position": "120", "type": "catalytic"}],
+    "known_interactors": ["P12345", "Q67890"]
+  },
+  "literature_insights": {
+    "known_binding_partners": ["ProteinX", "ProteinY"],
+    "relevant_publications": [
+      {"pmid": "12345678", "title": "Crystal structure of...", "binding_residues": ["A45", "A46"]}
+    ]
   }
 }
 ```
