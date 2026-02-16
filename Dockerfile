@@ -57,13 +57,17 @@ RUN cd RFdiffusion/env/SE3Transformer \
     && pip install --no-cache-dir -e .
 
 # Install RFdiffusion dependencies (without full package install)
+# Pin e3nn==0.5.1 to avoid torch.compiler attribute error with torch 2.0.x
+# Install dgl==1.1.3 from DGL's cu118 wheel index (PyPI's dgl is CPU-only)
 RUN pip install --no-cache-dir \
     hydra-core \
     omegaconf \
     icecream \
     pyrsistent \
-    e3nn \
-    dgl
+    "e3nn==0.5.1" \
+    "numpy<2" \
+    && pip install --no-cache-dir "dgl==1.1.3" \
+    -f https://data.dgl.ai/wheels/cu118/repo.html
 
 # Clone ProteinMPNN
 RUN git clone --depth 1 https://github.com/dauparas/ProteinMPNN.git \
@@ -118,6 +122,8 @@ ENV CACHE_DIR=/cache
 ENV TORCH_HOME=/models/esm
 ENV COLABFOLD_WEIGHTS_DIR=/models/colabfold
 ENV PYTHONUNBUFFERED=1
+# Disable NNC/NVFuser JIT to avoid nvrtc GPU arch errors on newer GPUs
+ENV PYTORCH_JIT_USE_NNC_NOT_NVFUSER=1
 
 # Create volume mount points
 RUN mkdir -p /models /data /cache

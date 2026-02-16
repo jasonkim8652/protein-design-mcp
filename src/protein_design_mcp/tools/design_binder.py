@@ -107,6 +107,11 @@ async def design_binder(
             sequence = seq_info["sequence"]
             seq_id = seq_info["id"]
 
+            # For binder designs, ProteinMPNN outputs "TARGET/BINDER" —
+            # extract the binder chain (last segment after "/")
+            if "/" in sequence:
+                sequence = sequence.split("/")[-1]
+
             # Predict structure
             prediction = await esmfold.predict_structure(sequence)
 

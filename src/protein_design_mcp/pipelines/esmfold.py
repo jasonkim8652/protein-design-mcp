@@ -72,7 +72,17 @@ class ESMFoldRunner:
         """Load ESMFold model (lazy loading)."""
         if self._model is None:
             try:
+                import sys
+                import types
                 import torch
+
+                # Mock the missing openfold CUDA extension if not compiled.
+                # ESMFold falls back to pure PyTorch attention when this is absent.
+                if "attn_core_inplace_cuda" not in sys.modules:
+                    sys.modules["attn_core_inplace_cuda"] = types.ModuleType(
+                        "attn_core_inplace_cuda"
+                    )
+
                 import esm
 
                 self._model = esm.pretrained.esmfold_v1()
@@ -199,10 +209,14 @@ class ESMFoldRunner:
             ValueError: If sequence is invalid
             ESMFoldError: If prediction fails
         """
-        # Validate sequence
-        if not self._validate_sequence(sequence):
+        # Clean sequence: remove chain separators, gaps, whitespace
+        sequence = sequence.upper().replace("/", "").replace("-", "").replace(" ", "")
+        # Remove any non-AA characters
+        sequence = "".join(c for c in sequence if c in VALID_AA)
+
+        if not sequence:
             raise ValueError(
-                f"Invalid sequence. Must contain only valid amino acids: {VALID_AA}"
+                f"Invalid sequence. Must contain valid amino acids: {VALID_AA}"
             )
 
         # Run prediction

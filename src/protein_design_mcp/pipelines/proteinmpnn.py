@@ -21,6 +21,7 @@ class ProteinMPNNConfig:
     """Configuration for ProteinMPNN runs."""
 
     proteinmpnn_path: Path = Path(os.environ.get("PROTEINMPNN_PATH", "/opt/ProteinMPNN"))
+    python_path: str = os.environ.get("BIO_PYTHON_PATH", "python")
     num_sequences: int = 8
     sampling_temp: float = 0.1
     model_name: str = "v_48_020"
@@ -89,7 +90,7 @@ class ProteinMPNNRunner:
         script_path = self.config.proteinmpnn_path / "protein_mpnn_run.py"
 
         cmd = [
-            "python",
+            self.config.python_path,
             str(script_path),
             "--pdb_path", backbone_pdb,
             "--out_folder", output_dir,
@@ -283,7 +284,7 @@ class ProteinMPNNRunner:
         script_path = self.config.proteinmpnn_path / "protein_mpnn_run.py"
 
         cmd = [
-            "python",
+            self.config.python_path,
             str(script_path),
             "--pdb_path", str(complex_path.absolute()),
             "--out_folder", str(output_path.absolute()),

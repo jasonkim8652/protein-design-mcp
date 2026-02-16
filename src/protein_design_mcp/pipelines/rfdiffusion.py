@@ -21,6 +21,7 @@ class RFdiffusionConfig:
     """Configuration for RFdiffusion runs."""
 
     rfdiffusion_path: Path = Path(os.environ.get("RFDIFFUSION_PATH", "/opt/RFdiffusion"))
+    python_path: str = os.environ.get("BIO_PYTHON_PATH", "python")
     num_designs: int = 10
     binder_length: int = 80
     noise_scale: float = 1.0
@@ -91,27 +92,69 @@ class RFdiffusionRunner:
         script_path = self.config.rfdiffusion_path / "scripts" / "run_inference.py"
 
         # Build contig specification
-        # Format: binder of length N binding to target chain A
-        # Example: "A1-100/0 80-80" means target residues 1-100, then 80-residue binder
         hotspot_str = self._parse_hotspot_residues(hotspot_residues)
 
         # Get target chain from first hotspot
         target_chain = hotspot_residues[0][0].upper() if hotspot_residues else "A"
 
-        cmd = [
-            "python",
-            str(script_path),
+        # Build gap-aware contig from actual PDB residues
+        target_contig = self._build_chain_contig(target_pdb, target_chain)
+
+        # Build hydra overrides
+        overrides = [
             f"inference.output_prefix={output_dir}/design",
             f"inference.input_pdb={target_pdb}",
             f"inference.num_designs={num_designs}",
-            f"contigmap.contigs=[{target_chain}1-100/0 {binder_length}-{binder_length}]",
+            f"contigmap.contigs=[{target_contig}/0 {binder_length}-{binder_length}]",
             f"ppi.hotspot_res={hotspot_str}",
             f"denoiser.noise_scale_ca={self.config.noise_scale}",
             f"denoiser.noise_scale_frame={self.config.noise_scale}",
-            f"inference.diffusion_steps={self.config.diffusion_steps}",
+            f"diffuser.T={self.config.diffusion_steps}",
         ]
 
+        # Use a wrapper that disables JIT GPU fusion before running inference.
+        # This avoids nvrtc compilation errors on newer GPUs (sm_89+) with
+        # older CUDA toolkits (e.g. CUDA 11.1 + L40S).
+        wrapper_code = (
+            "import torch;"
+            "torch._C._jit_override_can_fuse_on_gpu(False);"
+            "torch._C._jit_set_profiling_executor(False);"
+            "torch._C._jit_set_profiling_mode(False);"
+            "import sys,runpy;"
+            f"sys.argv=['{script_path}']+"
+            f"{overrides!r};"
+            f"runpy.run_path('{script_path}',run_name='__main__')"
+        )
+
+        cmd = [self.config.python_path, "-c", wrapper_code]
+
         return cmd
+
+    @staticmethod
+    def _build_chain_contig(pdb_path: str, chain: str) -> str:
+        """Build gap-aware contig string from PDB residue numbering.
+
+        E.g. if chain A has residues 19-29 and 43-127, returns 'A19-29/A43-127'.
+        """
+        resnums: set[int] = set()
+        with open(pdb_path) as f:
+            for line in f:
+                if line.startswith("ATOM") and line[21] == chain:
+                    resnums.add(int(line[22:26].strip()))
+        if not resnums:
+            raise ValueError(f"Chain {chain} not found in {pdb_path}")
+
+        sorted_res = sorted(resnums)
+        segments: list[str] = []
+        seg_start = sorted_res[0]
+        prev = sorted_res[0]
+        for r in sorted_res[1:]:
+            if r != prev + 1:
+                segments.append(f"{chain}{seg_start}-{prev}")
+                seg_start = r
+            prev = r
+        segments.append(f"{chain}{seg_start}-{prev}")
+        return "/".join(segments)
 
     def _parse_outputs(self, output_dir: str) -> list[dict[str, Any]]:
         """
@@ -153,11 +196,19 @@ class RFdiffusionRunner:
             RFdiffusionError: If execution fails
         """
         try:
+            env = os.environ.copy()
+            env["RFDIFFUSION_PATH"] = str(self.config.rfdiffusion_path)
+            # Disable PyTorch JIT GPU fusion to avoid nvrtc compilation
+            # errors on newer GPUs (sm_89+) with older CUDA toolkits
+            env["PYTORCH_JIT_USE_NNC_NOT_NVFUSER"] = "1"
+
             # Run asynchronously
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                cwd=str(self.config.rfdiffusion_path),
+                env=env,
             )
 
             stdout, stderr = await process.communicate()

@@ -280,26 +280,48 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
 async def handle_design_binder(arguments: dict[str, Any]) -> dict[str, Any]:
     """Handle design_binder tool call."""
-    # TODO: Implement full pipeline
-    # 1. Run RFdiffusion
-    # 2. Run ProteinMPNN
-    # 3. Run ESMFold validation
-    # 4. Calculate metrics and return results
-    return {
-        "status": "not_implemented",
-        "message": "design_binder pipeline not yet implemented",
-        "received_arguments": arguments,
-    }
+    from protein_design_mcp.tools.design_binder import design_binder
+
+    target_pdb = arguments.get("target_pdb")
+    if not target_pdb:
+        return {"error": "target_pdb is required"}
+
+    hotspot_residues = arguments.get("hotspot_residues")
+    if not hotspot_residues:
+        return {"error": "hotspot_residues is required"}
+
+    result = await design_binder(
+        target_pdb=target_pdb,
+        hotspot_residues=hotspot_residues,
+        num_designs=arguments.get("num_designs", 10),
+        binder_length=arguments.get("binder_length", 80),
+    )
+    return result
 
 
 async def handle_analyze_interface(arguments: dict[str, Any]) -> dict[str, Any]:
     """Handle analyze_interface tool call."""
-    # TODO: Implement interface analysis
-    return {
-        "status": "not_implemented",
-        "message": "analyze_interface not yet implemented",
-        "received_arguments": arguments,
-    }
+    from protein_design_mcp.tools.analyze import analyze_interface
+
+    complex_pdb = arguments.get("complex_pdb")
+    if not complex_pdb:
+        return {"error": "complex_pdb is required"}
+
+    chain_a = arguments.get("chain_a")
+    if not chain_a:
+        return {"error": "chain_a is required"}
+
+    chain_b = arguments.get("chain_b")
+    if not chain_b:
+        return {"error": "chain_b is required"}
+
+    result = await analyze_interface(
+        complex_pdb=complex_pdb,
+        chain_a=chain_a,
+        chain_b=chain_b,
+        distance_cutoff=arguments.get("distance_cutoff", 8.0),
+    )
+    return result
 
 
 async def handle_validate_design(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -320,12 +342,23 @@ async def handle_validate_design(arguments: dict[str, Any]) -> dict[str, Any]:
 
 async def handle_optimize_sequence(arguments: dict[str, Any]) -> dict[str, Any]:
     """Handle optimize_sequence tool call."""
-    # TODO: Implement sequence optimization
-    return {
-        "status": "not_implemented",
-        "message": "optimize_sequence not yet implemented",
-        "received_arguments": arguments,
-    }
+    from protein_design_mcp.tools.optimize import optimize_sequence
+
+    current_sequence = arguments.get("current_sequence")
+    if not current_sequence:
+        return {"error": "current_sequence is required"}
+
+    target_pdb = arguments.get("target_pdb")
+    if not target_pdb:
+        return {"error": "target_pdb is required"}
+
+    result = await optimize_sequence(
+        current_sequence=current_sequence,
+        target_pdb=target_pdb,
+        optimization_target=arguments.get("optimization_target", "both"),
+        fixed_positions=arguments.get("fixed_positions"),
+    )
+    return result
 
 
 async def handle_suggest_hotspots(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -347,12 +380,14 @@ async def handle_suggest_hotspots(arguments: dict[str, Any]) -> dict[str, Any]:
 
 async def handle_get_design_status(arguments: dict[str, Any]) -> dict[str, Any]:
     """Handle get_design_status tool call."""
-    # TODO: Implement job status tracking
-    return {
-        "status": "not_implemented",
-        "message": "get_design_status not yet implemented",
-        "received_arguments": arguments,
-    }
+    from protein_design_mcp.tools.status import get_design_status
+
+    job_id = arguments.get("job_id")
+    if not job_id:
+        return {"error": "job_id is required"}
+
+    result = await get_design_status(job_id=job_id)
+    return result
 
 
 async def handle_predict_complex(arguments: dict[str, Any]) -> dict[str, Any]:

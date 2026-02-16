@@ -1,0 +1,28 @@
+# Patch image: fix dgl, numpy, e3nn compatibility
+# Build: docker build -f Dockerfile.patch -t protein-design-mcp:fixed .
+FROM protein-design-mcp:local
+
+# Fix numpy incompatibility (numpy 2.x breaks compiled modules)
+RUN pip install --no-cache-dir "numpy<2"
+
+# Fix dgl: install CUDA 11.8 build from DGL wheel index
+# PyPI's generic dgl is CPU-only; need cu118 build for GPU ops
+RUN pip uninstall -y dgl && \
+    pip install --no-cache-dir "dgl==1.1.3" -f https://data.dgl.ai/wheels/cu118/repo.html
+
+# Fix e3nn (pin to version compatible with torch 2.0.x, before torch.compiler)
+RUN pip install --no-cache-dir "e3nn==0.5.1"
+
+# Install rfdiffusion as editable package for importability
+RUN cd /opt/RFdiffusion && pip install --no-cache-dir -e .
+
+# Install openfold v1.0.1 (compatible with fair-esm 2.0.0 / ESMFold v1)
+# Clone at specific tag and add to PYTHONPATH (no C++ build needed)
+RUN git clone --depth 1 --branch v1.0.1 https://github.com/aqlaboratory/openfold.git /opt/openfold \
+    && pip install --no-cache-dir biopython dm-tree ml-collections modelcif einops 2>/dev/null || true
+# Prevent deepspeed from trying to compile CUDA ops (no nvcc in runtime image)
+ENV DS_BUILD_OPS=0
+ENV PYTHONPATH="/opt/openfold:${PYTHONPATH}"
+
+# Disable JIT GPU fusion for newer GPU architectures (sm_89+ like L40S)
+ENV PYTORCH_JIT_USE_NNC_NOT_NVFUSER=1
