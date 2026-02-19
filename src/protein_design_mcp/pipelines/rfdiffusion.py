@@ -211,7 +211,16 @@ class RFdiffusionRunner:
                 env=env,
             )
 
-            stdout, stderr = await process.communicate()
+            # 30 min timeout per design run (can be slow for long binders)
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(), timeout=1800
+                )
+            except asyncio.TimeoutError:
+                process.kill()
+                raise RFdiffusionError(
+                    "RFdiffusion timed out after 30 minutes"
+                )
 
             if process.returncode != 0:
                 raise RFdiffusionError(

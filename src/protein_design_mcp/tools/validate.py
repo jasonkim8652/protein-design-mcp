@@ -93,18 +93,32 @@ async def validate_design(
 
     result = await runner.predict_structure(sequence.upper())
 
+    # Write PDB to a persistent temp file instead of embedding inline
+    import os
+
+    pdb_file = tempfile.NamedTemporaryFile(
+        suffix=".pdb", prefix="validate_", delete=False, mode="w"
+    )
+    pdb_file.write(result.pdb_string)
+    pdb_file.close()
+
     # Build response dictionary
     response = {
-        "predicted_structure_pdb": result.pdb_string,
+        "predicted_structure_pdb": pdb_file.name,
         "plddt": result.plddt,
         "ptm": result.ptm,
         "plddt_per_residue": result.plddt_per_residue.tolist(),
         "predictor": predictor,
     }
 
-    # Add PAE matrix if available
+    # Write PAE matrix to file if available (N x N can be huge)
     if result.pae_matrix is not None:
-        response["pae_matrix"] = result.pae_matrix.tolist()
+        import json as _json
+
+        pae_path = pdb_file.name.replace(".pdb", "_pae.json")
+        with open(pae_path, "w") as pf:
+            _json.dump(result.pae_matrix.tolist(), pf)
+        response["pae_matrix_path"] = pae_path
 
     # Calculate RMSD if expected structure provided
     if expected_structure:

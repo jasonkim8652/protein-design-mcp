@@ -13,6 +13,10 @@ from dataclasses import dataclass
 
 import aiohttp
 
+# HTTP timeouts: 30s for API calls, 60s for file downloads
+_API_TIMEOUT = aiohttp.ClientTimeout(total=30)
+_DOWNLOAD_TIMEOUT = aiohttp.ClientTimeout(total=60)
+
 
 @dataclass
 class FetchedStructure:
@@ -39,7 +43,7 @@ async def search_uniprot(query: str) -> Optional[dict]:
         "fields": "accession,protein_name,gene_names,organism_name"
     }
 
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession(timeout=_API_TIMEOUT) as session:
         async with session.get(url, params=params) as response:
             if response.status != 200:
                 return None
@@ -84,7 +88,7 @@ async def search_pdb_by_uniprot(uniprot_id: str) -> list[dict]:
         }
     }
 
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession(timeout=_API_TIMEOUT) as session:
         async with session.post(url, json=query) as response:
             if response.status != 200:
                 return []
@@ -103,7 +107,7 @@ async def get_pdb_info(pdb_id: str) -> Optional[dict]:
     """Get metadata for a PDB entry."""
     url = f"https://data.rcsb.org/rest/v1/core/entry/{pdb_id}"
 
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession(timeout=_API_TIMEOUT) as session:
         async with session.get(url) as response:
             if response.status != 200:
                 return None
@@ -127,7 +131,7 @@ async def download_pdb(pdb_id: str, output_dir: Path) -> Optional[str]:
 
     url = f"https://files.rcsb.org/download/{pdb_id}.pdb"
 
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession(timeout=_DOWNLOAD_TIMEOUT) as session:
         async with session.get(url) as response:
             if response.status != 200:
                 return None
@@ -147,7 +151,7 @@ async def download_alphafold(uniprot_id: str, output_dir: Path) -> Optional[str]
 
     url = f"https://alphafold.ebi.ac.uk/files/AF-{uniprot_id}-F1-model_v4.pdb"
 
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession(timeout=_DOWNLOAD_TIMEOUT) as session:
         async with session.get(url) as response:
             if response.status != 200:
                 return None

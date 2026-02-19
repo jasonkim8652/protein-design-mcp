@@ -261,7 +261,11 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         else:
             result = {"error": f"Unknown tool: {name}"}
 
-        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+        # Use compact JSON for large responses to reduce stdio overhead
+        text = json.dumps(result, indent=2)
+        if len(text) > 1_000_000:
+            text = json.dumps(result, separators=(",", ":"))
+        return [TextContent(type="text", text=text)]
 
     except Exception as e:
         logger.exception(f"Error in tool {name}")
@@ -407,15 +411,32 @@ async def handle_predict_complex(arguments: dict[str, Any]) -> dict[str, Any]:
         chain_names=arguments.get("chain_names"),
     )
 
-    return {
-        "predicted_structure_pdb": result.pdb_string,
+    import tempfile
+
+    # Write PDB to file instead of embedding inline (avoids multi-MB responses)
+    pdb_file = tempfile.NamedTemporaryFile(
+        suffix=".pdb", prefix="complex_", delete=False, mode="w"
+    )
+    pdb_file.write(result.pdb_string)
+    pdb_file.close()
+
+    response = {
+        "predicted_structure_pdb": pdb_file.name,
         "plddt": result.plddt,
         "ptm": result.ptm,
         "plddt_per_residue": result.plddt_per_residue.tolist(),
-        "pae_matrix": result.pae_matrix.tolist() if result.pae_matrix is not None else None,
         "sequences": sequences,
         "num_chains": len(sequences),
     }
+
+    # Write PAE matrix to file if available (N x N can be huge)
+    if result.pae_matrix is not None:
+        pae_path = pdb_file.name.replace(".pdb", "_pae.json")
+        with open(pae_path, "w") as pf:
+            json.dump(result.pae_matrix.tolist(), pf)
+        response["pae_matrix_path"] = pae_path
+
+    return response
 
 
 # =============================================================================

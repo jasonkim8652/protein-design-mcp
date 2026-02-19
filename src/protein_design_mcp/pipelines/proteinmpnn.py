@@ -182,7 +182,16 @@ class ProteinMPNNRunner:
                 stderr=asyncio.subprocess.PIPE,
             )
 
-            stdout, stderr = await process.communicate()
+            # 10 min timeout (ProteinMPNN is typically fast)
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(), timeout=600
+                )
+            except asyncio.TimeoutError:
+                process.kill()
+                raise ProteinMPNNError(
+                    "ProteinMPNN timed out after 10 minutes"
+                )
 
             if process.returncode != 0:
                 raise ProteinMPNNError(

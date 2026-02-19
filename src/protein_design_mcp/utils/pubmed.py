@@ -132,7 +132,7 @@ async def search_binding_partners(
         "retmode": "json",
     }
 
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
         # Search for PMIDs
         async with session.get(PUBMED_ESEARCH_URL, params=search_params) as response:
             if response.status != 200:

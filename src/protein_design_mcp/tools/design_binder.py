@@ -121,12 +121,17 @@ async def design_binder(
                 ptm=prediction.ptm,
             )
 
-            # Create design result
+            # Write PDB to disk instead of embedding inline (avoids multi-MB responses)
             design_id = f"{backbone_id}_{seq_id}"
+            pdb_dir = work_dir / "predicted_structures"
+            pdb_dir.mkdir(parents=True, exist_ok=True)
+            pdb_path = pdb_dir / f"{design_id}.pdb"
+            pdb_path.write_text(prediction.pdb_string)
+
             design = {
                 "id": design_id,
                 "sequence": sequence,
-                "structure_pdb": prediction.pdb_string,
+                "structure_pdb_path": str(pdb_path),
                 "backbone_id": backbone_id,
                 "metrics": {
                     "plddt": metrics.plddt,

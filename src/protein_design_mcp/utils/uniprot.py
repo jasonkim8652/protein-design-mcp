@@ -113,7 +113,7 @@ async def fetch_uniprot_features(uniprot_id: str) -> UniProtFeatures:
     """
     url = f"{UNIPROT_API_BASE}/{uniprot_id}"
 
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
         async with session.get(url, headers={"Accept": "application/json"}) as response:
             if response.status == 404:
                 raise ValueError(f"UniProt ID not found: {uniprot_id}")
