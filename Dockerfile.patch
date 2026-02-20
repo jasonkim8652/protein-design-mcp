@@ -1,4 +1,4 @@
-# Patch image: fix dgl, numpy, e3nn compatibility
+# Patch image: fix compatibility + pre-bake all model weights
 # Build: docker build -f Dockerfile.patch -t protein-design-mcp:fixed .
 FROM protein-design-mcp:local
 
@@ -26,3 +26,42 @@ ENV PYTHONPATH="/opt/openfold:${PYTHONPATH}"
 
 # Disable JIT GPU fusion for newer GPU architectures (sm_89+ like L40S)
 ENV PYTORCH_JIT_USE_NNC_NOT_NVFUSER=1
+
+# =============================================================================
+# Pre-bake model weights (avoids runtime downloads)
+# NOTE: /models is a VOLUME in base image, so we use /opt/weights instead
+# =============================================================================
+
+# --- RFdiffusion weights (COPY from build context; IPD server URLs are 404) ---
+COPY weights/Complex_base_ckpt.pt /opt/RFdiffusion/models/Complex_base_ckpt.pt
+COPY weights/Base_ckpt.pt /opt/RFdiffusion/models/Base_ckpt.pt
+
+# --- ESM2 650M PLM ---
+RUN mkdir -p /opt/weights/esm/hub/checkpoints && \
+    wget -q --show-progress -O /opt/weights/esm/hub/checkpoints/esm2_t33_650M_UR50D.pt \
+      https://dl.fbaipublicfiles.com/fair-esm/models/esm2_t33_650M_UR50D.pt && \
+    wget -q --show-progress -O /opt/weights/esm/hub/checkpoints/esm2_t33_650M_UR50D-contact-regression.pt \
+      https://dl.fbaipublicfiles.com/fair-esm/regression/esm2_t33_650M_UR50D-contact-regression.pt
+
+# --- ProteinMPNN weights ---
+RUN mkdir -p /opt/weights/ProteinMPNN/vanilla_model_weights && \
+    wget -q --show-progress -O /opt/weights/ProteinMPNN/vanilla_model_weights/v_48_020.pt \
+      https://github.com/dauparas/ProteinMPNN/raw/main/vanilla_model_weights/v_48_020.pt && \
+    ln -sf /opt/weights/ProteinMPNN/vanilla_model_weights/v_48_020.pt \
+      /opt/ProteinMPNN/vanilla_model_weights/v_48_020.pt
+
+# --- ColabFold / AlphaFold2 params ---
+RUN mkdir -p /opt/weights/colabfold && \
+    python -c "from colabfold.download import download_alphafold_params; download_alphafold_params('/opt/weights/colabfold')" \
+    || ( wget -q --show-progress -O /tmp/af2_params.tar \
+         https://storage.googleapis.com/alphafold/alphafold_params_2022-12-06.tar && \
+         tar xf /tmp/af2_params.tar -C /opt/weights/colabfold && \
+         rm /tmp/af2_params.tar )
+
+# --- OpenMM for energy minimization (open source, includes AMBER force fields) ---
+RUN pip install --no-cache-dir openmm
+
+# Override env vars to point to pre-baked weights
+ENV TORCH_HOME=/opt/weights/esm
+ENV COLABFOLD_WEIGHTS_DIR=/opt/weights/colabfold
+ENV SKIP_MODEL_DOWNLOAD=true

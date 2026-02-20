@@ -229,6 +229,100 @@ TOOLS = [
             "required": ["sequences"],
         },
     ),
+    Tool(
+        name="predict_structure",
+        description=(
+            "Predict the 3D structure of a single protein chain using ESMFold or AlphaFold2. "
+            "Returns predicted PDB file path, mean pLDDT, pTM, and per-residue pLDDT scores."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "sequence": {
+                    "type": "string",
+                    "description": "Amino acid sequence to predict structure for",
+                },
+                "predictor": {
+                    "type": "string",
+                    "enum": ["esmfold", "alphafold2"],
+                    "default": "esmfold",
+                    "description": (
+                        "Structure predictor to use. ESMFold is faster, "
+                        "AlphaFold2 may be more accurate."
+                    ),
+                },
+            },
+            "required": ["sequence"],
+        },
+    ),
+    Tool(
+        name="score_stability",
+        description=(
+            "Score protein stability using ESM2 pseudo-log-likelihood. "
+            "Higher scores indicate more thermodynamically favorable sequences. "
+            "Optionally compute per-mutation delta log-likelihood to assess the effect "
+            "of point mutations on stability."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "sequence": {
+                    "type": "string",
+                    "description": "Amino acid sequence to score",
+                },
+                "mutations": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Optional list of mutations in 'X42Y' format "
+                        "(e.g., ['A42G', 'L55V']) for delta scoring"
+                    ),
+                },
+                "reference_sequence": {
+                    "type": "string",
+                    "description": (
+                        "Optional wild-type sequence for mutation scoring. "
+                        "Inferred from mutations if not provided."
+                    ),
+                },
+            },
+            "required": ["sequence"],
+        },
+    ),
+    Tool(
+        name="energy_minimize",
+        description=(
+            "Energy-minimize a protein structure using OpenMM with AMBER14 force field "
+            "and optional implicit solvent (GBn2). Returns minimized PDB, energy change, "
+            "and RMSD from initial structure."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "pdb_path": {
+                    "type": "string",
+                    "description": "Path to input PDB file to minimize",
+                },
+                "force_field": {
+                    "type": "string",
+                    "default": "amber14-all.xml",
+                    "description": "OpenMM force field XML file",
+                },
+                "num_steps": {
+                    "type": "integer",
+                    "default": 500,
+                    "description": "Maximum minimization iterations",
+                },
+                "solvent": {
+                    "type": "string",
+                    "enum": ["implicit", "none"],
+                    "default": "implicit",
+                    "description": "Solvent model: implicit (GBn2) or none (vacuum)",
+                },
+            },
+            "required": ["pdb_path"],
+        },
+    ),
 ]
 
 
@@ -258,6 +352,12 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             result = await handle_get_design_status(arguments)
         elif name == "predict_complex":
             result = await handle_predict_complex(arguments)
+        elif name == "predict_structure":
+            result = await handle_predict_structure(arguments)
+        elif name == "score_stability":
+            result = await handle_score_stability(arguments)
+        elif name == "energy_minimize":
+            result = await handle_energy_minimize(arguments)
         else:
             result = {"error": f"Unknown tool: {name}"}
 
@@ -437,6 +537,54 @@ async def handle_predict_complex(arguments: dict[str, Any]) -> dict[str, Any]:
         response["pae_matrix_path"] = pae_path
 
     return response
+
+
+async def handle_predict_structure(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Handle predict_structure tool call."""
+    from protein_design_mcp.tools.predict_structure import predict_structure
+
+    sequence = arguments.get("sequence")
+    if not sequence:
+        return {"error": "sequence is required"}
+
+    result = await predict_structure(
+        sequence=sequence,
+        predictor=arguments.get("predictor", "esmfold"),
+    )
+    return result
+
+
+async def handle_score_stability(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Handle score_stability tool call."""
+    from protein_design_mcp.tools.score_stability import score_stability
+
+    sequence = arguments.get("sequence")
+    if not sequence:
+        return {"error": "sequence is required"}
+
+    result = await score_stability(
+        sequence=sequence,
+        mutations=arguments.get("mutations"),
+        reference_sequence=arguments.get("reference_sequence"),
+    )
+    return result
+
+
+async def handle_energy_minimize(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Handle energy_minimize tool call."""
+    from protein_design_mcp.tools.energy_minimize import energy_minimize
+
+    pdb_path = arguments.get("pdb_path")
+    if not pdb_path:
+        return {"error": "pdb_path is required"}
+
+    result = await energy_minimize(
+        pdb_path=pdb_path,
+        force_field=arguments.get("force_field", "amber14-all.xml"),
+        num_steps=arguments.get("num_steps", 500),
+        solvent=arguments.get("solvent", "implicit"),
+    )
+    return result
 
 
 # =============================================================================
