@@ -22,45 +22,44 @@ Built on RFdiffusion, ProteinMPNN, ESMFold, AlphaFold2, ESM2, and OpenMM.
 
 ## Quick Start
 
-### Smithery (One-Click Install)
+### Fastest: Auto-Setup (Recommended)
 
-Install directly from [Smithery.ai](https://smithery.ai/server/protein-design-mcp):
+```bash
+pip install protein-design-mcp
+protein-design-mcp-setup          # auto-detects Docker/GPU, writes MCP config
+```
+
+That's it. The setup command:
+1. Detects Docker + GPU availability
+2. Pulls Docker image (if Docker found) or configures local mode
+3. Auto-writes config for Claude Desktop or Claude Code
+4. Model weights download lazily on first tool call
+
+```bash
+# Or specify mode explicitly:
+protein-design-mcp-setup --docker    # Force Docker
+protein-design-mcp-setup --local     # Force local Python
+protein-design-mcp-setup --modal URL # Force Modal cloud GPU
+protein-design-mcp-setup -y          # Skip confirmation
+```
+
+### Smithery (One-Click)
 
 ```bash
 npx -y @smithery/cli install protein-design-mcp --client claude
 ```
 
-### pip install
+### pip (Manual Config)
 
 ```bash
-# Core (no GPU dependencies — works for analysis tools)
-pip install protein-design-mcp
-
-# With GPU support (PyTorch + ESM models)
-pip install "protein-design-mcp[gpu]"
-
-# Start the server
-protein-design-mcp
-# or: python -m protein_design_mcp.server
+pip install protein-design-mcp             # Core (9 CPU tools)
+pip install "protein-design-mcp[gpu]"      # + PyTorch + ESM (11 tools)
+protein-design-mcp                         # Start server
 ```
 
-Model weights are downloaded lazily on first tool call — no eager setup needed.
-
-### One-Line Install (Docker)
-
-```bash
-curl -sSL https://raw.githubusercontent.com/jasonkim8652/protein-design-mcp/main/setup.sh | bash
-```
-
-This pulls the Docker image, downloads model weights, and prints Claude Desktop configuration instructions.
-
-Options:
-```bash
-# CPU-only mode (no NVIDIA GPU required)
-curl -sSL ... | bash -s -- --cpu
-
-# Custom install directory
-curl -sSL ... | bash -s -- --dir /path/to/install
+Then add to your MCP client config:
+```json
+{"mcpServers": {"protein-design": {"command": "protein-design-mcp"}}}
 ```
 
 ### Option 1: Docker (Recommended)
