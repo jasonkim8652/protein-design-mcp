@@ -1,22 +1,26 @@
-# Protein Binder Design MCP Server
+# Protein Design MCP Server
 
-An MCP (Model Context Protocol) server that enables LLM agents to run end-to-end protein binder design pipelines using RFdiffusion, ProteinMPNN, ESMFold, and AlphaFold2.
+An MCP (Model Context Protocol) server that enables LLM agents to run computational protein design workflows — from backbone generation and sequence design to structure prediction, stability scoring, and energy minimization.
+
+Built on RFdiffusion, ProteinMPNN, ESMFold, AlphaFold2, ESM2, and OpenMM.
 
 ## Features
 
-- **High-level, workflow-based tools** - Designed for LLM agents with <10 tools total
-- **End-to-end design pipeline** - Single tool call runs RFdiffusion → ProteinMPNN → ESMFold/AlphaFold2
-- **Quality metrics** - All designs include pLDDT, pTM, and interface scores
-- **Interface analysis** - Analyze protein-protein interfaces
-- **Hotspot suggestion** - Identify potential binding sites on targets
-- **AlphaFold2 support** - Structure validation with ColabFold (uses API backend by default, no local databases needed)
-- **Complex prediction** - Predict binder-target complexes with AlphaFold2-Multimer
+- **11 high-level tools** designed for LLM agents — no scripting or pipeline glue needed
+- **End-to-end binder design** — single tool call runs RFdiffusion → ProteinMPNN → ESMFold/AlphaFold2
+- **De novo backbone generation** — unconditional RFdiffusion for novel folds
+- **Structure prediction** — ESMFold (fast) or AlphaFold2 (accurate) for monomers and multimers
+- **Stability scoring** — ESM2 pseudo-log-likelihood with per-mutation delta scoring
+- **Energy minimization** — OpenMM with AMBER14 force field and implicit solvent
+- **Multi-source hotspot detection** — combines SASA, pocket detection, conservation, UniProt annotations, and PubMed literature
+- **Flexible structure input** — accepts protein names, UniProt IDs, PDB IDs, or local file paths
+- **Quality metrics** — pLDDT, pTM, interface scores, mpnn_score on all designs
 
 ## Quick Start
 
 ### Option 1: Docker (Recommended)
 
-The easiest way to get started is using Docker. Everything is pre-configured - just pull and run:
+The easiest way to get started is using Docker. Everything is pre-configured — just pull and run:
 
 ```bash
 # Pull the image
@@ -30,7 +34,7 @@ wget https://raw.githubusercontent.com/jasonkim8652/protein-design-mcp/main/dock
 docker-compose up
 ```
 
-**First run will download model weights (~10GB)**. These are cached in the `models/` directory for future runs.
+**First run will download model weights (~15GB)**. These are cached in the `models/` directory for future runs.
 
 #### Docker with Claude Desktop
 
@@ -101,9 +105,10 @@ pip install -e ".[dev]"
 
 The following tools must be installed separately:
 
-- **RFdiffusion** - For backbone generation
-- **ProteinMPNN** - For sequence design (included in RFdiffusion)
-- **ESMFold** - Installed via `fair-esm` package
+- **RFdiffusion** — Backbone generation (conditional and unconditional)
+- **ProteinMPNN** — Sequence design (included in RFdiffusion)
+- **ESMFold** — Installed via `fair-esm` package
+- **OpenMM** — For energy minimization (`conda install -c conda-forge openmm`)
 
 #### Running the Server (Local)
 
@@ -114,86 +119,44 @@ python -m protein_design_mcp.server
 
 ## Available Tools
 
+### Design & Generation
+
+| Tool | Description | Backend |
+|------|-------------|---------|
+| `design_binder` | End-to-end binder design pipeline | RFdiffusion → ProteinMPNN → ESMFold/AF2 |
+| `generate_backbone` | De novo backbone generation (no target required) | RFdiffusion (unconditional) |
+| `optimize_sequence` | Optimize sequence for stability and/or binding affinity | ProteinMPNN + ESMFold |
+
+### Structure Prediction
+
+| Tool | Description | Backend |
+|------|-------------|---------|
+| `predict_structure` | Single-chain structure prediction | ESMFold or AlphaFold2 |
+| `predict_complex` | Multi-chain complex structure prediction | AlphaFold2-Multimer |
+| `validate_design` | Validate sequence with structure prediction + optional RMSD to reference | ESMFold or AlphaFold2 |
+
+### Analysis & Scoring
+
+| Tool | Description | Backend |
+|------|-------------|---------|
+| `analyze_interface` | Protein-protein interface analysis (contacts, buried surface area, H-bonds) | PDB geometry |
+| `suggest_hotspots` | Multi-source binding site prediction | SASA + pockets + conservation + UniProt + PubMed |
+| `score_stability` | Protein stability scoring with per-mutation effects | ESM2 pseudo-log-likelihood |
+| `energy_minimize` | All-atom energy minimization | OpenMM (AMBER14 + implicit solvent) |
+
+### Job Management
+
 | Tool | Description |
 |------|-------------|
-| `design_binder` | Complete binder design pipeline (RFdiffusion → ProteinMPNN → ESMFold/AlphaFold2) |
-| `analyze_interface` | Analyze protein-protein interface properties |
-| `validate_design` | Validate a sequence with ESMFold or AlphaFold2 structure prediction |
-| `predict_complex` | Predict binder-target complex structure with AlphaFold2-Multimer |
-| `optimize_sequence` | Optimize a binder sequence for stability/affinity |
-| `suggest_hotspots` | Suggest potential binding sites on a target |
-| `get_design_status` | Check status of running design jobs |
+| `get_design_status` | Check status and progress of running design jobs |
 
-## Example Usage
+## Tool Details
 
-### Real-World Example: Designing an EGFR Binder
+### `design_binder`
 
-Here's a complete workflow for designing a binder against EGFR (Epidermal Growth Factor Receptor), a key cancer drug target:
+Runs the full binder design pipeline in a single call.
 
-**Step 1: Find binding hotspots on EGFR**
-
-```python
-# Tool: suggest_hotspots
-{
-    "target": "EGFR",
-    "criteria": "exposed",
-    "include_literature": true
-}
-```
-
-The tool automatically fetches the EGFR structure (PDB: 3VRP) and returns:
-
-| Residues | Score | Rationale |
-|----------|-------|-----------|
-| A98-A100 | 0.97 | Exposed surface region (SASA: 95.8 Å²) |
-| A199 | 0.95 | Ca²⁺ binding site (UniProt annotated) |
-| A264 | 0.95 | Phosphotyrosine binding site |
-
-**Step 2: Design binders targeting the hotspot**
-
-```python
-# Tool: design_binder
-{
-    "target_pdb": "EGFR",
-    "hotspot_residues": ["A98", "A99", "A100"],
-    "num_designs": 10,
-    "binder_length": 80
-}
-```
-
-This runs the full pipeline: RFdiffusion → ProteinMPNN → ESMFold/AlphaFold2, returning ranked designs with quality metrics (pLDDT, pTM, interface scores).
-
-**Step 3: Validate top designs**
-
-```python
-# Tool: validate_design (ESMFold - faster)
-{
-    "sequence": "MTKLYV..."
-}
-
-# Or use AlphaFold2 for potentially higher accuracy
-{
-    "sequence": "MTKLYV...",
-    "predictor": "alphafold2"
-}
-```
-
-**Step 4: Predict binder-target complex structure**
-
-```python
-# Tool: predict_complex (AlphaFold2-Multimer)
-{
-    "sequences": ["MTKLYV...", "EGFR_SEQUENCE..."],
-    "chain_names": ["binder", "target"]
-}
-```
-
-### Basic Tool Examples
-
-#### Designing a Binder
-
-```python
-# Tool: design_binder
+```json
 {
     "target_pdb": "path/to/target.pdb",
     "hotspot_residues": ["A45", "A46", "A49"],
@@ -202,62 +165,212 @@ This runs the full pipeline: RFdiffusion → ProteinMPNN → ESMFold/AlphaFold2,
 }
 ```
 
-#### Analyzing an Interface
+Returns ranked designs with sequences, PDB structures, pLDDT, pTM, and mpnn_score.
 
-```python
-# Tool: analyze_interface
+### `generate_backbone`
+
+Generates novel protein backbones without a target protein (unconditional RFdiffusion).
+
+```json
+{
+    "length": 100,
+    "num_designs": 5
+}
+```
+
+### `predict_structure`
+
+Predicts the 3D structure of a single protein sequence.
+
+```json
+{
+    "sequence": "MTKLYV...",
+    "predictor": "esmfold"
+}
+```
+
+Returns predicted PDB, pLDDT, pTM, per-residue confidence, and PAE matrix.
+
+### `validate_design`
+
+Like `predict_structure`, but also computes RMSD against a reference structure.
+
+```json
+{
+    "sequence": "MTKLYV...",
+    "expected_structure": "path/to/reference.pdb",
+    "predictor": "alphafold2"
+}
+```
+
+### `predict_complex`
+
+Predicts multi-chain complex structure using AlphaFold2-Multimer.
+
+```json
+{
+    "sequences": ["BINDER_SEQ...", "TARGET_SEQ..."],
+    "chain_names": ["binder", "target"]
+}
+```
+
+### `score_stability`
+
+Scores protein stability using ESM2 masked marginal probabilities. Optionally scores the effect of specific mutations.
+
+```json
+{
+    "sequence": "MTKLYV...",
+    "mutations": ["A42G", "L55V"],
+    "reference_sequence": "MTKLAV..."
+}
+```
+
+Returns per-residue scores, mutation effects (delta log-likelihood), and overall stability score.
+
+### `energy_minimize`
+
+Performs all-atom energy minimization using OpenMM.
+
+```json
+{
+    "pdb_path": "path/to/structure.pdb",
+    "num_steps": 500,
+    "solvent": "implicit"
+}
+```
+
+Returns minimized PDB, initial/final energy, energy change, and RMSD from input.
+
+### `suggest_hotspots`
+
+Multi-source hotspot prediction. Accepts protein names, UniProt IDs, PDB IDs, or file paths — the structure is fetched automatically.
+
+```json
+{
+    "target": "EGFR",
+    "criteria": "druggable",
+    "include_literature": true
+}
+```
+
+Criteria options:
+- `"exposed"` — Surface-accessible residues (SASA-based)
+- `"druggable"` — Druggable pockets (volume + hydrophobicity scoring)
+- `"conserved"` — Evolutionarily conserved residues (BLAST-based)
+
+Returns hotspot residues with evidence from SASA, pocket geometry, UniProt annotations, conservation scores, and PubMed literature.
+
+### `analyze_interface`
+
+Analyzes protein-protein interfaces from a complex PDB.
+
+```json
 {
     "complex_pdb": "path/to/complex.pdb",
     "chain_a": "A",
-    "chain_b": "B"
+    "chain_b": "B",
+    "distance_cutoff": 8.0
+}
+```
+
+Returns interface residues, buried surface area, hydrogen bonds, salt bridges, and hydrophobic contacts.
+
+### `optimize_sequence`
+
+Optimizes a binder sequence for stability, binding affinity, or both.
+
+```json
+{
+    "current_sequence": "MTKLYV...",
+    "target_pdb": "path/to/target.pdb",
+    "optimization_target": "both",
+    "fixed_positions": [1, 5, 10]
+}
+```
+
+## Example Workflow: EGFR Binder Design
+
+**Step 1: Identify binding hotspots**
+
+```json
+// suggest_hotspots
+{
+    "target": "EGFR",
+    "criteria": "exposed",
+    "include_literature": true
+}
+```
+
+**Step 2: Design binders**
+
+```json
+// design_binder
+{
+    "target_pdb": "EGFR",
+    "hotspot_residues": ["A98", "A99", "A100"],
+    "num_designs": 10,
+    "binder_length": 80
+}
+```
+
+**Step 3: Score stability of top designs**
+
+```json
+// score_stability
+{
+    "sequence": "MTKLYV..."
+}
+```
+
+**Step 4: Energy minimize the best structure**
+
+```json
+// energy_minimize
+{
+    "pdb_path": "path/to/best_design.pdb",
+    "num_steps": 1000
+}
+```
+
+**Step 5: Predict binder-target complex**
+
+```json
+// predict_complex
+{
+    "sequences": ["BINDER_SEQ...", "EGFR_SEQ..."],
+    "chain_names": ["binder", "target"]
 }
 ```
 
 ## Configuration
 
-Set environment variables to configure external tool paths:
-
-```bash
-export RFDIFFUSION_PATH=/path/to/RFdiffusion
-export PROTEINMPNN_PATH=/path/to/ProteinMPNN
-export CACHE_DIR=~/.cache/protein-design-mcp
-
-# ColabFold/AlphaFold2 settings
-export COLABFOLD_PATH=/path/to/colabfold_batch  # Path to colabfold_batch executable
-export COLABFOLD_BACKEND=api                     # "api" (default) or "local"
-```
-
-### AlphaFold2/ColabFold Configuration
+### Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `COLABFOLD_PATH` | Path to colabfold_batch executable | `/opt/localcolabfold/colabfold-conda/bin/colabfold_batch` |
-| `COLABFOLD_BACKEND` | Backend mode: `api` (uses MMseqs2 server, no local DB) or `local` | `api` |
+| `RFDIFFUSION_PATH` | Path to RFdiffusion installation | `/opt/RFdiffusion` |
+| `PROTEINMPNN_PATH` | Path to ProteinMPNN installation | `/opt/ProteinMPNN` |
+| `COLABFOLD_PATH` | Path to `colabfold_batch` executable | `/opt/localcolabfold/.../colabfold_batch` |
+| `COLABFOLD_BACKEND` | `"api"` (uses MMseqs2 server) or `"local"` | `api` |
+| `CACHE_DIR` | Cache directory for results | `~/.cache/protein-design-mcp` |
+| `TORCH_HOME` | ESM model weights directory | (PyTorch default) |
 
-**Note**: The Docker image uses API backend by default, which sends MSA queries to ColabFold's public server. This avoids the need to download large databases (~2TB). For high-throughput or offline use, configure `COLABFOLD_BACKEND=local` with local MMseqs2 databases.
+**Note**: The Docker image uses API backend by default, which sends MSA queries to ColabFold's public server. This avoids downloading ~2TB of local databases. For high-throughput or offline use, set `COLABFOLD_BACKEND=local`.
 
 ## Installing with MCP Clients
 
-This MCP server can be used with any MCP-compatible client. Below are setup instructions for popular clients.
-
 ### Claude Desktop
 
-1. **Install the package** in your Python environment:
+1. **Install the package**:
 
 ```bash
-# Clone and install
 git clone https://github.com/jasonkim8652/protein-design-mcp.git
 cd protein-design-mcp
 pip install -e .
 ```
 
-2. **Configure Claude Desktop** by editing the configuration file:
-
-   - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-   - **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
-   - **Linux**: `~/.config/Claude/claude_desktop_config.json`
-
-Add the server to the `mcpServers` section:
+2. **Configure Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
 
 ```json
 {
@@ -276,37 +389,11 @@ Add the server to the `mcpServers` section:
 }
 ```
 
-3. **Restart Claude Desktop** to load the new server.
-
-### Using with Conda Environment
-
-If you're using a conda environment, specify the full path to the Python executable:
-
-```json
-{
-  "mcpServers": {
-    "protein-design": {
-      "command": "/path/to/conda/envs/protein-design-mcp/bin/python",
-      "args": ["-m", "protein_design_mcp.server"],
-      "cwd": "/path/to/protein-design-mcp",
-      "env": {
-        "RFDIFFUSION_PATH": "/path/to/RFdiffusion",
-        "PROTEINMPNN_PATH": "/path/to/ProteinMPNN"
-      }
-    }
-  }
-}
-```
-
-To find your conda Python path:
-```bash
-conda activate protein-design-mcp
-which python
-```
+3. **Restart Claude Desktop** to load the server.
 
 ### Claude Code (CLI)
 
-For Claude Code, add the server to your project's `.mcp.json` file:
+Add to your project's `.mcp.json`:
 
 ```json
 {
@@ -320,7 +407,9 @@ For Claude Code, add the server to your project's `.mcp.json` file:
 }
 ```
 
-Or add it globally in `~/.claude/settings.json`:
+### Using with Conda
+
+Specify the full path to the conda Python executable:
 
 ```json
 {
@@ -336,22 +425,45 @@ Or add it globally in `~/.claude/settings.json`:
 
 ### Other MCP Clients
 
-For other MCP-compatible clients, use stdio transport with:
+Use stdio transport:
 
 ```bash
-# Command to start the server
 python -m protein_design_mcp.server
 ```
 
 The server communicates via stdin/stdout using the MCP protocol.
 
-### Verifying Installation
+## Architecture
 
-After configuration, you can verify the server is working by asking the LLM:
-
-> "What protein design tools are available?"
-
-The LLM should list the 7 available tools: `design_binder`, `analyze_interface`, `validate_design`, `predict_complex`, `optimize_sequence`, `suggest_hotspots`, and `get_design_status`.
+```
+┌──────────────────────────────────────────────────────────────┐
+│                    MCP Server (11 tools)                      │
+├──────────────────────────────────────────────────────────────┤
+│  Design         design_binder, generate_backbone,            │
+│                 optimize_sequence                             │
+│  Prediction     predict_structure, predict_complex,           │
+│                 validate_design                               │
+│  Analysis       analyze_interface, suggest_hotspots,          │
+│                 score_stability, energy_minimize              │
+│  Management     get_design_status                             │
+├──────────────────────────────────────────────────────────────┤
+│  Pipelines (async)                                            │
+│  ├─ RFdiffusion    (conditional + unconditional backbone)    │
+│  ├─ ProteinMPNN    (sequence design, fixed positions)        │
+│  ├─ ESMFold        (fast structure prediction)               │
+│  ├─ AlphaFold2     (accurate monomer + multimer via ColabFold)│
+│  ├─ ESM2 Scorer    (stability, mutation effects)             │
+│  └─ OpenMM         (AMBER14 energy minimization)             │
+├──────────────────────────────────────────────────────────────┤
+│  Utilities                                                    │
+│  ├─ Structure fetching (RCSB, AlphaFold DB, UniProt)         │
+│  ├─ SASA + druggable pocket detection                        │
+│  ├─ Conservation scoring (BLAST-based)                       │
+│  ├─ UniProt annotation (binding sites, active sites)         │
+│  ├─ PubMed literature mining                                 │
+│  └─ Job queue, caching, metrics                              │
+└──────────────────────────────────────────────────────────────┘
+```
 
 ## Development
 
@@ -369,24 +481,6 @@ black .
 mypy src/
 ```
 
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      MCP Server                              │
-├─────────────────────────────────────────────────────────────┤
-│  Tools Layer (7 high-level tools)                           │
-├─────────────────────────────────────────────────────────────┤
-│  Orchestration Layer (Pipeline management, caching)         │
-├─────────────────────────────────────────────────────────────┤
-│  Computation Layer                                           │
-│  ├─ RFdiffusion (backbone generation)                       │
-│  ├─ ProteinMPNN (sequence design)                           │
-│  ├─ ESMFold (fast structure prediction)                     │
-│  └─ ColabFold/AlphaFold2 (accurate structure & complexes)   │
-└─────────────────────────────────────────────────────────────┘
-```
-
 ## License
 
 Apache License 2.0 - see [LICENSE](LICENSE) for details.
@@ -396,6 +490,7 @@ Apache License 2.0 - see [LICENSE](LICENSE) for details.
 - [MCP Specification](https://modelcontextprotocol.io/docs)
 - [RFdiffusion](https://github.com/RosettaCommons/RFdiffusion)
 - [ProteinMPNN](https://github.com/dauparas/ProteinMPNN)
-- [ESMFold](https://github.com/facebookresearch/esm)
+- [ESMFold / ESM2](https://github.com/facebookresearch/esm)
 - [ColabFold](https://github.com/sokrypton/ColabFold) - Fast AlphaFold2 predictions with MMseqs2
 - [AlphaFold2](https://github.com/deepmind/alphafold)
+- [OpenMM](https://github.com/openmm/openmm) - Molecular dynamics and energy minimization
