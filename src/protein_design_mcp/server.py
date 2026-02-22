@@ -7,6 +7,7 @@ Main entry point for the MCP server that exposes protein design tools.
 import asyncio
 import json
 import logging
+import os
 from typing import Any
 
 from mcp.server import Server
@@ -24,6 +25,22 @@ logger = logging.getLogger(__name__)
 
 # Create server instance
 server = Server("protein-design-mcp")
+
+# Device detection: "auto" checks for CUDA availability, "cpu" forces CPU mode
+_DEVICE_ENV = os.environ.get("DEVICE", "auto").lower()
+if _DEVICE_ENV == "auto":
+    try:
+        import torch
+        DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+    except ImportError:
+        DEVICE = "cpu"
+else:
+    DEVICE = _DEVICE_ENV
+
+# Tools that require GPU (RFdiffusion dependency)
+GPU_ONLY_TOOLS = {"design_binder", "generate_backbone"}
+
+logger.info(f"Device mode: {DEVICE} (GPU-only tools {'enabled' if DEVICE != 'cpu' else 'disabled'})")
 
 
 # =============================================================================
@@ -323,12 +340,36 @@ TOOLS = [
             "required": ["pdb_path"],
         },
     ),
+    Tool(
+        name="generate_backbone",
+        description=(
+            "Generate de novo protein backbones using RFdiffusion unconditional generation. "
+            "No target protein required. Generates novel foldable backbones of a specified length."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "length": {
+                    "type": "integer",
+                    "description": "Backbone length in residues",
+                },
+                "num_designs": {
+                    "type": "integer",
+                    "description": "Number of designs to generate (default: 10)",
+                    "default": 10,
+                },
+            },
+            "required": ["length"],
+        },
+    ),
 ]
 
 
 @server.list_tools()
 async def list_tools() -> list[Tool]:
-    """Return list of available tools."""
+    """Return list of available tools, filtering out GPU-only tools in CPU mode."""
+    if DEVICE == "cpu":
+        return [t for t in TOOLS if t.name not in GPU_ONLY_TOOLS]
     return TOOLS
 
 
@@ -336,6 +377,22 @@ async def list_tools() -> list[Tool]:
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     """Handle tool calls."""
     logger.info(f"Tool called: {name} with arguments: {arguments}")
+
+    # Block GPU-only tools in CPU mode
+    if DEVICE == "cpu" and name in GPU_ONLY_TOOLS:
+        return [
+            TextContent(
+                type="text",
+                text=json.dumps(
+                    {
+                        "error": f"Tool '{name}' requires GPU (RFdiffusion). "
+                        f"Current device: cpu. Set DEVICE=cuda or use the GPU Docker image.",
+                        "tool": name,
+                    },
+                    indent=2,
+                ),
+            )
+        ]
 
     try:
         if name == "design_binder":
@@ -358,6 +415,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             result = await handle_score_stability(arguments)
         elif name == "energy_minimize":
             result = await handle_energy_minimize(arguments)
+        elif name == "generate_backbone":
+            result = await handle_generate_backbone(arguments)
         else:
             result = {"error": f"Unknown tool: {name}"}
 
@@ -583,6 +642,21 @@ async def handle_energy_minimize(arguments: dict[str, Any]) -> dict[str, Any]:
         force_field=arguments.get("force_field", "amber14-all.xml"),
         num_steps=arguments.get("num_steps", 500),
         solvent=arguments.get("solvent", "implicit"),
+    )
+    return result
+
+
+async def handle_generate_backbone(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Handle generate_backbone tool call for unconditional RFdiffusion."""
+    from protein_design_mcp.pipelines.rfdiffusion import run_unconditional
+
+    length = arguments.get("length")
+    if not length:
+        return {"error": "length is required"}
+
+    result = await run_unconditional(
+        length=length,
+        num_designs=arguments.get("num_designs", 10),
     )
     return result
 

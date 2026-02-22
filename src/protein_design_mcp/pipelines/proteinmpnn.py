@@ -7,13 +7,22 @@ amino acid sequences for protein backbones.
 
 import asyncio
 import json
+import logging
 import os
 import re
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from protein_design_mcp.exceptions import ProteinMPNNError
+
+logger = logging.getLogger(__name__)
+
+# ProteinMPNN weight URL (downloaded lazily on first use)
+_PROTEINMPNN_WEIGHT_URL = (
+    "https://github.com/dauparas/ProteinMPNN/raw/main/vanilla_model_weights/v_48_020.pt"
+)
 
 
 @dataclass
@@ -33,6 +42,33 @@ class ProteinMPNNRunner:
     def __init__(self, config: ProteinMPNNConfig | None = None):
         """Initialize ProteinMPNN runner."""
         self.config = config or ProteinMPNNConfig()
+
+    def _ensure_weights(self) -> None:
+        """Download ProteinMPNN weights on first use if not present."""
+        weight_name = f"{self.config.model_name}.pt"
+        weight_path = self.config.proteinmpnn_path / "vanilla_model_weights" / weight_name
+
+        if weight_path.exists():
+            return
+
+        # Also check MODELS_DIR
+        models_dir = Path(os.environ.get("MODELS_DIR", "/models"))
+        alt_path = models_dir / "ProteinMPNN" / "vanilla_model_weights" / weight_name
+
+        if alt_path.exists():
+            # Symlink into ProteinMPNN directory
+            weight_path.parent.mkdir(parents=True, exist_ok=True)
+            weight_path.symlink_to(alt_path)
+            return
+
+        logger.info(f"Downloading ProteinMPNN weights: {weight_name} (~150MB)...")
+        weight_path.parent.mkdir(parents=True, exist_ok=True)
+
+        try:
+            urllib.request.urlretrieve(_PROTEINMPNN_WEIGHT_URL, str(weight_path))
+            logger.info(f"Downloaded {weight_name} to {weight_path}")
+        except Exception as e:
+            raise ProteinMPNNError(f"Failed to download {weight_name}: {e}") from e
 
     def _parse_fasta_header(self, header: str) -> dict[str, Any]:
         """
@@ -237,6 +273,9 @@ class ProteinMPNNRunner:
         if not backbone_path.exists():
             raise FileNotFoundError(f"Backbone PDB not found: {backbone_pdb}")
 
+        # Ensure weights are downloaded
+        self._ensure_weights()
+
         # Use config defaults if not specified
         num_sequences = num_sequences or self.config.num_sequences
 
@@ -280,6 +319,9 @@ class ProteinMPNNRunner:
         complex_path = Path(complex_pdb)
         if not complex_path.exists():
             raise FileNotFoundError(f"Complex PDB not found: {complex_pdb}")
+
+        # Ensure weights are downloaded
+        self._ensure_weights()
 
         # Create output directory
         output_path = Path(output_dir)

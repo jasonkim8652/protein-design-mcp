@@ -27,7 +27,8 @@ export DEVICE
 mkdir -p "$MODELS_DIR" "$CACHE_DIR"
 
 # Check if models need to be downloaded
-SKIP_DOWNLOAD="${SKIP_MODEL_DOWNLOAD:-false}"
+# Default: skip eager download — weights are fetched lazily on first tool call
+SKIP_DOWNLOAD="${SKIP_MODEL_DOWNLOAD:-true}"
 
 if [ "$SKIP_DOWNLOAD" != "true" ]; then
     echo "Checking model weights..." >&2

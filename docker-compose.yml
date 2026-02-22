@@ -66,6 +66,30 @@ services:
       - DEVICE=cpu
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
 
+  # --- Lite CPU-only image (smaller, no CUDA) ---
+  protein-design-lite:
+    image: ghcr.io/jasonkim8652/protein-design-mcp:lite
+    build:
+      context: .
+      dockerfile: Dockerfile.lite
+    profiles:
+      - lite
+
+    # No GPU reservation
+    volumes:
+      - ./models:/models
+      - ./data:/data
+      - ./cache:/cache
+
+    stdin_open: true
+    tty: true
+
+    environment:
+      - MODELS_DIR=/models
+      - CACHE_DIR=/cache
+      - DEVICE=cpu
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+
   # --- Download models only ---
   download-models:
     image: ghcr.io/jasonkim8652/protein-design-mcp:latest

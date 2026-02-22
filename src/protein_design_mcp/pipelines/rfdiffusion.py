@@ -6,14 +6,24 @@ that can bind to target proteins.
 """
 
 import asyncio
+import logging
 import os
 import re
 import subprocess
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from protein_design_mcp.exceptions import RFdiffusionError
+
+logger = logging.getLogger(__name__)
+
+# RFdiffusion weight URLs (downloaded lazily on first use)
+_RFDIFFUSION_WEIGHTS = {
+    "Complex_base_ckpt.pt": "http://files.ipd.uw.edu/pub/RFdiffusion/e29311f6f1bf1af907f9ef9f44b8328b/Complex_base_ckpt.pt",
+    "Base_ckpt.pt": "http://files.ipd.uw.edu/pub/RFdiffusion/5532d2e1f3a4738decd58b19d633b3c3/Base_ckpt.pt",
+}
 
 
 @dataclass
@@ -34,6 +44,36 @@ class RFdiffusionRunner:
     def __init__(self, config: RFdiffusionConfig | None = None):
         """Initialize RFdiffusion runner."""
         self.config = config or RFdiffusionConfig()
+
+    def _ensure_weights(self, weight_name: str = "Complex_base_ckpt.pt") -> None:
+        """Download RFdiffusion weights on first use if not present."""
+        models_dir = Path(os.environ.get("MODELS_DIR", "/models"))
+        weights_dir = models_dir / "RFdiffusion" / "models"
+        weight_path = weights_dir / weight_name
+
+        # Also check in the RFdiffusion install directory
+        rfd_weight_path = self.config.rfdiffusion_path / "models" / weight_name
+
+        if weight_path.exists() or rfd_weight_path.exists():
+            return
+
+        if weight_name not in _RFDIFFUSION_WEIGHTS:
+            raise RFdiffusionError(f"Unknown weight file: {weight_name}")
+
+        url = _RFDIFFUSION_WEIGHTS[weight_name]
+        weights_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Downloading RFdiffusion weights: {weight_name} (~1.5GB)...")
+
+        try:
+            urllib.request.urlretrieve(url, str(weight_path))
+            logger.info(f"Downloaded {weight_name} to {weight_path}")
+
+            # Symlink into RFdiffusion models/ if it exists
+            rfd_models = self.config.rfdiffusion_path / "models"
+            if rfd_models.exists() and not rfd_weight_path.exists():
+                rfd_weight_path.symlink_to(weight_path)
+        except Exception as e:
+            raise RFdiffusionError(f"Failed to download {weight_name}: {e}") from e
 
     def _parse_hotspot_residues(self, hotspots: list[str]) -> str:
         """
@@ -156,12 +196,16 @@ class RFdiffusionRunner:
         segments.append(f"{chain}{seg_start}-{prev}")
         return "/".join(segments)
 
-    def _parse_outputs(self, output_dir: str) -> list[dict[str, Any]]:
+    def _parse_outputs(self, output_dir: str, include_content: bool = False) -> list[dict[str, Any]]:
         """
         Parse RFdiffusion output files.
 
         Args:
             output_dir: Directory containing output PDB files
+            include_content: If True, read PDB file contents and include as
+                ``backbone_pdb`` in each result dict.  This is needed when
+                the caller cannot access the files directly (e.g. Docker
+                containers where files are root-owned).
 
         Returns:
             List of dictionaries with design info
@@ -176,11 +220,16 @@ class RFdiffusionRunner:
             # Extract design ID from filename
             design_id = pdb_file.stem
 
-            results.append({
+            entry: dict[str, Any] = {
                 "id": design_id,
                 "pdb_path": str(pdb_file),
                 "score": None,  # RFdiffusion doesn't output scores in PDB
-            })
+            }
+
+            if include_content:
+                entry["backbone_pdb"] = pdb_file.read_text()
+
+            results.append(entry)
 
         return results
 
@@ -234,6 +283,41 @@ class RFdiffusionRunner:
                 f"Current path: {self.config.rfdiffusion_path}"
             ) from e
 
+    def _build_unconditional_command(
+        self,
+        output_dir: str,
+        num_designs: int,
+        length: int,
+    ) -> list[str]:
+        """Build RFdiffusion command for unconditional backbone generation.
+
+        No target PDB or hotspots — generates de novo backbones of the
+        specified length.
+        """
+        script_path = self.config.rfdiffusion_path / "scripts" / "run_inference.py"
+
+        overrides = [
+            f"inference.output_prefix={output_dir}/design",
+            f"inference.num_designs={num_designs}",
+            f"contigmap.contigs=[{length}-{length}]",
+            f"denoiser.noise_scale_ca={self.config.noise_scale}",
+            f"denoiser.noise_scale_frame={self.config.noise_scale}",
+            f"diffuser.T={self.config.diffusion_steps}",
+        ]
+
+        wrapper_code = (
+            "import torch;"
+            "torch._C._jit_override_can_fuse_on_gpu(False);"
+            "torch._C._jit_set_profiling_executor(False);"
+            "torch._C._jit_set_profiling_mode(False);"
+            "import sys,runpy;"
+            f"sys.argv=['{script_path}']+"
+            f"{overrides!r};"
+            f"runpy.run_path('{script_path}',run_name='__main__')"
+        )
+
+        return [self.config.python_path, "-c", wrapper_code]
+
     async def generate_backbones(
         self,
         target_pdb: str,
@@ -279,6 +363,9 @@ class RFdiffusionRunner:
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
 
+        # Ensure weights are downloaded
+        self._ensure_weights("Complex_base_ckpt.pt")
+
         # Build and run command
         cmd = self._build_command(
             target_pdb=str(target_path.absolute()),
@@ -292,3 +379,53 @@ class RFdiffusionRunner:
 
         # Parse and return results
         return self._parse_outputs(str(output_path))
+
+
+async def run_unconditional(
+    length: int,
+    num_designs: int = 10,
+    output_dir: str | None = None,
+) -> dict[str, Any]:
+    """Run unconditional RFdiffusion backbone generation.
+
+    Generates de novo protein backbones of the specified length with no
+    target protein or hotspot constraints.
+
+    Args:
+        length: Backbone length in residues.
+        num_designs: Number of designs to generate.
+        output_dir: Output directory (auto-created if None).
+
+    Returns:
+        Dict with ``designs`` list and metadata.
+    """
+    import tempfile
+
+    if output_dir is None:
+        output_dir = tempfile.mkdtemp(prefix="rfdiff_unconditional_")
+
+    runner = RFdiffusionRunner()
+    runner._ensure_weights("Base_ckpt.pt")
+
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    cmd = runner._build_unconditional_command(
+        output_dir=str(output_path.absolute()),
+        num_designs=num_designs,
+        length=length,
+    )
+
+    await runner._run_rfdiffusion(cmd, str(output_path))
+
+    # include_content=True so PDB data travels through JSON-RPC back
+    # to the caller – avoids root-ownership issues when running inside
+    # Docker with bind-mounted /tmp.
+    designs = runner._parse_outputs(str(output_path), include_content=True)
+
+    return {
+        "designs": designs,
+        "num_designs": len(designs),
+        "length": length,
+        "output_dir": str(output_path),
+    }

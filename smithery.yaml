@@ -1,0 +1,19 @@
+# Smithery.ai configuration for protein-design-mcp
+# https://smithery.ai/docs/config
+
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties:
+      device:
+        type: string
+        enum: ["auto", "cuda", "cpu"]
+        default: "auto"
+        description: "Device mode: auto (detect GPU), cuda (require GPU), cpu (CPU only, disables RFdiffusion)"
+  commandFunction: |
+    (config) => ({
+      command: 'python',
+      args: ['-m', 'protein_design_mcp.server'],
+      env: { DEVICE: config.device || 'auto' }
+    })

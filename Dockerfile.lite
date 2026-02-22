@@ -1,0 +1,117 @@
+# Protein Design MCP Server - Lightweight CPU-Only Image
+#
+# Includes: ESMFold, ESM2, ProteinMPNN, OpenMM, AlphaFold2 (API mode)
+# Excludes: RFdiffusion, DGL, SE3-Transformer, CUDA runtime
+#
+# Build: docker build -f Dockerfile.lite -t protein-design-mcp:lite .
+# Run:   docker run -i --rm protein-design-mcp:lite
+#
+# Size: ~3-5 GB (vs ~19 GB full image)
+
+# =============================================================================
+# Stage 1: Base image (no CUDA)
+# =============================================================================
+FROM python:3.10-slim AS base
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    wget \
+    curl \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m pip install --no-cache-dir --upgrade pip setuptools wheel
+
+# =============================================================================
+# Stage 2: Install CPU-only computational backends
+# =============================================================================
+FROM base AS tools
+
+WORKDIR /opt
+
+# PyTorch CPU-only (much smaller than CUDA version)
+RUN pip install --no-cache-dir \
+    torch torchvision \
+    --index-url https://download.pytorch.org/whl/cpu
+
+# --- ProteinMPNN (CPU-compatible, no CUDA needed) ---
+RUN git clone --depth 1 https://github.com/dauparas/ProteinMPNN.git \
+    && mkdir -p ProteinMPNN/vanilla_model_weights
+
+# --- OpenFold v1.0.1 (ESMFold dependency, PYTHONPATH only) ---
+RUN git clone --depth 1 --branch v1.0.1 \
+    https://github.com/aqlaboratory/openfold.git /opt/openfold \
+    && pip install --no-cache-dir biopython dm-tree ml-collections modelcif einops 2>/dev/null || true
+
+# --- ColabFold / AlphaFold2 (API mode only, no local DB) ---
+RUN pip install --no-cache-dir \
+    "colabfold[alphafold] @ git+https://github.com/sokrypton/ColabFold.git" \
+    && mkdir -p /root/.cache/colabfold
+
+RUN ln -sf $(python -c "import colabfold; print(colabfold.__path__[0])")/batch.py \
+    /usr/local/bin/colabfold_batch || true
+
+# --- OpenMM (energy minimization, AMBER14 force fields) ---
+RUN pip install --no-cache-dir openmm
+
+# --- ESM (ESMFold + ESM2 scorer) ---
+RUN pip install --no-cache-dir "fair-esm>=2.0.0" "numpy<2"
+
+# =============================================================================
+# Stage 3: Install MCP server
+# =============================================================================
+FROM tools AS app
+
+WORKDIR /app
+
+COPY pyproject.toml ./
+COPY src/ ./src/
+
+RUN pip install --no-cache-dir -e . \
+    && pip install --no-cache-dir aiohttp tqdm
+
+COPY docker/ ./docker/
+RUN chmod +x docker/entrypoint.sh docker/download_models.py
+
+# =============================================================================
+# Stage 4: Final image
+# =============================================================================
+FROM app AS final
+
+# Tool paths (no RFDIFFUSION_PATH — disabled in CPU mode)
+ENV PROTEINMPNN_PATH=/opt/ProteinMPNN
+ENV PYTHONPATH="/opt/openfold:${PYTHONPATH}"
+
+# ColabFold
+ENV COLABFOLD_PATH=/usr/local/bin/colabfold_batch
+ENV COLABFOLD_BACKEND=api
+
+# Storage
+ENV MODELS_DIR=/models
+ENV CACHE_DIR=/cache
+ENV TORCH_HOME=/models/esm
+ENV COLABFOLD_WEIGHTS_DIR=/models/colabfold
+
+# Performance
+ENV PYTHONUNBUFFERED=1
+
+# Force CPU mode
+ENV DEVICE=cpu
+ENV SKIP_MODEL_DOWNLOAD=true
+
+RUN mkdir -p /models /data /cache
+
+WORKDIR /app
+
+VOLUME ["/models", "/data", "/cache"]
+
+ENTRYPOINT ["/app/docker/entrypoint.sh"]
+CMD ["server"]
+
+LABEL org.opencontainers.image.title="Protein Design MCP Server (Lite/CPU)"
+LABEL org.opencontainers.image.description="CPU-only MCP server for protein design with ESMFold, ProteinMPNN, ESM2, AlphaFold2, and OpenMM"
+LABEL org.opencontainers.image.source="https://github.com/jasonkim8652/protein-design-mcp"
+LABEL org.opencontainers.image.licenses="Apache-2.0"

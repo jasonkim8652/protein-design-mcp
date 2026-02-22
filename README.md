@@ -1,5 +1,9 @@
 # Protein Design MCP Server
 
+[![Smithery](https://smithery.ai/badge/protein-design-mcp)](https://smithery.ai/server/protein-design-mcp)
+[![PyPI](https://img.shields.io/pypi/v/protein-design-mcp)](https://pypi.org/project/protein-design-mcp/)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+
 An MCP (Model Context Protocol) server that enables LLM agents to run computational protein design workflows — from backbone generation and sequence design to structure prediction, stability scoring, and energy minimization.
 
 Built on RFdiffusion, ProteinMPNN, ESMFold, AlphaFold2, ESM2, and OpenMM.
@@ -18,7 +22,31 @@ Built on RFdiffusion, ProteinMPNN, ESMFold, AlphaFold2, ESM2, and OpenMM.
 
 ## Quick Start
 
-### One-Line Install
+### Smithery (One-Click Install)
+
+Install directly from [Smithery.ai](https://smithery.ai/server/protein-design-mcp):
+
+```bash
+npx -y @smithery/cli install protein-design-mcp --client claude
+```
+
+### pip install
+
+```bash
+# Core (no GPU dependencies — works for analysis tools)
+pip install protein-design-mcp
+
+# With GPU support (PyTorch + ESM models)
+pip install "protein-design-mcp[gpu]"
+
+# Start the server
+protein-design-mcp
+# or: python -m protein_design_mcp.server
+```
+
+Model weights are downloaded lazily on first tool call — no eager setup needed.
+
+### One-Line Install (Docker)
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/jasonkim8652/protein-design-mcp/main/setup.sh | bash
@@ -38,30 +66,35 @@ curl -sSL ... | bash -s -- --dir /path/to/install
 ### Option 1: Docker (Recommended)
 
 ```bash
-# GPU mode (default)
+# GPU mode (default, ~19GB image, all 11 tools)
 docker pull ghcr.io/jasonkim8652/protein-design-mcp:latest
 mkdir -p models data cache
 wget https://raw.githubusercontent.com/jasonkim8652/protein-design-mcp/main/docker-compose.yml
 docker compose up
 
-# CPU mode (no NVIDIA GPU required)
+# CPU mode (same image, no GPU required, 9 tools)
 docker compose --profile cpu up
+
+# Lite CPU image (~3-5GB, no CUDA runtime)
+docker build -f Dockerfile.lite -t protein-design-mcp:lite .
+docker compose --profile lite up
 ```
 
-**First run will download model weights (~5GB)**. These are cached in the `models/` directory for future runs.
+Model weights are downloaded lazily on first tool call. To pre-download, run `docker compose run --rm download-models`.
 
 #### CPU vs GPU Mode
 
-| | GPU Mode | CPU Mode |
-|---|---|---|
-| **Available tools** | All 11 tools | 8 tools (no `design_binder`, `generate_backbone`) |
-| **RFdiffusion** | Full speed (~30s/design) | Disabled (too slow) |
-| **ESMFold / predict_structure** | Fast (~10s) | Slower (~2-5min) |
-| **ESM2 / score_stability** | Fast (~5s) | Moderate (~30s) |
-| **ProteinMPNN / optimize_sequence** | Fast (~30s) | Slower (~5-10min) |
-| **OpenMM / energy_minimize** | Fast | Comparable speed |
-| **AlphaFold2 (API mode)** | Works | Works (uses remote server) |
-| **Requirements** | NVIDIA GPU + Docker | Docker only |
+| | GPU Mode | CPU Mode | Lite Image |
+|---|---|---|---|
+| **Available tools** | All 11 tools | 9 tools (no `design_binder`, `generate_backbone`) | 9 tools |
+| **Image size** | ~19 GB | ~19 GB (same image) | ~3-5 GB |
+| **RFdiffusion** | Full speed (~30s/design) | Disabled | Not installed |
+| **ESMFold / predict_structure** | Fast (~10s) | Slower (~2-5min) | ~2-5min |
+| **ESM2 / score_stability** | Fast (~5s) | Moderate (~30s) | ~30s |
+| **ProteinMPNN / optimize_sequence** | Fast (~30s) | Slower (~5-10min) | ~5-10min |
+| **OpenMM / energy_minimize** | Fast | Comparable speed | Comparable |
+| **AlphaFold2 (API mode)** | Works | Works (uses remote server) | Works |
+| **Requirements** | NVIDIA GPU + Docker | Docker only | Docker only |
 
 #### Docker with Claude Desktop
 
@@ -111,7 +144,52 @@ sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
 sudo systemctl restart docker
 ```
 
-### Option 2: Local Installation
+### Option 2: Modal (Cloud GPU — No Local GPU Required)
+
+Deploy to your own [Modal](https://modal.com) account for serverless GPU access. Pay only for compute time (~$1.10/hr A10G), containers auto-stop after 5 min idle.
+
+```bash
+# One-time setup
+pip install modal
+modal setup  # links your Modal account
+
+# Deploy (creates GPU endpoint)
+git clone https://github.com/jasonkim8652/protein-design-mcp.git
+cd protein-design-mcp
+pip install -e .
+modal deploy deploy/modal_app.py
+
+# Test
+modal run deploy/modal_app.py
+```
+
+After deploying, Modal prints your endpoint URL. Use the local MCP proxy to connect:
+
+```bash
+# Start local MCP proxy → Modal GPU
+MODAL_URL=https://<your-workspace>--protein-design-tools.modal.run \
+    python -m protein_design_mcp.modal_proxy
+```
+
+#### Modal with Claude Desktop
+
+```json
+{
+  "mcpServers": {
+    "protein-design": {
+      "command": "python",
+      "args": ["-m", "protein_design_mcp.modal_proxy"],
+      "env": {
+        "MODAL_URL": "https://<your-workspace>--protein-design-tools.modal.run"
+      }
+    }
+  }
+}
+```
+
+All 11 tools are available (GPU on Modal). Local PDB files are automatically uploaded to Modal on each tool call.
+
+### Option 3: Local Installation
 
 For development or if you prefer a local installation:
 
@@ -376,12 +454,14 @@ Optimizes a binder sequence for stability, binding affinity, or both.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
+| `DEVICE` | `"auto"` (detect GPU), `"cuda"`, or `"cpu"` | `auto` |
 | `RFDIFFUSION_PATH` | Path to RFdiffusion installation | `/opt/RFdiffusion` |
 | `PROTEINMPNN_PATH` | Path to ProteinMPNN installation | `/opt/ProteinMPNN` |
 | `COLABFOLD_PATH` | Path to `colabfold_batch` executable | `/opt/localcolabfold/.../colabfold_batch` |
 | `COLABFOLD_BACKEND` | `"api"` (uses MMseqs2 server) or `"local"` | `api` |
 | `CACHE_DIR` | Cache directory for results | `~/.cache/protein-design-mcp` |
 | `TORCH_HOME` | ESM model weights directory | (PyTorch default) |
+| `SKIP_MODEL_DOWNLOAD` | Skip eager model download in Docker | `true` |
 
 **Note**: The Docker image uses API backend by default, which sends MSA queries to ColabFold's public server. This avoids downloading ~2TB of local databases. For high-throughput or offline use, set `COLABFOLD_BACKEND=local`.
 
