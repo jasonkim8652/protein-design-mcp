@@ -18,23 +18,50 @@ Built on RFdiffusion, ProteinMPNN, ESMFold, AlphaFold2, ESM2, and OpenMM.
 
 ## Quick Start
 
-### Option 1: Docker (Recommended)
-
-The easiest way to get started is using Docker. Everything is pre-configured — just pull and run:
+### One-Line Install
 
 ```bash
-# Pull the image
-docker pull ghcr.io/jasonkim8652/protein-design-mcp:latest
-
-# Create directories for models and data
-mkdir -p models data cache
-
-# Run with docker-compose (recommended)
-wget https://raw.githubusercontent.com/jasonkim8652/protein-design-mcp/main/docker-compose.yml
-docker-compose up
+curl -sSL https://raw.githubusercontent.com/jasonkim8652/protein-design-mcp/main/setup.sh | bash
 ```
 
-**First run will download model weights (~15GB)**. These are cached in the `models/` directory for future runs.
+This pulls the Docker image, downloads model weights, and prints Claude Desktop configuration instructions.
+
+Options:
+```bash
+# CPU-only mode (no NVIDIA GPU required)
+curl -sSL ... | bash -s -- --cpu
+
+# Custom install directory
+curl -sSL ... | bash -s -- --dir /path/to/install
+```
+
+### Option 1: Docker (Recommended)
+
+```bash
+# GPU mode (default)
+docker pull ghcr.io/jasonkim8652/protein-design-mcp:latest
+mkdir -p models data cache
+wget https://raw.githubusercontent.com/jasonkim8652/protein-design-mcp/main/docker-compose.yml
+docker compose up
+
+# CPU mode (no NVIDIA GPU required)
+docker compose --profile cpu up
+```
+
+**First run will download model weights (~5GB)**. These are cached in the `models/` directory for future runs.
+
+#### CPU vs GPU Mode
+
+| | GPU Mode | CPU Mode |
+|---|---|---|
+| **Available tools** | All 11 tools | 8 tools (no `design_binder`, `generate_backbone`) |
+| **RFdiffusion** | Full speed (~30s/design) | Disabled (too slow) |
+| **ESMFold / predict_structure** | Fast (~10s) | Slower (~2-5min) |
+| **ESM2 / score_stability** | Fast (~5s) | Moderate (~30s) |
+| **ProteinMPNN / optimize_sequence** | Fast (~30s) | Slower (~5-10min) |
+| **OpenMM / energy_minimize** | Fast | Comparable speed |
+| **AlphaFold2 (API mode)** | Works | Works (uses remote server) |
+| **Requirements** | NVIDIA GPU + Docker | Docker only |
 
 #### Docker with Claude Desktop
 

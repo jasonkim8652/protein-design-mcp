@@ -1,74 +1,79 @@
 # Docker Compose for Protein Design MCP Server
 #
-# Usage:
-#   docker-compose up              # Start MCP server (downloads models on first run)
-#   docker-compose run app bash    # Interactive shell
-#   docker-compose run app download # Download models only
+# GPU mode (default):
+#   docker-compose up
 #
-# For Claude Desktop, configure the MCP client to run:
-#   docker-compose run --rm app server
+# CPU mode (no GPU required):
+#   docker-compose --profile cpu up
+#   OR: DEVICE=cpu docker-compose up protein-design
+#
+# Commands:
+#   docker-compose up                          # Start MCP server (GPU)
+#   docker-compose run --rm protein-design bash # Interactive shell
+#   docker-compose run --rm download-models     # Download models only
 
 services:
+  # --- GPU mode (default) ---
   protein-design:
-    image: protein-design-mcp:local
+    image: ghcr.io/jasonkim8652/protein-design-mcp:latest
     build:
       context: .
       dockerfile: Dockerfile
 
-    # GPU support (requires nvidia-docker runtime)
-    # Using device_ids to specify GPU 7
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
-              device_ids: ['7']
+              count: 1
               capabilities: [gpu]
 
-    # Volume mounts
     volumes:
-      # Model weights (persistent, ~10GB)
       - ./models:/models
-      # Input/output data
       - ./data:/data
-      # Cache directory
       - ./cache:/cache
 
-    # Required for MCP stdio transport
     stdin_open: true
     tty: true
 
-    # Environment variables (optional overrides)
     environment:
       - MODELS_DIR=/models
       - CACHE_DIR=/cache
-      - LOG_LEVEL=INFO
-      # Models already downloaded, skip check
-      - SKIP_MODEL_DOWNLOAD=true
+      - DEVICE=${DEVICE:-auto}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
 
-    # Network mode for MCP (uses stdio, no network needed)
-    network_mode: none
+  # --- CPU mode (no GPU required) ---
+  protein-design-cpu:
+    image: ghcr.io/jasonkim8652/protein-design-mcp:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    profiles:
+      - cpu
 
-  # Alternative service for downloading models only
+    # No GPU reservation
+    volumes:
+      - ./models:/models
+      - ./data:/data
+      - ./cache:/cache
+
+    stdin_open: true
+    tty: true
+
+    environment:
+      - MODELS_DIR=/models
+      - CACHE_DIR=/cache
+      - DEVICE=cpu
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+
+  # --- Download models only ---
   download-models:
-    image: protein-design-mcp:local
+    image: ghcr.io/jasonkim8652/protein-design-mcp:latest
     build:
       context: .
       dockerfile: Dockerfile
     command: download
+    profiles:
+      - setup
     volumes:
       - ./models:/models
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              device_ids: ['7']
-              capabilities: [gpu]
-
-# Named volumes (alternative to bind mounts)
-# Uncomment to use Docker-managed volumes instead of local directories
-# volumes:
-#   models:
-#   data:
-#   cache:

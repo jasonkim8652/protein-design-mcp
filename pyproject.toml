@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "protein-design-mcp"
 version = "0.1.0"
-description = "MCP server for protein binder design using RFdiffusion, ProteinMPNN, and ESMFold"
+description = "MCP server for protein design using RFdiffusion, ProteinMPNN, ESMFold, AlphaFold2, ESM2, and OpenMM"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
@@ -56,9 +56,9 @@ dev = [
 protein-design-mcp = "protein_design_mcp:main"
 
 [project.urls]
-Homepage = "https://github.com/protein-design-mcp/protein-design-mcp"
-Documentation = "https://github.com/protein-design-mcp/protein-design-mcp#readme"
-Repository = "https://github.com/protein-design-mcp/protein-design-mcp"
+Homepage = "https://github.com/jasonkim8652/protein-design-mcp"
+Documentation = "https://github.com/jasonkim8652/protein-design-mcp#readme"
+Repository = "https://github.com/jasonkim8652/protein-design-mcp"
 
 [tool.setuptools.packages.find]
 where = ["src"]
