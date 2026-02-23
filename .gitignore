@@ -83,3 +83,6 @@ dmypy.json
 *.pdb
 !tests/fixtures/**/*.pdb
 models/
+weights/
+cache/
+data/

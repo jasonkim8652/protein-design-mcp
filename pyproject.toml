@@ -7,7 +7,7 @@ name = "protein-design-mcp"
 version = "0.1.0"
 description = "MCP server for protein design using RFdiffusion, ProteinMPNN, ESMFold, AlphaFold2, ESM2, and OpenMM"
 readme = "README.md"
-license = {text = "MIT"}
+license = {text = "Apache-2.0"}
 requires-python = ">=3.10"
 authors = [
     {name = "Protein Design MCP Team"}
@@ -24,7 +24,7 @@ keywords = [
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
