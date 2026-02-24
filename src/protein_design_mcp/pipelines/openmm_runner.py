@@ -63,8 +63,16 @@ class OpenMMRunner:
         pdb_path = str(pdb_path)
         max_iter = num_steps if num_steps is not None else self.config.max_iterations
 
-        # Load structure
-        pdb = PDBFile(pdb_path)
+        # Use pdbfixer to add missing residues, atoms, and hydrogens.
+        # ESMFold/AF2 output PDBs often lack terminal caps (OXT) and
+        # hydrogens, which causes OpenMM template matching to fail.
+        from pdbfixer import PDBFixer
+
+        fixer = PDBFixer(filename=pdb_path)
+        fixer.findMissingResidues()
+        fixer.findMissingAtoms()
+        fixer.addMissingAtoms()
+        fixer.addMissingHydrogens(7.0)
 
         # Set up force field
         ff_xmls = [self.config.force_field]
@@ -72,9 +80,7 @@ class OpenMMRunner:
             ff_xmls.append(self.config.implicit_solvent_model)
         forcefield = ForceField(*ff_xmls)
 
-        # Add missing hydrogens / heavy atoms
-        modeller = Modeller(pdb.topology, pdb.positions)
-        modeller.addHydrogens(forcefield)
+        modeller = Modeller(fixer.topology, fixer.positions)
 
         # Create system
         system = forcefield.createSystem(

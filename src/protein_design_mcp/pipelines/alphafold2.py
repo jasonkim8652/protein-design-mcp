@@ -62,7 +62,11 @@ class AlphaFold2Config:
         "COLABFOLD_PATH",
         "/opt/localcolabfold/colabfold-conda/bin/colabfold_batch"
     )
-    msa_mode: str = "mmseqs2"  # "mmseqs2", "single_sequence", or "server"
+    msa_mode: str = "single_sequence"  # "mmseqs2_uniref_env", "single_sequence", etc.
+    data_dir: str = os.environ.get(
+        "COLABFOLD_DATA_DIR",
+        "/opt/weights/colabfold"
+    )  # Pre-baked weights directory
     num_models: int = 1  # Number of AF2 models to use (1-5)
     num_recycles: int = 3  # Recycle iterations
     use_amber: bool = False  # Amber relaxation (slower but more accurate)
@@ -228,11 +232,15 @@ class AlphaFold2Runner:
         Raises:
             AlphaFold2Error: If ColabFold execution fails
         """
-        # Determine MSA mode based on backend
-        if self.config.backend == "api":
-            msa_mode = "server"  # Use ColabFold server for MSA
-        else:
-            msa_mode = self.config.msa_mode
+        # Determine MSA mode
+        # ColabFold 1.5.5 valid modes: mmseqs2_uniref_env, mmseqs2_uniref,
+        # mmseqs2_uniref_env_envpair, single_sequence
+        # Map legacy names to valid ColabFold 1.5.5 values
+        mode_map = {
+            "server": "mmseqs2_uniref_env",
+            "mmseqs2": "mmseqs2_uniref_env",
+        }
+        msa_mode = mode_map.get(self.config.msa_mode, self.config.msa_mode)
 
         cmd = [
             self.config.colabfold_path,
@@ -242,6 +250,7 @@ class AlphaFold2Runner:
             "--num-recycle", str(self.config.num_recycles),
             "--msa-mode", msa_mode,
             "--model-type", model_type,
+            "--data", self.config.data_dir,
         ]
 
         if self.config.use_amber:
@@ -250,8 +259,9 @@ class AlphaFold2Runner:
         if self.config.use_templates:
             cmd.append("--templates")
 
-        if self.config.device:
-            cmd.extend(["--gpu-device", self.config.device])
+        # GPU device: ColabFold 1.5.5 doesn't support --gpu-device flag;
+        # GPU selection is done via CUDA_VISIBLE_DEVICES environment variable
+        # (already set by Docker runtime)
 
         logger.info(f"Running ColabFold: {' '.join(cmd)}")
 

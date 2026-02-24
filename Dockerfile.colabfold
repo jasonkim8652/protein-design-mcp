@@ -1,0 +1,84 @@
+# Add ColabFold/AlphaFold2-Multimer to protein-design-mcp:fixed
+#
+# Build:
+#   cd /home/jk661/projects/protein-design-mcp
+#   docker build -f Dockerfile.colabfold -t protein-design-mcp:colabfold .
+#
+# This adds predict_complex (AF2-Multimer) support to the existing image.
+# Weights are already pre-baked at /opt/weights/colabfold/.
+
+FROM protein-design-mcp:fixed
+
+# Install JAX with CUDA 11.8 support
+# ColabFold requires JAX; pin versions compatible with torch 2.0.1 + CUDA 11.8
+RUN pip install --no-cache-dir \
+    "jaxlib==0.4.13+cuda11.cudnn86" \
+    -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html \
+    && pip install --no-cache-dir "jax==0.4.13"
+
+# Install AlphaFold (sokrypton's fork, main branch — beta was removed)
+RUN pip install --no-cache-dir \
+    "dm-haiku==0.0.10" \
+    dm-tree \
+    ml-collections \
+    immutabledict \
+    "chex==0.1.7" \
+    tabulate \
+    "alphafold-colabfold==2.3.11"
+
+# Install ColabFold (--no-deps to avoid overwriting existing packages)
+RUN pip install --no-cache-dir --no-deps \
+    "colabfold[alphafold] @ git+https://github.com/sokrypton/ColabFold.git"
+
+# Install ColabFold's missing runtime deps (skipped by --no-deps above)
+# + pin biopython==1.79 (alphafold needs Bio.Data.SCOPData, removed in 1.80+)
+# + tensorflow-cpu: ColabFold uses it to disable TF's GPU claim; cpu-only is sufficient
+RUN pip install --no-cache-dir \
+    importlib_metadata \
+    appdirs \
+    matplotlib \
+    "biopython==1.79" \
+    "tensorflow-cpu>=2.11,<2.16"
+
+# Restructure pre-baked weights for ColabFold (expects {data_dir}/params/*.npz)
+RUN mkdir -p /opt/weights/colabfold/params \
+    && mv /opt/weights/colabfold/*.npz /opt/weights/colabfold/params/ 2>/dev/null; \
+    mv /opt/weights/colabfold/LICENSE /opt/weights/colabfold/params/ 2>/dev/null; \
+    echo "done" > /opt/weights/colabfold/params/download_finished.txt \
+    && echo "done" > /opt/weights/colabfold/params/download_complexes_multimer_v3_finished.txt \
+    && echo "done" > /opt/weights/colabfold/params/download_complexes_multimer_v2_finished.txt \
+    && echo "done" > /opt/weights/colabfold/params/download_complexes_multimer_v1_finished.txt \
+    && ls /opt/weights/colabfold/params/
+
+# Re-pin JAX + jaxlib CUDA wheels (chex pulls jax>=0.4.27, overwriting CUDA jaxlib)
+RUN pip install --no-cache-dir \
+    "jaxlib==0.4.13+cuda11.cudnn86" \
+    -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html \
+    && pip install --no-cache-dir "jax==0.4.13"
+
+# Re-pin numpy (ColabFold deps may pull numpy 2.x)
+RUN pip install --no-cache-dir "numpy<2"
+
+# Create colabfold_batch wrapper (batch.py lacks shebang, can't exec directly)
+RUN echo '#!/usr/bin/env python3' > /usr/local/bin/colabfold_batch \
+    && echo 'from colabfold.batch import main; main()' >> /usr/local/bin/colabfold_batch \
+    && chmod +x /usr/local/bin/colabfold_batch
+
+# Verify installation (check JAX version is 0.4.13, not 0.6.x)
+RUN python -c "import colabfold; print('ColabFold OK')" \
+    && python -c "import jax; assert jax.__version__ == '0.4.13', f'JAX version mismatch: {jax.__version__}'; print('JAX:', jax.__version__)" \
+    && python -c "import jaxlib; assert '0.4.13' in jaxlib.__version__, f'jaxlib version mismatch: {jaxlib.__version__}'; print('jaxlib:', jaxlib.__version__)" \
+    && python -c "from alphafold.model import config as af2_config; print('AlphaFold OK')" \
+    && test -f /usr/local/bin/colabfold_batch && echo "colabfold_batch: OK"
+
+# ColabFold env vars (already set in base, ensure they're correct)
+ENV COLABFOLD_PATH=/usr/local/bin/colabfold_batch
+ENV COLABFOLD_BACKEND=api
+
+# pdbfixer: adds missing atoms/hydrogens/terminal caps to PDB files
+# Required by energy_minimize (ESMFold/AF2 PDBs lack OXT terminal caps)
+RUN pip install --no-cache-dir pdbfixer
+
+# Add ptxas to PATH (XLA/JAX needs it for GPU JIT compilation)
+# ptxas ships with triton (PyTorch dep), symlink it to a standard location
+RUN ln -sf /usr/local/lib/python3.10/dist-packages/triton/third_party/cuda/bin/ptxas /usr/local/bin/ptxas
