@@ -43,11 +43,18 @@ gpu_image = (
         add_python="3.10",
     )
     .apt_install("git", "wget", "build-essential")
-    # PyTorch (CUDA 11.8)
+    # PyTorch (CUDA 11.8). `extra_index_url` (not `index_url`) so pip
+    # still falls back to the default PyPI for build-time deps
+    # (setuptools, wheel) -- the pytorch wheel index doesn't mirror them.
+    # numpy<2 is pinned here AND in every subsequent pip_install below
+    # because torch 2.0.1 was compiled against numpy<2; a later layer
+    # pulling numpy 2.x triggers "Failed to initialize NumPy: _ARRAY_API
+    # not found" at runtime.
     .pip_install(
         "torch==2.0.1+cu118",
         "torchvision==0.15.2+cu118",
-        index_url="https://download.pytorch.org/whl/cu118",
+        "numpy<2",
+        extra_index_url="https://download.pytorch.org/whl/cu118",
     )
     # --- RFdiffusion ---
     .run_commands(
@@ -69,13 +76,14 @@ gpu_image = (
         "git clone --depth 1 --branch v1.0.1 "
         "https://github.com/aqlaboratory/openfold.git /opt/openfold",
     )
-    .pip_install("biopython", "dm-tree", "ml-collections", "modelcif", "einops")
-    # --- ColabFold / AlphaFold2 ---
-    .pip_install(
-        "colabfold[alphafold] @ git+https://github.com/sokrypton/ColabFold.git",
-    )
+    .pip_install("biopython", "dm-tree", "ml-collections", "modelcif", "einops", "numpy<2")
+    # ColabFold / AlphaFold2 install removed on 2026-04-15: the source
+    # never imports `colabfold` or `alphafold` directly (structure
+    # prediction uses ESMFold via protein_design_mcp.pipelines.esmfold),
+    # and colabfold[alphafold] 1.6.1 hard-pins numpy>=2.0.2 which
+    # conflicts with torch 2.0.1's numpy<2 requirement.
     # --- OpenMM ---
-    .pip_install("openmm")
+    .pip_install("openmm", "numpy<2")
     # --- ESM + MCP server deps ---
     .pip_install(
         "fair-esm>=2.0.0",
@@ -84,12 +92,13 @@ gpu_image = (
         "aiofiles",
         "pyyaml",
         "mcp>=0.1.0",
+        # Required by Modal's @fastapi_endpoint decorator. Must be in
+        # the image, not just the local driver env.
+        "fastapi[standard]",
+        "numpy<2",
     )
-    # --- Install protein-design-mcp package ---
-    # From local source (requires `pip install -e .` locally first):
-    .add_local_python_source("protein_design_mcp")
-    # When published to PyPI, replace the line above with:
-    # .pip_install("protein-design-mcp")
+    # Environment variables must be set BEFORE add_local_python_source:
+    # Modal forbids any build step after add_local_*.
     .env(
         {
             "RFDIFFUSION_PATH": "/opt/RFdiffusion",
@@ -103,6 +112,11 @@ gpu_image = (
             "COLABFOLD_BACKEND": "api",
         }
     )
+    # --- Install protein-design-mcp package (must be last build step) ---
+    # From local source (requires `pip install -e .` locally first):
+    .add_local_python_source("protein_design_mcp")
+    # When published to PyPI, replace the line above with:
+    # .pip_install("protein-design-mcp")
 )
 
 
@@ -133,6 +147,45 @@ def _materialize_files(arguments: dict) -> dict:
     return result
 
 
+def _json_default(o):
+    """Fallback encoder for json.dumps: convert numpy / non-standard
+    objects to JSON-compatible types."""
+    try:
+        import numpy as np
+
+        if isinstance(o, np.ndarray):
+            return o.tolist()
+        if isinstance(o, np.generic):
+            return o.item()
+    except Exception:
+        pass
+    if hasattr(o, "tolist"):
+        try:
+            return o.tolist()
+        except Exception:
+            pass
+    return str(o)
+
+
+def _json_safe(obj):
+    """Force an object through a json.dumps/json.loads roundtrip with a
+    fallback encoder, so anything that leaks out of a handler (numpy
+    arrays, numpy scalars, tensors, dataclasses) is guaranteed to be
+    plain Python by the time FastAPI's pydantic serializer sees it.
+
+    We hit PydanticSerializationError: Unable to serialize unknown type:
+    <class 'numpy.ndarray'> with a manual recursive walker because the
+    walker only descended dict/list containers; switching to a json
+    roundtrip sidesteps any custom object tree.
+    """
+    import json as _json
+
+    try:
+        return _json.loads(_json.dumps(obj, default=_json_default))
+    except Exception:
+        return {"error": "tool returned non-JSON object", "repr": repr(obj)[:500]}
+
+
 # ---------------------------------------------------------------------------
 # Web endpoint — single entry point for all tool calls
 # ---------------------------------------------------------------------------
@@ -141,9 +194,9 @@ def _materialize_files(arguments: dict) -> dict:
     gpu="A10G",
     volumes={"/models": weights_volume},
     timeout=1800,
-    container_idle_timeout=300,
+    scaledown_window=300,
 )
-@modal.web_endpoint(method="POST", label="protein-design-tools", docs=True)
+@modal.fastapi_endpoint(method="POST", label="protein-design-tools", docs=True)
 async def call_tool(item: dict) -> dict:
     """Execute a protein design tool on GPU.
 
@@ -200,9 +253,14 @@ async def call_tool(item: dict) -> dict:
         result = await handler(arguments)
         # Persist any newly downloaded model weights to the volume
         weights_volume.commit()
-        return result
+        return _json_safe(result)
     except Exception as e:
-        return {"error": str(e), "tool": name}
+        import traceback
+        return {
+            "error": str(e),
+            "tool": name,
+            "traceback": traceback.format_exc()[-1500:],
+        }
 
 
 # ---------------------------------------------------------------------------
