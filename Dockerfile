@@ -97,7 +97,8 @@ RUN pip install --no-cache-dir -e ".[dev]"
 RUN pip install --no-cache-dir \
     fair-esm>=2.0.0 \
     aiohttp \
-    tqdm
+    tqdm \
+    && pip install --no-cache-dir "numpy<2"
 
 COPY docker/ ./docker/
 RUN chmod +x docker/entrypoint.sh docker/download_models.py

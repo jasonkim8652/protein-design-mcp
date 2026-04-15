@@ -47,6 +47,18 @@ class AlphaFold2Error(PipelineError):
     pass
 
 
+class PyRosettaError(PipelineError):
+    """Raised when PyRosetta execution fails."""
+
+    pass
+
+
+class BoltzError(PipelineError):
+    """Raised when Boltz prediction fails."""
+
+    pass
+
+
 class ValidationError(ProteinDesignError):
     """Raised when validation fails."""
 

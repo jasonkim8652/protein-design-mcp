@@ -62,13 +62,15 @@ class AlphaFold2Config:
         "COLABFOLD_PATH",
         "/opt/localcolabfold/colabfold-conda/bin/colabfold_batch"
     )
-    msa_mode: str = "single_sequence"  # "mmseqs2_uniref_env", "single_sequence", etc.
+    msa_mode: str = os.environ.get(
+        "COLABFOLD_MSA_MODE", "mmseqs2_uniref_env"
+    )  # "mmseqs2_uniref_env" (server), "single_sequence" (no MSA)
     data_dir: str = os.environ.get(
         "COLABFOLD_DATA_DIR",
         "/opt/weights/colabfold"
     )  # Pre-baked weights directory
-    num_models: int = 1  # Number of AF2 models to use (1-5)
-    num_recycles: int = 3  # Recycle iterations
+    num_models: int = int(os.environ.get("COLABFOLD_NUM_MODELS", "1"))
+    num_recycles: int = int(os.environ.get("COLABFOLD_NUM_RECYCLES", "3"))
     use_amber: bool = False  # Amber relaxation (slower but more accurate)
     use_templates: bool = False  # Template search
     device: str | None = None  # GPU device (e.g., "0" or "cuda:0")
@@ -230,7 +232,7 @@ class AlphaFold2Runner:
             model_type: Model type ("alphafold2_ptm" or "alphafold2_multimer_v3")
 
         Raises:
-            AlphaFold2Error: If ColabFold execution fails
+            AlphaFold2Error: If ColabFold execution fails or times out
         """
         # Determine MSA mode
         # ColabFold 1.5.5 valid modes: mmseqs2_uniref_env, mmseqs2_uniref,
@@ -297,9 +299,18 @@ class AlphaFold2Runner:
             "pae": data.get("pae"),
         }
 
-        # Add iptm for multimer predictions
-        if "iptm" in data:
-            result["iptm"] = data["iptm"]
+        # Add iptm for multimer predictions — check alternate key names
+        # ColabFold uses "iptm"; some AF2 versions use "interface_ptm" or "iptm_score"
+        for key in ("iptm", "interface_ptm", "iptm_score"):
+            if key in data:
+                result["iptm"] = data[key]
+                break
+
+        # Also extract i_pAE (interface PAE) if available
+        for key in ("i_pae", "interface_pae", "ipae"):
+            if key in data:
+                result["i_pae"] = data[key]
+                break
 
         return result
 
@@ -531,8 +542,9 @@ class AlphaFold2Runner:
             if scores["pae"]:
                 pae_matrix = np.array(scores["pae"])
 
-            # For multimer, use iptm if available, otherwise ptm
-            ptm_score = scores.get("iptm", scores["ptm"])
+            # Separate pTM (fold confidence) and ipTM (interface confidence)
+            ptm_score = scores["ptm"]
+            iptm_score = scores.get("iptm")  # None for monomer
 
             # Combined sequence for result
             combined_sequence = ":".join(sequences)
@@ -544,6 +556,7 @@ class AlphaFold2Runner:
                 ptm=ptm_score,
                 plddt_per_residue=plddt_per_residue,
                 pae_matrix=pae_matrix,
+                iptm=iptm_score,
             )
 
             # Save PDB if requested

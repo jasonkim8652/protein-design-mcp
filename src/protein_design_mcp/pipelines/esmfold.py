@@ -50,7 +50,7 @@ class ESMFoldConfig:
 
 @dataclass
 class PredictionResult:
-    """Result from ESMFold prediction."""
+    """Result from structure prediction (ESMFold or AF2)."""
 
     sequence: str
     pdb_string: str
@@ -58,6 +58,7 @@ class PredictionResult:
     ptm: float
     plddt_per_residue: np.ndarray
     pae_matrix: np.ndarray | None = None
+    iptm: float | None = None  # Interface pTM (multimer only)
 
 
 class ESMFoldRunner:
@@ -127,7 +128,7 @@ class ESMFoldRunner:
         sequence: str,
     ) -> PredictionResult:
         """
-        Run actual ESMFold prediction.
+        Run actual ESMFold prediction using model.infer() for accurate pTM.
 
         Args:
             sequence: Amino acid sequence
@@ -140,24 +141,32 @@ class ESMFoldRunner:
         model = self._load_model()
 
         with torch.no_grad():
-            output = model.infer_pdb(sequence)
+            # Use model.infer() to get full output including pTM tensor,
+            # then convert to PDB string via output_to_pdb().
+            raw_output = model.infer([sequence])
+            pdb_string = model.output_to_pdb(raw_output)[0]
+
+            # Extract real pTM from model output
+            ptm = float(raw_output["ptm"].item())
+
+            # Extract pAE matrix if available
+            pae_matrix = None
+            if "predicted_aligned_error" in raw_output:
+                pae = raw_output["predicted_aligned_error"]
+                if pae is not None and pae.numel() > 0:
+                    pae_matrix = pae[0].cpu().numpy()
 
         # Extract pLDDT from B-factor column of PDB
-        plddt_per_residue = self._extract_plddt_from_pdb(output)
+        plddt_per_residue = self._extract_plddt_from_pdb(pdb_string)
         mean_plddt = float(np.mean(plddt_per_residue))
-
-        # Get pTM score if available
-        # ESMFold's infer_pdb doesn't directly return pTM, so we estimate from pLDDT
-        # For accurate pTM, use model.infer() instead
-        ptm = self._estimate_ptm(plddt_per_residue)
 
         return PredictionResult(
             sequence=sequence,
-            pdb_string=output,
+            pdb_string=pdb_string,
             plddt=mean_plddt,
             ptm=ptm,
             plddt_per_residue=plddt_per_residue,
-            pae_matrix=None,
+            pae_matrix=pae_matrix,
         )
 
     def _extract_plddt_from_pdb(self, pdb_string: str) -> np.ndarray:

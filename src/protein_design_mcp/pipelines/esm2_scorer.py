@@ -80,14 +80,20 @@ class ESM2Scorer:
     # ------------------------------------------------------------------
 
     async def score_sequence(self, sequence: str) -> dict[str, Any]:
-        """Compute pseudo-log-likelihood for a protein sequence.
+        """Compute wildtype marginal log-likelihood for a protein sequence.
+
+        Single forward pass: run the unmasked sequence through ESM-2 and
+        collect log P(true_aa | context) at each position.  This is ~L×
+        faster than masked marginal scoring while correlating well with it
+        for mutation scanning (Meier et al., 2021).
 
         Args:
             sequence: Amino acid sequence (uppercase, standard 20 AAs).
 
         Returns:
             Dict with ``sequence_score`` (mean log-prob), ``per_residue_scores``
-            (list of floats), and ``sequence_length``.
+            (list of floats), ``logits`` (L×20 numpy array for mutation
+            scanning), and ``sequence_length``.
         """
         import torch
 
@@ -103,24 +109,29 @@ class ESM2Scorer:
         if self.config.device == "cuda" and torch.cuda.is_available():
             batch_tokens = batch_tokens.cuda()
 
-        per_residue: list[float] = []
-        mask_idx = self._alphabet.mask_idx
-
         with torch.no_grad():
-            for i in range(1, len(sequence) + 1):  # skip BOS token at position 0
-                masked = batch_tokens.clone()
-                masked[0, i] = mask_idx
+            # Single forward pass — no masking
+            logits = self._model(batch_tokens)["logits"]  # (1, L+2, vocab)
+            # Extract positions 1..L (skip BOS at 0, EOS at L+1)
+            seq_logits = logits[0, 1 : len(sequence) + 1]  # (L, vocab)
+            log_probs = torch.log_softmax(seq_logits, dim=-1)  # (L, vocab)
 
-                logits = self._model(masked)["logits"]  # (1, L+2, vocab)
-                log_probs = torch.log_softmax(logits[0, i], dim=-1)
-                true_token = batch_tokens[0, i].item()
-                per_residue.append(log_probs[true_token].item())
+        # Per-residue score: log P(true_aa | context)
+        per_residue: list[float] = []
+        for i, aa in enumerate(sequence):
+            token_idx = self._alphabet.get_idx(aa)
+            per_residue.append(log_probs[i, token_idx].item())
+
+        # Extract logits for the 20 standard AAs (for fast mutation scanning)
+        aa_indices = [self._alphabet.get_idx(aa) for aa in "ACDEFGHIKLMNPQRSTVWY"]
+        aa_log_probs = log_probs[:, aa_indices].cpu().numpy()  # (L, 20)
 
         mean_score = float(np.mean(per_residue))
 
         return {
             "sequence_score": mean_score,
             "per_residue_scores": per_residue,
+            "aa_log_probs": aa_log_probs,  # (L, 20) for fast mutation scan
             "sequence_length": len(sequence),
         }
 

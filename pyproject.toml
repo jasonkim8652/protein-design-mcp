@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "protein-design-mcp"
-version = "0.1.0"
-description = "MCP server for protein design using RFdiffusion, ProteinMPNN, ESMFold, AlphaFold2, ESM2, and OpenMM"
+version = "1.0.0"
+description = "MCP server for protein design: RFdiffusion, ProteinMPNN, ESMFold, AlphaFold2, Boltz, PyRosetta, ESM2, OpenMM"
 readme = "README.md"
 license = {text = "Apache-2.0"}
 requires-python = ">=3.10"
@@ -18,11 +18,14 @@ keywords = [
     "rfdiffusion",
     "proteinmpnn",
     "esmfold",
+    "alphafold2",
+    "boltz",
+    "pyrosetta",
     "llm",
     "ai",
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
@@ -44,6 +47,22 @@ dependencies = [
 gpu = [
     "torch>=2.0",
     "fair-esm>=2.0.0",
+]
+# PyRosetta tools (rosetta_score, rosetta_relax, rosetta_interface_score, rosetta_design).
+# PyRosetta requires a free academic or paid commercial license from RosettaCommons
+# and is distributed via a custom wheel index. See:
+#   https://www.pyrosetta.org/downloads
+# Install example (academic):
+#   pip install pyrosetta-installer && python -c "import pyrosetta_installer; pyrosetta_installer.install_pyrosetta()"
+# (Listed here for documentation; pip cannot resolve it from PyPI.)
+rosetta = [
+    "pyrosetta-installer>=0.1",
+]
+# Boltz-2 structure + affinity prediction (predict_structure_boltz, predict_affinity_boltz).
+# Requires torch>=2.2 which conflicts with RFdiffusion's torch==2.0.1 stack —
+# install in an isolated virtualenv, not alongside [gpu].
+boltz = [
+    "boltz>=2.0.0",
 ]
 dev = [
     "pytest>=7.0",
