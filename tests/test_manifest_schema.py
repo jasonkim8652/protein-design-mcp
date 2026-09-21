@@ -73,3 +73,21 @@ def test_manifest_is_frozen():
     m = parse_manifest(MINIMAL)
     with pytest.raises(Exception):
         m.name = "other"
+
+
+def test_rejects_whitespace_only_summary():
+    data = {**MINIMAL, "summary": "   "}
+    with pytest.raises(ManifestError, match="summary"):
+        parse_manifest(data)
+
+
+def test_accepts_empty_schema():
+    data = {**MINIMAL, "schema": {}}
+    m = parse_manifest(data)
+    assert m.schema == {}
+
+
+def test_rejects_missing_schema():
+    data = {k: v for k, v in MINIMAL.items() if k != "schema"}
+    with pytest.raises(ManifestError, match="schema"):
+        parse_manifest(data)

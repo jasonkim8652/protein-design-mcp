@@ -46,6 +46,12 @@ class Requirements:
 
 @dataclass(frozen=True)
 class Manifest:
+    """Tool manifest specification.
+
+    The dataclass is frozen at the attribute level, but `schema` holds a
+    mutable mapping. Callers must treat the schema dict as read-only and
+    not modify its contents.
+    """
     name: str
     category: str
     engine: EngineSpec
@@ -108,12 +114,16 @@ def parse_manifest(data: dict) -> Manifest:
         )
 
     summary = str(_require(data, "summary")).strip()
+    if not summary:
+        raise ManifestError(f"{name}: summary cannot be empty after stripping whitespace")
     if len(summary) > MAX_SUMMARY_CHARS:
         raise ManifestError(
             f"{name}: summary is {len(summary)} chars, max {MAX_SUMMARY_CHARS}"
         )
 
-    schema = _require(data, "schema")
+    if "schema" not in data:
+        raise ManifestError("manifest is missing required key 'schema'")
+    schema = data["schema"]
     if not isinstance(schema, dict):
         raise ManifestError(f"{name}: schema must be a mapping")
 
