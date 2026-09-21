@@ -129,3 +129,69 @@ def test_zero_is_a_valid_value_not_a_missing_one():
         }
     )
     assert validate_and_fill(manifest, {"seed": 0})["seed"] == 0
+
+
+def test_trailing_newline_in_anchored_pattern_is_rejected():
+    with pytest.raises(ToolInputError) as exc:
+        validate_and_fill(MANIFEST, {**OK, "hotspot_residues": ["A45\n"]})
+    message = str(exc.value)
+    assert "hotspot_residues[0]" in message
+    assert "whitespace" in message
+
+
+def test_trailing_newline_in_suffix_pattern_is_rejected():
+    with pytest.raises(ToolInputError) as exc:
+        validate_and_fill(MANIFEST, {**OK, "target_pdb": "target.pdb\n"})
+    message = str(exc.value)
+    assert "target_pdb" in message
+    assert "whitespace" in message
+
+
+def test_leading_whitespace_in_pattern_is_rejected():
+    with pytest.raises(ToolInputError) as exc:
+        validate_and_fill(MANIFEST, {**OK, "hotspot_residues": [" A45"]})
+    message = str(exc.value)
+    assert "hotspot_residues[0]" in message
+    assert "whitespace" in message
+
+
+def test_trailing_whitespace_in_pattern_is_rejected():
+    with pytest.raises(ToolInputError) as exc:
+        validate_and_fill(MANIFEST, {**OK, "hotspot_residues": ["A45 "]})
+    message = str(exc.value)
+    assert "hotspot_residues[0]" in message
+    assert "whitespace" in message
+
+
+def test_valid_patterns_still_pass():
+    result = validate_and_fill(MANIFEST, {**OK, "target_pdb": "target.pdb"})
+    assert result["target_pdb"] == "target.pdb"
+    result = validate_and_fill(MANIFEST, {**OK, "hotspot_residues": ["A45"]})
+    assert result["hotspot_residues"] == ["A45"]
+
+
+def test_embedded_newline_in_pattern_is_rejected():
+    with pytest.raises(ToolInputError):
+        validate_and_fill(MANIFEST, {**OK, "hotspot_residues": ["A45\nB46"]})
+
+
+def test_default_is_filled_even_with_required_true():
+    # A default implies the field is not truly mandatory
+    manifest = parse_manifest(
+        {
+            "name": "run_with_both",
+            "category": "scoring",
+            "engine": {"repo": "r", "env": "e", "entry": ["x"]},
+            "summary": "Both.",
+            "doc": "## What this is\nBoth.\n",
+            "schema": {
+                "fallback": {
+                    "type": "string",
+                    "required": True,
+                    "default": "fallback_value",
+                }
+            },
+        }
+    )
+    result = validate_and_fill(manifest, {})
+    assert result["fallback"] == "fallback_value"

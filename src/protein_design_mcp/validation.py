@@ -54,7 +54,18 @@ def _check_scalar(label: str, value: Any, spec: dict[str, Any]) -> None:
 
     pattern = spec.get("pattern")
     if pattern is not None and isinstance(value, str):
-        if re.search(pattern, value) is None:
+        # PART A: reject leading/trailing whitespace
+        if value != value.strip():
+            raise ToolInputError(
+                f"{label} = {value!r} has leading or trailing whitespace. "
+                f"Stripped value: {value.strip()!r}."
+            )
+        # PART B: use fullmatch for anchored patterns, search for others
+        match_func = (
+            re.fullmatch if pattern.startswith("^") and pattern.endswith("$")
+            else re.search
+        )
+        if match_func(pattern, value) is None:
             raise ToolInputError(
                 f"{label} = {value!r} does not match the required format "
                 f"{pattern}.{_example_clause(spec)}"
