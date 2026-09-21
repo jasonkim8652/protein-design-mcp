@@ -1,0 +1,1 @@
+"""Manifest-driven tool definitions."""
