@@ -12,8 +12,8 @@ SAMPLE_STDOUT = """\
 [+] Reading structure file: /tmp/complex.pdb
 [+] Parsed structure file complex (2 chains, 210 residues)
 [+] No. of intermolecular contacts: 72
-[+] Predicted binding affinity (kcal.mol-1): -11.30
-[+] Predicted dissociation constant (M) at 25.0C: 5.2e-09
+[++] Predicted binding affinity (kcal.mol-1): -11.30
+[++] Predicted dissociation constant (M) at 25.0˚C: 5.2e-09
 """
 
 

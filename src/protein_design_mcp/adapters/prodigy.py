@@ -6,10 +6,13 @@ machine-readable file, so the adapter parses stdout.
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
 from protein_design_mcp.dispatch.env import CompletedRun
+
+logger = logging.getLogger(__name__)
 
 CAVEAT = (
     "PRODIGY is calibrated on natural complexes and systematically mis-ranks "
@@ -44,6 +47,11 @@ def parse_output(run: CompletedRun) -> dict[str, Any]:
         )
 
     kd = _KD_RE.search(run.stdout)
+    if kd is None:
+        logger.warning(
+            "PRODIGY output included binding affinity but not dissociation "
+            "constant; the output format may have changed."
+        )
     contacts = _CONTACTS_RE.search(run.stdout)
     return {
         "binding_affinity_kcal_per_mol": float(affinity.group(1)),
