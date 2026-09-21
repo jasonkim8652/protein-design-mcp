@@ -10,6 +10,9 @@ inside one image and is invoked as a subprocess. This generalises the
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import os
+import signal
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -73,6 +76,7 @@ class EnvDispatcher:
                 cwd=str(workdir),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                start_new_session=True,
             )
         except (FileNotFoundError, PermissionError) as exc:
             raise EngineError(
@@ -82,16 +86,30 @@ class EnvDispatcher:
             ) from exc
 
         try:
-            stdout_b, stderr_b = await asyncio.wait_for(
-                process.communicate(), timeout=timeout
-            )
-        except asyncio.TimeoutError as exc:
-            process.kill()
-            await process.wait()
-            raise EngineError(
-                f"engine {engine.repo!r} timed out after {timeout:.0f}s. "
-                "Reduce the sample count or raise the tool's timeout."
-            ) from exc
+            try:
+                stdout_b, stderr_b = await asyncio.wait_for(
+                    process.communicate(), timeout=timeout
+                )
+            except asyncio.TimeoutError as exc:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                with contextlib.suppress(asyncio.CancelledError):
+                    await process.wait()
+                raise EngineError(
+                    f"engine {engine.repo!r} timed out after {timeout:.0f}s. "
+                    "Reduce the sample count or raise the tool's timeout."
+                ) from exc
+        except BaseException:
+            if process.returncode is None:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                with contextlib.suppress(asyncio.CancelledError):
+                    await process.wait()
+            raise
 
         stdout = stdout_b.decode("utf-8", errors="replace")
         stderr = stderr_b.decode("utf-8", errors="replace")
