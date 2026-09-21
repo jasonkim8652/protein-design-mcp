@@ -29,13 +29,15 @@ doc: |
   candidate before spending GPU time on anything else.
 
   ## When to use this instead of the alternatives
-  - `run_rosetta_interface` gives a physics-based decomposition (dG_separated,
-    buried surface area, shape complementarity, hydrogen bond counts) and is
-    the better choice when you need to know *why* an interface scores as it
-    does. It is slower and depends on a license-gated PyRosetta install.
-  - `run_ipsae` and the ipTM fields from a co-folding tool measure model
-    *confidence* in the interface, not its energy. Those discriminate binders
-    from non-binders better than PRODIGY does. Prefer them for ranking designs.
+  - `run_rosetta_interface` (not yet implemented) gives a physics-based
+    decomposition (dG_separated, buried surface area, shape complementarity,
+    hydrogen bond counts) and will be the better choice when you need to know
+    *why* an interface scores as it does. It is slower and depends on a
+    license-gated PyRosetta install. Until then, use PRODIGY.
+  - `run_ipsae` (not yet implemented) and ipTM fields from co-folding tools
+    measure model *confidence* in the interface, not its energy. Those
+    discriminate binders from non-binders better than PRODIGY does and will
+    be preferred for ranking designs once available. Until then, use PRODIGY.
   - Use PRODIGY when you want an absolute number on a physical scale rather
     than a model-internal confidence score.
 
@@ -65,13 +67,19 @@ schema:
     type: string
     pattern: '^[A-Za-z0-9]$'
     required: true
-    description: Chain identifier of the first partner, a single character.
+    description: >-
+      Chain identifier of the first partner: a single character only.
+      PRODIGY requires single-character chain IDs; multi-character mmCIF
+      chain identifiers are not supported.
     example: A
   chain_b:
     type: string
     pattern: '^[A-Za-z0-9]$'
     required: true
-    description: Chain identifier of the second partner, a single character.
+    description: >-
+      Chain identifier of the second partner: a single character only.
+      PRODIGY requires single-character chain IDs; multi-character mmCIF
+      chain identifiers are not supported.
     example: B
   temperature:
     type: number
