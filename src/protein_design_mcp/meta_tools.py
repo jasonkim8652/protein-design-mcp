@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from protein_design_mcp.manifest.loader import SIBLING_DOC_HEADING
 from protein_design_mcp.manifest.registry import ToolNotAvailable, ToolRegistry
 from protein_design_mcp.manifest.schema import parse_manifest
 
@@ -22,9 +23,9 @@ DESCRIBE_TOOL_MANIFEST = parse_manifest(
         "summary": (
             "Read the full documentation for a tool, or compare every tool in a "
             "category. Tool names here name the engine they run and nothing more, "
-            "so call this before choosing between similar tools. Pass name= for one "
-            "tool, or category= for a comparison of all tools in that category "
-            "(generation, monomer_generation, sequence_design, cofolding, scoring)."
+            "so call this before choosing between similar tools. Pass exactly one of: "
+            "name= for one tool, or category= for a comparison of all tools in that "
+            "category (generation, monomer_generation, sequence_design, cofolding, scoring)."
         ),
         "doc": (
             "## What this is\n"
@@ -68,6 +69,19 @@ def _describe_one(registry: ToolRegistry, name: str) -> dict[str, Any]:
             "error": str(exc),
             "available": [tool.name for tool in registry.tools()],
         }
+
+    def _param_spec(spec: dict[str, Any]) -> dict[str, Any]:
+        param = {
+            "type": spec.get("type"),
+            "required": bool(spec.get("required", False)),
+            "description": spec.get("description", ""),
+        }
+        if "default" in spec:
+            param["default"] = spec["default"]
+        if "example" in spec:
+            param["example"] = spec["example"]
+        return param
+
     return {
         "name": manifest.name,
         "category": manifest.category,
@@ -75,16 +89,19 @@ def _describe_one(registry: ToolRegistry, name: str) -> dict[str, Any]:
         "doc": manifest.doc,
         "engine": manifest.engine.repo,
         "parameters": {
-            key: {
-                "type": spec.get("type"),
-                "required": bool(spec.get("required", False)),
-                "default": spec.get("default"),
-                "description": spec.get("description", ""),
-                "example": spec.get("example"),
-            }
+            key: _param_spec(spec)
             for key, spec in manifest.schema.items()
         },
     }
+
+
+def _extract_sibling_section(doc: str) -> str:
+    """Extract the sibling comparison section, or return full doc if not present."""
+    if SIBLING_DOC_HEADING not in doc:
+        # Fallback: return full doc for single-member categories (no sibling section)
+        return doc
+    idx = doc.find(SIBLING_DOC_HEADING)
+    return doc[idx:]
 
 
 def _describe_category(registry: ToolRegistry, category: str) -> dict[str, Any]:
@@ -101,10 +118,11 @@ def _describe_category(registry: ToolRegistry, category: str) -> dict[str, Any]:
                 "name": m.name,
                 "summary": m.summary,
                 "engine": m.engine.repo,
-                "doc": m.doc,
+                "doc": _extract_sibling_section(m.doc),
             }
             for m in members
         ],
+        "note": "Call describe_tool(name=...) for the full documentation of any tool.",
     }
 
 
