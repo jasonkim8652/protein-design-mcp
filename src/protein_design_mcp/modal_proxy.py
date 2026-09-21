@@ -49,14 +49,19 @@ MODAL_URL = os.environ.get("MODAL_URL", "")
 _FILE_ARGS = {"target_pdb", "complex_pdb", "pdb_path", "expected_structure"}
 
 
-# Import tool definitions from main server (all 11 tools — GPU available on Modal)
-from protein_design_mcp.server import TOOLS  # noqa: E402
+# Build the tool listing from the manifest registry, the same way app.py
+# does for the local server. Modal has a GPU available, so build the
+# registry with device="cuda" rather than falling back to CPU-only
+# filtering.
+from protein_design_mcp.app import ServerApp, build_registry  # noqa: E402
+
+_app = ServerApp(build_registry(device="cuda"))
 
 
 @server.list_tools()
 async def list_tools() -> list[Tool]:
-    """Return all 11 tools (GPU available on Modal)."""
-    return TOOLS
+    """Return every tool available on the Modal (GPU) deployment."""
+    return await _app.list_tools()
 
 
 @server.call_tool()

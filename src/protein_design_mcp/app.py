@@ -44,42 +44,6 @@ def build_registry(device: str = "cuda") -> ToolRegistry:
     return ToolRegistry(load_manifests(manifest_dir()), device=device)
 
 
-class _RegistryWithDescribeTool:
-    """Read-only view over a ``ToolRegistry`` that also resolves the
-    ``describe_tool`` meta-manifest itself.
-
-    ``describe_tool`` is a built-in meta-tool, not something loaded from
-    ``manifests/*.yaml``, so it is never present in a ``ToolRegistry``'s own
-    manifest set. Without this, ``describe_tool(name="describe_tool")`` would
-    hit ``ToolRegistry.resolve`` and fail with "unknown tool". This wrapper
-    only ever *adds* the always-available meta-tool for read purposes; it
-    does not change availability filtering for any real tool, so it does not
-    introduce a second availability computation.
-    """
-
-    def __init__(self, registry: ToolRegistry) -> None:
-        self._registry = registry
-
-    def resolve(self, name: str):
-        if name == DESCRIBE_TOOL_MANIFEST.name:
-            return DESCRIBE_TOOL_MANIFEST
-        return self._registry.resolve(name)
-
-    def tools(self) -> list[Tool]:
-        return self._registry.tools()
-
-    def categories(self) -> list[str]:
-        cats = set(self._registry.categories())
-        cats.add(DESCRIBE_TOOL_MANIFEST.category)
-        return sorted(cats)
-
-    def by_category(self, category: str) -> list[Any]:
-        members = list(self._registry.by_category(category))
-        if category == DESCRIBE_TOOL_MANIFEST.category:
-            members = sorted([*members, DESCRIBE_TOOL_MANIFEST], key=lambda m: m.name)
-        return members
-
-
 def _error(message: str) -> list[TextContent]:
     return [TextContent(type="text", text=json.dumps({"error": message}, indent=2))]
 
@@ -99,7 +63,6 @@ class ServerApp:
         dispatcher: EnvDispatcher | None = None,
     ) -> None:
         self._registry = registry
-        self._describe_registry = _RegistryWithDescribeTool(registry)
         self._dispatcher = dispatcher or EnvDispatcher()
 
     async def list_tools(self) -> list[Tool]:
@@ -134,7 +97,7 @@ class ServerApp:
         if name == DESCRIBE_TOOL_MANIFEST.name:
             return _ok(
                 describe_tool(
-                    self._describe_registry,
+                    self._registry,
                     name=arguments.get("name"),
                     category=arguments.get("category"),
                 )

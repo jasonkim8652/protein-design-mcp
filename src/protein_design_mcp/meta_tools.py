@@ -62,13 +62,20 @@ DESCRIBE_TOOL_MANIFEST = parse_manifest(
 
 
 def _describe_one(registry: ToolRegistry, name: str) -> dict[str, Any]:
-    try:
-        manifest = registry.resolve(name)
-    except ToolNotAvailable as exc:
-        return {
-            "error": str(exc),
-            "available": [tool.name for tool in registry.tools()],
-        }
+    if name == DESCRIBE_TOOL_MANIFEST.name:
+        # describe_tool is a built-in meta-tool, not something loaded from
+        # manifests/*.yaml, so it is never in a registry's own manifest set.
+        # Answer directly rather than failing registry.resolve() with
+        # "unknown tool".
+        manifest = DESCRIBE_TOOL_MANIFEST
+    else:
+        try:
+            manifest = registry.resolve(name)
+        except ToolNotAvailable as exc:
+            return {
+                "error": str(exc),
+                "available": [tool.name for tool in registry.tools()],
+            }
 
     def _param_spec(spec: dict[str, Any]) -> dict[str, Any]:
         param = {
