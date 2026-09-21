@@ -110,10 +110,14 @@ async def run_server(transport: str = "stdio", host: str = "127.0.0.1", port: in
         import uvicorn
 
         manager = StreamableHTTPSessionManager(app=server)
-        config = uvicorn.Config(
-            manager.handle_request, host=host, port=port, log_level="info"
-        )
-        await uvicorn.Server(config).serve()
+        async with manager.run():
+            async def asgi_app(scope, receive, send):
+                await manager.handle_request(scope, receive, send)
+
+            config = uvicorn.Config(
+                asgi_app, host=host, port=port, log_level="info"
+            )
+            await uvicorn.Server(config).serve()
         return
 
     async with stdio_server() as (read_stream, write_stream):
