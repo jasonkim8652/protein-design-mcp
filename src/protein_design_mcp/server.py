@@ -4,6 +4,7 @@ Protein Binder Design MCP Server
 Main entry point for the MCP server that exposes protein design tools.
 """
 
+import argparse
 import asyncio
 import logging
 import os
@@ -85,19 +86,45 @@ async def list_resource_templates() -> list[ResourceTemplate]:
 # =============================================================================
 
 
-async def run_server():
-    """Run the MCP server."""
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse CLI arguments. Pure — safe to assert on in tests."""
+    parser = argparse.ArgumentParser(prog="protein-design-mcp")
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "http"],
+        default="stdio",
+        help=(
+            "stdio for a local client; http to serve over streamable HTTP so "
+            "clients on other machines can reach the GPU host."
+        ),
+    )
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8765)
+    return parser.parse_args(argv)
+
+
+async def run_server(transport: str = "stdio", host: str = "127.0.0.1", port: int = 8765):
+    """Run the MCP server over the chosen transport."""
+    if transport == "http":
+        from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+        import uvicorn
+
+        manager = StreamableHTTPSessionManager(app=server)
+        config = uvicorn.Config(
+            manager.handle_request, host=host, port=port, log_level="info"
+        )
+        await uvicorn.Server(config).serve()
+        return
+
     async with stdio_server() as (read_stream, write_stream):
         await server.run(
-            read_stream,
-            write_stream,
-            server.create_initialization_options(),
+            read_stream, write_stream, server.create_initialization_options()
         )
 
 
 def main():
-    """Main entry point."""
-    asyncio.run(run_server())
+    args = parse_args()
+    asyncio.run(run_server(args.transport, args.host, args.port))
 
 
 if __name__ == "__main__":
