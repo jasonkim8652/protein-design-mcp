@@ -1,5 +1,6 @@
 import asyncio
 import socket
+from unittest.mock import patch
 
 import pytest
 
@@ -44,48 +45,47 @@ async def test_http_transport_serves_requests():
     """
     Test that HTTP transport actually serves requests without RuntimeError.
 
-    This test catches the critical bug where manager.run() is not entered,
+    This test calls the real production run_server() and verifies it works
+    end-to-end. It catches the critical bug where manager.run() is not entered,
     leaving _task_group=None, which causes handle_request() to raise RuntimeError
     on every request.
 
     Uses a real HTTP request over a real socket (not in-process ASGI call) to
-    verify the entire request/response path works.
+    verify the entire request/response path works in production code.
     """
     import httpx
-    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
     import uvicorn
-    from protein_design_mcp.server import server
 
     # Find an available port
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
 
-    # State to capture uvicorn.Server instance and signal readiness
-    server_state = {}
-    server_ready = asyncio.Event()
+    # Capture uvicorn.Server instance from production run_server()
+    server_instance = {}
+    original_init = uvicorn.Server.__init__
 
-    async def run_http_server():
-        """Inline HTTP server setup to capture uvicorn.Server for graceful shutdown."""
-        manager = StreamableHTTPSessionManager(app=server)
-        async with manager.run():
-            async def asgi_app(scope, receive, send):
-                await manager.handle_request(scope, receive, send)
+    def init_with_capture(self, *args, **kwargs):
+        """Wrapper that captures server instance then calls original __init__."""
+        server_instance["server"] = self
+        original_init(self, *args, **kwargs)
 
-            config = uvicorn.Config(
-                asgi_app, host="127.0.0.1", port=port, log_level="info"
-            )
-            uv_server = uvicorn.Server(config)
-            server_state["server"] = uv_server
-            server_ready.set()  # Signal that server is ready
-            await uv_server.serve()
-
-    # Start HTTP server in background
-    server_task = asyncio.create_task(run_http_server())
+    # Keep patch active throughout the test
+    patcher = patch.object(uvicorn.Server, "__init__", init_with_capture)
+    patcher.start()
 
     try:
-        # Wait for server initialization with bounded timeout
-        await asyncio.wait_for(server_ready.wait(), timeout=3.0)
+        # Start real run_server() in background with patch still active
+        server_task = asyncio.create_task(
+            run_server(transport="http", host="127.0.0.1", port=port)
+        )
+    except:
+        patcher.stop()
+        raise
+
+    try:
+        # Initial small delay to let server start
+        await asyncio.sleep(0.1)
 
         # Retry loop: wait for server to accept connections
         max_retries = 20
@@ -129,7 +129,7 @@ async def test_http_transport_serves_requests():
         )
     finally:
         # Graceful shutdown: signal server to exit cleanly
-        uv_server = server_state.get("server")
+        uv_server = server_instance.get("server")
         if uv_server:
             uv_server.should_exit = True
 
@@ -143,3 +143,5 @@ async def test_http_transport_serves_requests():
                 await server_task
             except asyncio.CancelledError:
                 pass
+        finally:
+            patcher.stop()
