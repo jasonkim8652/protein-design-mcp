@@ -37,6 +37,28 @@ def test_named_tool_includes_its_parameters():
     assert result["parameters"]["seq"]["example"] == "MKT"
 
 
+def test_named_tool_omits_absent_default_and_example():
+    # Verify that absent default/example are not in the response
+    registry = ToolRegistry([_m("run_test", schema={"arg": {"type": "string", "required": True}})])
+    result = describe_tool(registry, name="run_test")
+    assert "default" not in result["parameters"]["arg"]
+    assert "example" not in result["parameters"]["arg"]
+    assert "required" in result["parameters"]["arg"]  # required is always present
+
+
+def test_named_tool_includes_default_when_present():
+    registry = ToolRegistry([_m("run_test", schema={"arg": {"type": "string", "default": "val"}})])
+    result = describe_tool(registry, name="run_test")
+    assert result["parameters"]["arg"]["default"] == "val"
+
+
+def test_named_tool_includes_default_null_when_present():
+    registry = ToolRegistry([_m("run_test", schema={"arg": {"type": "string", "default": None}})])
+    result = describe_tool(registry, name="run_test")
+    assert "default" in result["parameters"]["arg"]
+    assert result["parameters"]["arg"]["default"] is None
+
+
 def test_category_mode_lists_every_sibling_with_its_summary():
     result = describe_tool(REGISTRY, category="cofolding")
     names = {tool["name"] for tool in result["tools"]}
@@ -46,6 +68,29 @@ def test_category_mode_lists_every_sibling_with_its_summary():
 
 def test_category_mode_reports_the_category_back():
     assert describe_tool(REGISTRY, category="cofolding")["category"] == "cofolding"
+
+
+def test_category_mode_returns_only_sibling_section_not_full_doc():
+    result = describe_tool(REGISTRY, category="cofolding")
+    for tool in result["tools"]:
+        # Should contain the sibling section
+        assert HEADING in tool["doc"]
+        # Should NOT contain the full "## What this is" section
+        assert "## What this is" not in tool["doc"]
+
+
+def test_category_mode_includes_note_about_full_docs():
+    result = describe_tool(REGISTRY, category="cofolding")
+    assert "note" in result
+    assert "describe_tool(name=" in result["note"]
+
+
+def test_category_mode_fallback_full_doc_for_single_member():
+    # When a category has only one member without a sibling section header,
+    # fall back to the full doc (since there are no "siblings" to compare)
+    registry = ToolRegistry([_m("run_solo", category="scoring", doc="No sibling section here.")])
+    result = describe_tool(registry, category="scoring")
+    assert result["tools"][0]["doc"] == "No sibling section here."
 
 
 def test_unknown_tool_lists_available_names():
