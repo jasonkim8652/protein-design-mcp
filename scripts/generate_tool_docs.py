@@ -27,8 +27,22 @@ _CONSTRAINT_KEYS = (
 )
 
 
+def _escape_markdown_cell(value: str) -> str:
+    """Escape special markdown characters for table cells.
+
+    Escapes pipes (|) and newlines to prevent table corruption.
+    """
+    if not isinstance(value, str):
+        value = str(value)
+    # Escape unescaped pipes
+    value = value.replace("|", r"\|")
+    # Replace newlines with spaces to keep single-row cells
+    value = value.replace("\n", " ")
+    return value
+
+
 def _constraints(spec: dict) -> str:
-    parts = [f"{key}: `{spec[key]}`" for key in _CONSTRAINT_KEYS if key in spec]
+    parts = [f"{key}: `{_escape_markdown_cell(str(spec[key]))}`" for key in _CONSTRAINT_KEYS if key in spec]
     return "<br>".join(parts) if parts else "—"
 
 
@@ -59,10 +73,10 @@ def render_doc(manifest: Manifest) -> str:
     for key, spec in manifest.schema.items():
         default = spec.get("default", "—")
         lines.append(
-            f"| `{key}` | {spec.get('type', '—')} | "
+            f"| `{key}` | {_escape_markdown_cell(spec.get('type', '—'))} | "
             f"{'yes' if spec.get('required') else 'no'} | "
-            f"`{default}` | {_constraints(spec)} | "
-            f"{spec.get('description', '')} |"
+            f"`{_escape_markdown_cell(str(default))}` | {_constraints(spec)} | "
+            f"{_escape_markdown_cell(spec.get('description', ''))} |"
         )
     lines.append("")
     return "\n".join(lines)

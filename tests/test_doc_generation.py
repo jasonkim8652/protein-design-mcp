@@ -48,3 +48,48 @@ def test_generated_docs_are_current(tmp_path):
     committed = Path(__file__).resolve().parents[1] / "docs" / "tools"
     for generated in sorted(tmp_path.glob("*.md")):
         assert (committed / generated.name).read_text() == generated.read_text()
+    # Detect orphaned docs (manifest deleted but doc file left behind)
+    generated_names = {p.name for p in tmp_path.glob("*.md")}
+    committed_names = {p.name for p in committed.glob("*.md")}
+    assert generated_names == committed_names, (
+        f"Orphaned doc file(s) in {committed}: {committed_names - generated_names}. "
+        f"Delete the doc file when its manifest is removed."
+    )
+
+
+def test_parameter_table_has_valid_markdown_cells():
+    """Verify each parameter table row has the correct number of unescaped pipe cells."""
+    rendered = render_doc(_prodigy())
+    lines = rendered.split("\n")
+
+    # Find the header row
+    header_idx = None
+    for i, line in enumerate(lines):
+        if line.startswith("| Parameter |"):
+            header_idx = i
+            break
+
+    assert header_idx is not None, "Parameter table header not found"
+
+    # Count unescaped pipes: pipes not preceded by backslash
+    def count_unescaped_pipes(line: str) -> int:
+        count = 0
+        for i, char in enumerate(line):
+            if char == "|" and (i == 0 or line[i - 1] != "\\"):
+                count += 1
+        return count
+
+    header_line = lines[header_idx]
+    expected_pipes = count_unescaped_pipes(header_line)
+
+    # For each row after the separator, verify unescaped pipe count
+    separator_idx = header_idx + 1
+    for i in range(separator_idx + 1, len(lines)):
+        line = lines[i]
+        if not line.strip() or not line.startswith("|"):
+            break
+        actual_pipes = count_unescaped_pipes(line)
+        assert actual_pipes == expected_pipes, (
+            f"Row {i} has {actual_pipes} unescaped pipes but header has {expected_pipes}. "
+            f"This breaks the markdown table. Line: {line}"
+        )
