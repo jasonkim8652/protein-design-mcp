@@ -134,16 +134,30 @@ async def test_process_group_kill_on_timeout(tmp_path):
 
 @pytest.mark.asyncio
 async def test_cancellation_cleans_up_process(tmp_path):
-    """Verify that task cancellation kills the process and propagates CancelledError."""
+    """Verify that task cancellation kills the process and propagates CancelledError.
+
+    This test actively verifies the cancelled process is dead, not just inferred from
+    dispatcher availability. If os.killpg() is removed from the except BaseException
+    block, this test will fail.
+    """
     d = EnvDispatcher(runner=None, scratch_root=tmp_path)
     engine = EngineSpec(repo="py", env="unused", entry=(sys.executable,))
 
-    task = asyncio.create_task(
-        d.run(engine, ["-c", "import time; time.sleep(30)"], timeout=60)
+    pid_file = tmp_path / "child_pid.txt"
+
+    # Script that writes its own pid to a file then sleeps
+    script = (
+        "import os, time; "
+        f"open({str(pid_file)!r}, 'w').write(str(os.getpid())); "
+        "time.sleep(30)"
     )
 
-    # Give the task time to start the process
-    await asyncio.sleep(0.2)
+    task = asyncio.create_task(
+        d.run(engine, ["-c", script], timeout=60)
+    )
+
+    # Give the task time to start the process and write its pid
+    await asyncio.sleep(0.3)
 
     # Cancel the task
     task.cancel()
@@ -155,10 +169,12 @@ async def test_cancellation_cleans_up_process(tmp_path):
     # Give cleanup time to complete
     await asyncio.sleep(0.1)
 
-    # Verify the child process has been reaped (no longer exists)
-    # This is hard to verify directly without accessing internals,
-    # so we do a second run to ensure resources were freed
-    result = await d.run(
-        engine, ["-c", "import sys; sys.exit(0)"], timeout=30
-    )
-    assert result.returncode == 0
+    # Read the child's pid from the file
+    assert pid_file.exists(), "Child process did not write pid file"
+    child_pid = int(pid_file.read_text().strip())
+
+    # Verify the child process is actually dead by attempting to send signal 0
+    # (signal 0 checks if the process exists without sending any signal)
+    # If the process is dead, this raises ProcessLookupError
+    with pytest.raises(ProcessLookupError):
+        os.kill(child_pid, 0)
