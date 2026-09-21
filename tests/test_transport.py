@@ -47,44 +47,99 @@ async def test_http_transport_serves_requests():
     This test catches the critical bug where manager.run() is not entered,
     leaving _task_group=None, which causes handle_request() to raise RuntimeError
     on every request.
+
+    Uses a real HTTP request over a real socket (not in-process ASGI call) to
+    verify the entire request/response path works.
     """
     import httpx
+    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+    import uvicorn
+    from protein_design_mcp.server import server
 
     # Find an available port
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
 
-    # Start run_server in background
-    server_task = asyncio.create_task(run_server(transport="http", host="127.0.0.1", port=port))
+    # State to capture uvicorn.Server instance and signal readiness
+    server_state = {}
+    server_ready = asyncio.Event()
+
+    async def run_http_server():
+        """Inline HTTP server setup to capture uvicorn.Server for graceful shutdown."""
+        manager = StreamableHTTPSessionManager(app=server)
+        async with manager.run():
+            async def asgi_app(scope, receive, send):
+                await manager.handle_request(scope, receive, send)
+
+            config = uvicorn.Config(
+                asgi_app, host="127.0.0.1", port=port, log_level="info"
+            )
+            uv_server = uvicorn.Server(config)
+            server_state["server"] = uv_server
+            server_ready.set()  # Signal that server is ready
+            await uv_server.serve()
+
+    # Start HTTP server in background
+    server_task = asyncio.create_task(run_http_server())
 
     try:
-        # Wait for server to be ready (with timeout)
-        await asyncio.sleep(0.5)
+        # Wait for server initialization with bounded timeout
+        await asyncio.wait_for(server_ready.wait(), timeout=3.0)
 
-        # Make an HTTP request to the server
-        async with httpx.AsyncClient() as client:
-            # POST to /rpc endpoint (standard MCP path)
-            response = await asyncio.wait_for(
-                client.post(
-                    f"http://127.0.0.1:{port}/rpc",
-                    json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
-                    timeout=2.0,
-                ),
-                timeout=5.0,
-            )
+        # Retry loop: wait for server to accept connections
+        max_retries = 20
+        retry_interval = 0.2
+        last_error = None
 
-            # Should NOT be 500 (which would happen if manager._task_group is None)
-            # A 400/401/other client error is ok; what matters is no RuntimeError crash
-            assert response.status_code != 500, (
-                f"Server returned 500 error. Check logs for: "
-                f"'Task group is not initialized. Make sure to use run().' "
-                f"Response: {response.text}"
-            )
+        for attempt in range(max_retries):
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await asyncio.wait_for(
+                        client.post(
+                            f"http://127.0.0.1:{port}/rpc",
+                            json={
+                                "jsonrpc": "2.0",
+                                "id": 1,
+                                "method": "initialize",
+                                "params": {},
+                            },
+                            timeout=1.0,
+                        ),
+                        timeout=2.0,
+                    )
+                # Request succeeded
+                break
+            except (httpx.ConnectError, asyncio.TimeoutError, OSError) as e:
+                last_error = e
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_interval)
+
+        if last_error:
+            raise AssertionError(
+                f"Server did not become ready after "
+                f"{max_retries * retry_interval:.1f}s: {last_error}"
+            ) from last_error
+
+        # Verify response is not 500 (which indicates RuntimeError in handler)
+        assert response.status_code != 500, (
+            f"Server returned 500 error. This indicates the critical bug "
+            f"'Task group is not initialized. Make sure to use run().' "
+            f"Response: {response.text}"
+        )
     finally:
-        # Always cancel the server task
-        server_task.cancel()
+        # Graceful shutdown: signal server to exit cleanly
+        uv_server = server_state.get("server")
+        if uv_server:
+            uv_server.should_exit = True
+
         try:
-            await server_task
-        except asyncio.CancelledError:
-            pass
+            # Wait for server to shut down cleanly with timeout
+            await asyncio.wait_for(server_task, timeout=3.0)
+        except asyncio.TimeoutError:
+            # Fallback: forceful cancellation if graceful shutdown times out
+            server_task.cancel()
+            try:
+                await server_task
+            except asyncio.CancelledError:
+                pass
