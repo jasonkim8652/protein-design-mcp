@@ -1,4 +1,7 @@
+import asyncio
+import os
 import sys
+import time
 
 import pytest
 
@@ -99,3 +102,63 @@ async def test_missing_runner_reports_the_environment_name(tmp_path):
     d = EnvDispatcher(runner="definitely-not-a-real-binary", scratch_root=tmp_path)
     with pytest.raises(EngineError, match="scoring"):
         await d.run(ENGINE, [], timeout=30)
+
+
+@pytest.mark.asyncio
+async def test_process_group_kill_on_timeout(tmp_path):
+    """Verify that timeout kills the entire process group, not just the direct child."""
+    d = EnvDispatcher(runner=None, scratch_root=tmp_path)
+    engine = EngineSpec(repo="py", env="unused", entry=(sys.executable,))
+
+    # Script that spawns a grandchild (not detached) which sleeps then writes sentinel
+    # Without proper process group killing, the grandchild would survive timeout
+    script = (
+        "import subprocess, sys; "
+        "sentinel = sys.argv[1]; "
+        "subprocess.Popen([sys.executable, '-c', "
+        "f'import time; time.sleep(2); open({sentinel!r}, \"w\").close()']); "
+        "import time; time.sleep(10)"
+    )
+
+    sentinel_file = tmp_path / "grandchild_ran.txt"
+
+    with pytest.raises(EngineError, match="timed out"):
+        await d.run(engine, ["-c", script, str(sentinel_file)], timeout=1)
+
+    # Wait slightly past grandchild's sleep time to verify it was killed
+    await asyncio.sleep(2.5)
+
+    # Assert the sentinel file never appeared (grandchild was killed)
+    assert not sentinel_file.exists(), "Grandchild process was not killed with process group"
+
+
+@pytest.mark.asyncio
+async def test_cancellation_cleans_up_process(tmp_path):
+    """Verify that task cancellation kills the process and propagates CancelledError."""
+    d = EnvDispatcher(runner=None, scratch_root=tmp_path)
+    engine = EngineSpec(repo="py", env="unused", entry=(sys.executable,))
+
+    task = asyncio.create_task(
+        d.run(engine, ["-c", "import time; time.sleep(30)"], timeout=60)
+    )
+
+    # Give the task time to start the process
+    await asyncio.sleep(0.2)
+
+    # Cancel the task
+    task.cancel()
+
+    # Assert CancelledError is propagated
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    # Give cleanup time to complete
+    await asyncio.sleep(0.1)
+
+    # Verify the child process has been reaped (no longer exists)
+    # This is hard to verify directly without accessing internals,
+    # so we do a second run to ensure resources were freed
+    result = await d.run(
+        engine, ["-c", "import sys; sys.exit(0)"], timeout=30
+    )
+    assert result.returncode == 0
