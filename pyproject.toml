@@ -35,7 +35,8 @@ classifiers = [
 ]
 
 dependencies = [
-    "mcp>=0.1.0",
+    "mcp>=1.25,<2",
+    "uvicorn>=0.30",
     "numpy>=1.24",
     "biopython>=1.81",
     "aiofiles>=23.0",
