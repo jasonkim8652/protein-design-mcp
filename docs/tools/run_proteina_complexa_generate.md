@@ -2,7 +2,7 @@
 
 **Category:** binder_generation  
 **Engine:** `proteinfoundation`  
-**Environment:** `/home/jk661/.conda/envs/proteina`  
+**Environment:** `/home/jk661/.conda/envs/proteina_complexa`  
 **GPU required:** yes
 
 > This file is generated from `src/protein_design_mcp/manifests/run_proteina_complexa_generate.yaml`. Edit the manifest, then run `python scripts/generate_tool_docs.py`.
@@ -43,6 +43,25 @@ Hydra override string.
 residues and default binder-length range are all defined there, not
 inferred). There is no "supply your own target PDB" path on this tool --
 every target this engine can generate against is catalog-registered.
+
+## Path resolution -- verified live, and non-obvious
+Live-tested (2026-09-22, via a real `complexa filter` invocation, which
+hits the same class of issue): `ckpt_path`/`autoencoder_ckpt_path`
+(`./ckpts`, `./ckpts/complexa_ae.ckpt`) and every catalog target's own
+`target_path` in `targets_dict.yaml` are CWD-RELATIVE strings, correct
+only when `complexa` is run by hand from the repo root -- this tool's
+subprocess instead runs with its cwd set to a disposable scratch
+directory (so its own OUTPUT lands there, not inside this read-only
+checkout), which breaks every one of those relative paths.
+`datasets/gen_dataset.py`'s `TargetFeatures.__init__` uses the target
+path as a literal `os.path.exists` check with no repo-root prefixing
+anywhere in that path, so this is not cosmetic -- an unfixed run would
+fail before generation even starts, with a target-not-found error naming
+a path that looks superficially plausible. This adapter therefore
+overrides `ckpt_path`, `autoencoder_ckpt_path`, and the selected
+target's own `pdb_path` to absolute values itself; none of this is
+caller-visible or configurable, since there is only one correct value
+for each on this host.
 
 ## When to use this instead of the alternatives
 - `run_boltzgen_design` is the direct sibling in this category: a

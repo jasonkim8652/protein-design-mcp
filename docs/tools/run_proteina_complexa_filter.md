@@ -2,7 +2,7 @@
 
 **Category:** run_analysis  
 **Engine:** `proteinfoundation`  
-**Environment:** `/home/jk661/.conda/envs/proteina`  
+**Environment:** `/home/jk661/.conda/envs/proteina_complexa`  
 **GPU required:** no
 
 > This file is generated from `src/protein_design_mcp/manifests/run_proteina_complexa_filter.yaml`. Edit the manifest, then run `python scripts/generate_tool_docs.py`.

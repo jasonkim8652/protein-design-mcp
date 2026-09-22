@@ -7,30 +7,49 @@ engine:
   repo: proteinfoundation
   # Not an editable pip install of a package on this env's PATH the way
   # boltzgen/promera are -- `complexa` (proteinfoundation.cli.cli_runner)
-  # is installed into the `proteina` conda env's own bin/, but the package
-  # it imports (`proteinfoundation`) is editable-installed FROM the
+  # is installed into the `proteina_complexa` conda env's own bin/, but the
+  # package it imports (`proteinfoundation`) is editable-installed FROM the
   # checkout at /home/jk661/projects/proteina-complexa (confirmed live:
   # `site-packages/_proteinfoundation.pth` points there). Same shape as
   # every other GPU engine on this host -- prefix dispatch, source mounted
   # separately from the prefix itself.
-  prefix: /home/jk661/.conda/envs/proteina
+  #
+  # `/home/jk661/.conda/envs/proteina` (this tool's original prefix) is
+  # missing several of Proteina-Complexa's own declared dependencies
+  # (lightning, pydantic, typing_extensions, fsspec) and additionally holds
+  # a mixed, partially-broken package set unrelated to this engine (`pip
+  # check` there also reports langgraph/claude-agent-sdk/langchain-core/
+  # pytest-asyncio breakage) -- it is the user's own environment and is not
+  # repaired here. `proteina_complexa` is a SEPARATE env (built 2026-09-22
+  # via `conda create --clone proteina --prefix .../proteina_complexa`,
+  # then fixed up independently with its own bin/pip: restored
+  # numpy/scipy/biotite to versions atomworks/jax actually need, added
+  # openbabel-wheel, graphein==1.7.7, and jax[cuda12]==0.9.2 for the reward
+  # model's GPU backend) -- confirmed live, 2026-09-22: `complexa
+  # generate`/`filter`/`analyze` all complete end to end under it on GPU 7.
+  prefix: /home/jk661/.conda/envs/proteina_complexa
   entry: ["complexa", "generate"]
   env_vars:
-    # `python -m protein_design_mcp.mounts /home/jk661/.conda/envs/proteina
-    # proteinfoundation` (run live, 2026-09-22) resolves proteinfoundation
-    # to .../proteina-complexa/src/proteinfoundation ONLY when probed with
-    # PYTHONNOUSERSITE=1. Without it, the probe additionally reports
+    # `python -m protein_design_mcp.mounts
+    # /home/jk661/.conda/envs/proteina_complexa proteinfoundation` (re-run
+    # live, 2026-09-22, against this env after the prefix switch) resolves
+    # proteinfoundation to .../proteina-complexa/src/proteinfoundation --
+    # the same single path the original `proteina` prefix produced, so the
+    # mounts below are unchanged by the prefix switch. Without
+    # PYTHONNOUSERSITE=1 the raw probe still additionally reports
     # /home/jk661/projects/protein-design-mcp/src as an "editable target"
     # -- a phantom, unrelated to proteinfoundation at all: this host's
     # ~/.local/lib/python3.12/site-packages carries an unrelated editable
     # install of THIS project's own MCP server
     # (__editable__.protein_design_mcp-0.1.0.pth), which Python's user-site
     # mechanism puts on sys.path for every conda env's interpreter running
-    # as this OS user, proteina included. Setting PYTHONNOUSERSITE=1 here
-    # is the same fix WAVE-COMMON documents for esmfold2's fair-esm
-    # shadowing -- it keeps this engine's own dependency resolution from
-    # depending on an unrelated project's editable install ever being
-    # present on this host.
+    # as this OS user, proteina_complexa included -- discover_mounts itself
+    # now filters that particular phantom out structurally (it detects a
+    # `protein_design_mcp` subdirectory and drops it), but PYTHONNOUSERSITE
+    # is kept here anyway since it is the same fix WAVE-COMMON documents
+    # for esmfold2's fair-esm shadowing, for defense in depth against this
+    # engine's own dependency resolution ever depending on an unrelated
+    # project's editable install on this host.
     PYTHONNOUSERSITE: "1"
     # `complexa` refuses every step EXCEPT init/demo/download/validate/
     # status unless COMPLEXA_INIT is set (cli_runner.py:1962-1977,
@@ -57,10 +76,6 @@ engine:
     # against engine.mounts, not path-containment, so the parent-
     # directory mount alone does not satisfy it.
     - /home/jk661/projects/proteina-complexa/src/proteinfoundation
-    # Phantom entry explained above -- genuinely present on this env's
-    # sys.path today regardless of PYTHONNOUSERSITE (mounts are ABOUT
-    # container visibility, not import resolution order), so it still has
-    # to be listed even though PYTHONNOUSERSITE keeps it from being used.
     # Read-only; never written to. Same precedent as run_promera.yaml.
 
 requires:

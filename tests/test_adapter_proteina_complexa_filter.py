@@ -36,7 +36,7 @@ def test_manifest_loads_and_is_cpu_run_analysis():
 
 def test_manifest_uses_prefix_not_env():
     engine = _manifest().engine
-    assert engine.prefix == "/home/jk661/.conda/envs/proteina"
+    assert engine.prefix == "/home/jk661/.conda/envs/proteina_complexa"
     assert engine.env is None
     assert engine.entry == ("complexa", "filter")
     assert engine.repo == "proteinfoundation"
