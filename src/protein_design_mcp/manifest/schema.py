@@ -13,6 +13,13 @@ from typing import Any
 
 TOOL_NAME_RE = re.compile(r"^(run_[a-z0-9_]+|describe_tool|get_job_status)$")
 
+# An OutputSpec.name is used both as a dict key in the collected-results
+# payload and (dispatch/env.py -> results.collect_outputs) as a results
+# subdirectory name. A single path-safe token is the honest constraint: it
+# rules out "/abs" and "../escape" the same way an allowlist of characters
+# always does, without trying to special-case every path-traversal shape.
+OUTPUT_NAME_RE = re.compile(r"^[A-Za-z0-9_]+$")
+
 CATEGORIES = frozenset(
     {
         "generation",
@@ -165,9 +172,17 @@ def _parse_outputs(data: Any, name: str) -> tuple[OutputSpec, ...]:
         out_name = entry.get("name")
         if not out_name:
             raise ManifestError(f"{label} is missing required key 'name'")
+        out_name = str(out_name)
+        if not OUTPUT_NAME_RE.match(out_name):
+            raise ManifestError(
+                f"{label}: name {out_name!r} must match "
+                f"{OUTPUT_NAME_RE.pattern!r} — it is used as a dict key and "
+                "as a results directory name, so it must be a single "
+                "path-safe token (no '/', no '..', not empty)"
+            )
         if out_name in seen:
             raise ManifestError(f"{name}: duplicate output name {out_name!r}")
-        seen.add(str(out_name))
+        seen.add(out_name)
 
         pattern = entry.get("pattern")
         if not pattern:

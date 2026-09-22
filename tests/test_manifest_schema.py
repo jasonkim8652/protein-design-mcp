@@ -198,6 +198,36 @@ def test_output_multiple_is_parsed():
     assert out.multiple is True
 
 
+def test_output_name_with_path_traversal_is_rejected():
+    data = {**MINIMAL, "outputs": [{"name": "../evil", "pattern": "x.pdb"}]}
+    with pytest.raises(ManifestError, match="name"):
+        parse_manifest(data)
+
+
+def test_output_name_with_absolute_component_is_rejected():
+    data = {**MINIMAL, "outputs": [{"name": "/abs", "pattern": "x.pdb"}]}
+    with pytest.raises(ManifestError, match="name"):
+        parse_manifest(data)
+
+
+def test_output_name_empty_string_is_rejected():
+    data = {**MINIMAL, "outputs": [{"name": "", "pattern": "x.pdb"}]}
+    with pytest.raises(ManifestError, match="name"):
+        parse_manifest(data)
+
+
+def test_ordinary_output_names_still_parse():
+    data = {
+        **MINIMAL,
+        "outputs": [
+            {"name": "minimized_pdb", "pattern": "minimized.pdb"},
+            {"name": "designs_fasta", "pattern": "seqs/*.fa", "multiple": True},
+        ],
+    }
+    names = [out.name for out in parse_manifest(data).outputs]
+    assert names == ["minimized_pdb", "designs_fasta"]
+
+
 def test_timeout_is_parsed():
     assert parse_manifest({**MINIMAL, "timeout_s": 120}).timeout_s == 120
 

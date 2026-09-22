@@ -4,7 +4,11 @@ from pathlib import Path
 import pytest
 
 from protein_design_mcp.manifest.schema import OutputSpec
-from protein_design_mcp.results import collect_outputs, results_dir
+from protein_design_mcp.results import (
+    AmbiguousOutputError,
+    collect_outputs,
+    results_dir,
+)
 
 
 def test_results_dir_honours_the_env_var(tmp_path, monkeypatch):
@@ -90,7 +94,7 @@ def test_ambiguous_single_valued_pattern_raises_naming_all_matches(tmp_path, mon
     (workdir / "out_1.pdb").write_text("B\n")
 
     specs = (OutputSpec(name="design", pattern="out_*.pdb"),)
-    with pytest.raises(FileNotFoundError, match="design") as exc:
+    with pytest.raises(AmbiguousOutputError, match="design") as exc:
         collect_outputs(specs, workdir, "r")
     assert "out_0.pdb" in str(exc.value)
     assert "out_1.pdb" in str(exc.value)
@@ -134,3 +138,24 @@ def test_single_valued_pattern_with_exactly_one_match_returns_a_string(tmp_path,
 
     assert isinstance(collected["design"], str)
     assert Path(collected["design"]).name == "out_0.pdb"
+
+
+def test_multiple_true_same_basename_in_different_subdirs_does_not_collide(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("PROTEIN_MCP_RESULTS_DIR", str(tmp_path / "res"))
+    workdir = tmp_path / "wd"
+    (workdir / "x").mkdir(parents=True)
+    (workdir / "y").mkdir(parents=True)
+    (workdir / "x" / "out.fa").write_text("X\n")
+    (workdir / "y" / "out.fa").write_text("Y\n")
+
+    specs = (OutputSpec(name="designs_fasta", pattern="*/out.fa", multiple=True),)
+    collected = collect_outputs(specs, workdir, "r")
+
+    paths = collected["designs_fasta"]
+    assert isinstance(paths, list)
+    assert len(paths) == 2
+    assert len(set(paths)) == 2, "the two matches must not collide on one path"
+    contents = sorted(Path(p).read_text() for p in paths)
+    assert contents == ["X\n", "Y\n"]
