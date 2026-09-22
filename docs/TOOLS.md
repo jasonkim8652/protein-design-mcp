@@ -11,12 +11,15 @@
 | `run_boltzgen_filter` | BoltzGen 0.3.2 |
 | `run_rfdiffusion_binder` | RFdiffusion 1.1.0 |
 | `run_rfdiffusion2` | RFdiffusion2 |
+| `run_rfdiffusion3` | RFdiffusion3 (RFD3) |
 | `run_protpardelle` | Protpardelle-1c 1.3.2 |
+| `run_genie3_binder` | Genie 3 |
+| `run_genie3_scaffold` | Genie 3 |
 | `run_genie2` | Genie2 |
 | `run_frameflow` | FrameFlow |
 | `run_multiflow` | MultiFlow |
 | `run_la_proteina` | La-Proteina |
-| `run_mpnn` | LigandMPNN |
+| `run_mpnn` | ProteinMPNN / LigandMPNN / SolubleMPNN |
 | `run_esmfold2` | ESMFold2 (esm 3.4.0) |
 | `run_chai1` | Chai-1 0.6.1 |
 | `run_boltz` | Boltz-2 2.2.1 |
