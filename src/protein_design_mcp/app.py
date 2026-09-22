@@ -13,7 +13,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from mcp.types import TextContent, Tool
+from mcp.types import CallToolResult, TextContent, Tool
 
 from protein_design_mcp.adapters import prodigy
 from protein_design_mcp.dispatch.env import EngineError, EnvDispatcher
@@ -79,8 +79,20 @@ def build_registry(device: str = "cuda") -> ToolRegistry:
     return ToolRegistry(manifests, device=device)
 
 
-def _error(message: str) -> list[TextContent]:
-    return [TextContent(type="text", text=json.dumps({"error": message}, indent=2))]
+def _error(message: str) -> CallToolResult:
+    """Build an error result.
+
+    Returns a ``CallToolResult`` with ``isError=True`` rather than a bare
+    list of content, because with server-side JSON-schema validation
+    disabled (see server.py) this is now the ONLY signal a client has to
+    distinguish a refusal from a normal result: the SDK passes a
+    ``CallToolResult`` through unchanged (see ``mcp.server.Server.call_tool``),
+    but a plain ``list[TextContent]`` is always wrapped as ``isError=False``.
+    """
+    return CallToolResult(
+        content=[TextContent(type="text", text=json.dumps({"error": message}, indent=2))],
+        isError=True,
+    )
 
 
 def _ok(payload: Any) -> list[TextContent]:
@@ -125,16 +137,24 @@ class ServerApp:
 
     async def call_tool(
         self, name: str, arguments: dict[str, Any] | None
-    ) -> list[TextContent]:
+    ) -> list[TextContent] | CallToolResult:
         arguments = arguments or {}
         logger.info("tool call: %s %s", name, arguments)
 
         if name == DESCRIBE_TOOL_MANIFEST.name:
+            # Routed through validate_and_fill like any other tool: with the
+            # SDK's own schema validation disabled (server.py sets
+            # validate_input=False so OUR messages reach the client), this is
+            # the only input validation describe_tool gets.
+            try:
+                params = validate_and_fill(DESCRIBE_TOOL_MANIFEST, arguments)
+            except ToolInputError as exc:
+                return _error(str(exc))
             return _ok(
                 describe_tool(
                     self._registry,
-                    name=arguments.get("name"),
-                    category=arguments.get("category"),
+                    name=params.get("name"),
+                    category=params.get("category"),
                 )
             )
 
