@@ -2,11 +2,12 @@ import asyncio
 import os
 import sys
 import time
+from pathlib import Path
 
 import pytest
 
 from protein_design_mcp.dispatch.env import EngineError, EnvDispatcher
-from protein_design_mcp.manifest.schema import EngineSpec
+from protein_design_mcp.manifest.schema import EngineSpec, OutputSpec
 
 ENGINE = EngineSpec(repo="prodigy", env="scoring", entry=("prodigy",))
 
@@ -214,3 +215,45 @@ async def test_cancellation_cleans_up_process(tmp_path):
     # If the process is dead, this raises ProcessLookupError
     with pytest.raises(ProcessLookupError):
         os.kill(child_pid, 0)
+
+
+@pytest.mark.asyncio
+async def test_declared_outputs_survive_workdir_cleanup(tmp_path, monkeypatch):
+    monkeypatch.setenv("PROTEIN_MCP_RESULTS_DIR", str(tmp_path / "res"))
+    d = EnvDispatcher(runner=None, scratch_root=tmp_path)
+    engine = EngineSpec(repo="py", env="unused", entry=(sys.executable,))
+    script = "open('made.txt','w').write('hello')"
+
+    result = await d.run(
+        engine,
+        ["-c", script],
+        timeout=30,
+        outputs=(OutputSpec(name="made", pattern="made.txt"),),
+    )
+
+    assert not result.workdir.exists(), "workdir should be removed on success"
+    assert Path(result.outputs["made"]).read_text() == "hello"
+
+
+@pytest.mark.asyncio
+async def test_workdir_is_kept_when_a_declared_output_is_missing(tmp_path, monkeypatch):
+    monkeypatch.setenv("PROTEIN_MCP_RESULTS_DIR", str(tmp_path / "res"))
+    d = EnvDispatcher(runner=None, scratch_root=tmp_path)
+    engine = EngineSpec(repo="py", env="unused", entry=(sys.executable,))
+
+    with pytest.raises(EngineError, match="made"):
+        await d.run(
+            engine,
+            ["-c", "pass"],
+            timeout=30,
+            outputs=(OutputSpec(name="made", pattern="made.txt"),),
+        )
+
+
+@pytest.mark.asyncio
+async def test_run_without_outputs_still_removes_the_workdir(tmp_path):
+    d = EnvDispatcher(runner=None, scratch_root=tmp_path)
+    engine = EngineSpec(repo="py", env="unused", entry=(sys.executable,))
+    result = await d.run(engine, ["-c", "print('hi')"], timeout=30)
+    assert result.outputs == {}
+    assert not result.workdir.exists()

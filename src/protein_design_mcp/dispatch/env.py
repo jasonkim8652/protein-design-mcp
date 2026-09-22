@@ -16,12 +16,13 @@ import shutil
 import signal
 import uuid
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from tempfile import gettempdir
 from typing import Any
 
-from protein_design_mcp.manifest.schema import EngineSpec
+from protein_design_mcp.manifest.schema import EngineSpec, OutputSpec
+from protein_design_mcp.results import collect_outputs
 
 _OOM_MARKERS = ("out of memory", "outofmemoryerror", "cuda error: out of memory")
 
@@ -36,6 +37,7 @@ class CompletedRun:
     stdout: str
     stderr: str
     workdir: Path
+    outputs: dict[str, str] = field(default_factory=dict)
 
 
 class EnvDispatcher:
@@ -67,6 +69,7 @@ class EnvDispatcher:
         args: Sequence[Any],
         *,
         timeout: float,
+        outputs: Sequence[OutputSpec] = (),
     ) -> CompletedRun:
         """Execute the engine. Raises EngineError on any failure."""
         command = self.build_command(engine, args)
@@ -133,6 +136,19 @@ class EnvDispatcher:
                 f"Working directory preserved for diagnosis: {workdir}"
             )
 
+        # Declared outputs must be copied out before the workdir is removed:
+        # a workdir cannot be both cleaned up and the place results live. A
+        # missing declared output keeps the workdir (like the EngineError
+        # branches above) so it can be inspected.
+        try:
+            collected = collect_outputs(outputs, workdir, workdir.name)
+        except FileNotFoundError as exc:
+            raise EngineError(
+                f"engine {engine.repo!r} exited successfully but did not produce "
+                f"an expected output: {exc}\n\n"
+                f"Working directory preserved for diagnosis: {workdir}"
+            ) from exc
+
         # Only a clean run's scratch directory is removed: a failed run
         # keeps its workdir (see the EngineError branches above) so it can
         # be inspected, since it may hold partial output or logs.
@@ -143,4 +159,5 @@ class EnvDispatcher:
             stdout=stdout,
             stderr=stderr,
             workdir=workdir,
+            outputs=collected,
         )
