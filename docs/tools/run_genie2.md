@@ -1,0 +1,92 @@
+# run_genie2
+
+**Category:** monomer_generation  
+**Engine:** `genie2`  
+**Environment:** `/home/jk661/.conda/envs/genie2`  
+**GPU required:** yes
+
+> This file is generated from `src/protein_design_mcp/manifests/run_genie2.yaml`. Edit the manifest, then run `python scripts/generate_tool_docs.py`.
+
+## Summary
+
+Generate an unconditional monomer backbone with Genie 2's SE(3)-equivariant diffusion model (no sequence, no side chains -- design a sequence for the result with run_mpnn). Only the "base" checkpoint (epoch 40, the one downloaded on this host) is used; motif scaffolding (genie/sample_scaffold.py) is a separate entry point this tool does not expose.
+
+## What this is
+Genie 2's `genie/sample_unconditional.py`, run against the single
+checkpoint present on this host (`results/base/checkpoints/epoch=40.ckpt`).
+It draws CA-frame backbones at lengths you choose, with no conditioning of
+any kind.
+
+## What it is for
+A fast, dependency-light monomer generator when you want a novel fold and
+do not need motif scaffolding or a binder against a specific target.
+
+## When to use this instead of the alternatives
+- `run_frameflow` (not yet implemented) and `run_genie3_scaffold`
+  (not yet implemented) are the direct siblings -- other unconditional
+  monomer generators (flow-matching and diffusion respectively). No single
+  one is strictly better across all lengths; this one has no CLI-exposed
+  seed (see below), which the others do.
+- `run_multiflow` (not yet implemented) additionally co-designs a sequence
+  with ProteinMPNN in the same call; this tool produces backbones only,
+  designed afterward with `run_mpnn`.
+- For a target-conditioned binder rather than a free-standing monomer, use
+  `run_genie3_binder` (not yet implemented) or `run_protpardelle`
+  (not yet implemented) instead -- this tool has no notion of a target at
+  all.
+
+## `min_length`/`max_length`/`length_step` -- this multiplies with `num_samples`
+Genie 2 samples `num_samples` structures **at every length** from
+`min_length` to `max_length` in steps of `length_step` (not `num_samples`
+total). A caller who wants exactly one length should set
+`min_length == max_length`; `length_step` is then ignored. Each length
+takes roughly the same wall-clock time as any other (about 45-50s for one
+50-residue sample on this host's GPU 7), so total runtime is approximately
+`num_samples * ceil((max_length - min_length) / length_step + 1)` times
+that per-sample cost -- large ranges can exceed `timeout_s` (7200s here);
+narrow the range or lower `num_samples` rather than relying on the timeout
+to cut a run short.
+
+## `scale`
+Sampling noise scale, in [0, 1]. Genie 2's own README states 0-1 inclusive
+with no single recommended value; 0.6 is what this tool defaults to,
+matching the value the upstream README uses in its own "reproduce our
+unconditional generation" example and the value verified live on this host
+(docs/superpowers/reviews/2026-09-22-gpu-engine-survey.md). Lower values
+sample closer to the model's mean prediction at each step (less diverse,
+more likely to look like a low-noise average structure); higher values
+inject more stochasticity (more diverse, higher chance of an unrealistic
+fold).
+
+## What is NOT exposed, and why
+- **No seed.** `sample_unconditional.py`'s own argparse surface has no
+  `--seed` flag (confirmed from `--help`) -- Genie 2 does not let a caller
+  fix one for this entry point.
+- **No step-count/temperature knob beyond `scale`.** The script's CLI is
+  its entire configurable surface (see the survey); there is no separate
+  diffusion-step-count flag to raise or lower.
+- **`name`/`epoch`** (which trained checkpoint) are fixed to `base`/`40`,
+  the only checkpoint downloaded on this host -- exposing them as free text
+  would let a caller pick a combination that fails deep inside the engine
+  instead of validating up front.
+
+## What you must supply
+Nothing beyond the length range -- this is unconditional generation.
+
+## What you get back
+`backbones`: one entry per generated PDB, each `{"id", "length"}` (`length`
+counted from the file's own CA atoms, not merely inferred from the
+filename). `num_backbones`, and under `outputs` the path to every generated
+PDB.
+
+## Parameters
+
+| Parameter | Type | Required | Default | Constraints | Description |
+|---|---|---|---|---|---|
+| `min_length` | integer | yes | `—` | minimum: `5`<br>maximum: `256` | Shortest length to sample, inclusive. Genie 2's training data caps out at 256 residues (the model was trained on AFDB structures filtered to that length); results above it are unverified. See the doc's note on how this multiplies with num_samples. |
+| `max_length` | integer | yes | `—` | minimum: `5`<br>maximum: `256` | Longest length to sample, inclusive. Set equal to min_length to sample one length only. See the doc's note on how this multiplies with num_samples. |
+| `length_step` | integer | no | `10` | minimum: `1`<br>maximum: `256` | Gap between sampled lengths, from min_length to max_length. Ignored when min_length equals max_length. |
+| `num_samples` | integer | no | `2` | minimum: `1`<br>maximum: `1000` | Number of samples to draw AT EACH sampled length (not a total count -- see the doc's multiplication note). Genie 2's own README default is 5; this tool defaults lower (2) since a single interactive call should start small given the per-length multiplication. |
+| `batch_size` | integer | no | `4` | minimum: `1`<br>maximum: `64` | Number of structures denoised in parallel per forward pass. Raise for throughput if GPU memory allows; lower if a run runs out of memory. Genie 2's own default. |
+| `scale` | number | no | `0.6` | minimum: `0.0`<br>maximum: `1.0` | Sampling noise scale, 0 (deterministic, low diversity) to 1 (maximum stochasticity, higher diversity but more likely to be unrealistic). See the doc's "scale" section for the reasoning behind the 0.6 default. |
+| `sequential_order` | boolean | no | `False` | — | Genie 2 shuffles the generation task order by default so multi-GPU runs balance load; true runs strictly in increasing order of length instead. Purely a scheduling knob -- has no effect on the structures produced, only the order they are generated and thus written to disk. |
