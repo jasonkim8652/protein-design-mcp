@@ -235,6 +235,11 @@ class ServerApp:
                 outputs=manifest.outputs,
             )
             payload = parse_output(manifest, run)
+            if "outputs" in payload:
+                raise ValueError(
+                    f"adapter for {name} returned 'outputs' key, which is "
+                    f"reserved by the dispatcher contract; rename this field"
+                )
             if run.outputs:
                 payload = {**payload, "outputs": run.outputs}
             return _ok(payload)
