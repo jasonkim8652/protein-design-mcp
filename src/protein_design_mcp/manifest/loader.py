@@ -14,28 +14,82 @@ SIBLING_DOC_HEADING = "## When to use this instead of the alternatives"
 
 _TOOL_MENTION_RE = re.compile(r"\brun_[a-z0-9_]+\b")
 _UNAVAILABLE_MARKER = "not yet implemented"
+_FENCED_CODE_BLOCK_RE = re.compile(r"^```", re.MULTILINE)
+
+
+def _extract_paragraphs(text: str) -> list[str]:
+    """Split text into paragraphs, skipping fenced code blocks.
+
+    A paragraph is a block of non-empty lines separated by blank lines.
+    Fenced code blocks (``` delimited) are treated as atomic units.
+    """
+    paragraphs = []
+    current_paragraph = []
+    in_code_block = False
+
+    for line in text.splitlines():
+        # Track code block state
+        if line.strip().startswith("```"):
+            in_code_block = not in_code_block
+            # Include code block lines in the current paragraph if building one
+            if current_paragraph or in_code_block:
+                current_paragraph.append(line)
+            continue
+
+        # In a code block: accumulate but don't end paragraph
+        if in_code_block:
+            current_paragraph.append(line)
+            continue
+
+        # Outside code block: blank line ends paragraph
+        if not line.strip():
+            if current_paragraph:
+                paragraphs.append("\n".join(current_paragraph))
+                current_paragraph = []
+            continue
+
+        # Outside code block, non-blank line: accumulate
+        current_paragraph.append(line)
+
+    # Don't forget the last paragraph
+    if current_paragraph:
+        paragraphs.append("\n".join(current_paragraph))
+
+    return paragraphs
 
 
 def _check_doc_references(manifests: list[Manifest]) -> None:
-    """Every tool a doc names must exist, or be marked not yet implemented.
+    """Every tool a summary/doc names must exist, or be marked not yet implemented.
+
+    Checks both summary (visible to all MCP clients) and doc (reachable via
+    describe_tool). Scans per-paragraph to survive rewrapping. Skips fenced
+    code blocks where hypothetical tool names are safe.
 
     Without this, a doc that says "use run_x instead" keeps saying it after
     run_x ships under a different name, or before it ships at all — and the
     model acts on it either way.
     """
     known = {m.name for m in manifests}
+
     for manifest in manifests:
-        for line in manifest.doc.splitlines():
-            for mentioned in _TOOL_MENTION_RE.findall(line):
-                if mentioned in known or mentioned == manifest.name:
+        # Check both summary (more visible) and doc (less visible but still exposed)
+        for text_kind, text in [("summary", manifest.summary), ("doc", manifest.doc)]:
+            paragraphs = _extract_paragraphs(text)
+            for paragraph in paragraphs:
+                # Skip paragraphs that are entirely inside fenced code blocks
+                if paragraph.strip().startswith("```"):
                     continue
-                if _UNAVAILABLE_MARKER in line.lower():
-                    continue
-                raise ManifestError(
-                    f"{manifest.name}: doc names {mentioned!r}, which is not a "
-                    "known tool. Either fix the name, or mark it "
-                    f"'({_UNAVAILABLE_MARKER})' on the same line."
-                )
+
+                for mentioned in _TOOL_MENTION_RE.findall(paragraph):
+                    if mentioned in known or mentioned == manifest.name:
+                        continue
+                    if _UNAVAILABLE_MARKER in paragraph.lower():
+                        continue
+                    raise ManifestError(
+                        f"{manifest.name}: {text_kind} names {mentioned!r}, which is not a "
+                        "known tool. Either fix the name, or mark it "
+                        f"'({_UNAVAILABLE_MARKER})' in the same paragraph."
+                    )
 
 
 def _load_one(path: Path) -> Manifest:

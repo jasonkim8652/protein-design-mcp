@@ -129,10 +129,19 @@ def test_the_meta_tool_manifest_is_itself_valid():
 
 def test_describe_tool_schema_matches_the_registry_derivation():
     """The meta-tool's schema must come from the same code path as every other."""
-    from protein_design_mcp.manifest.registry import json_schema_for
+    import asyncio
+    from protein_design_mcp.app import ServerApp
+    from protein_design_mcp.manifest.registry import json_schema_for, ToolRegistry
     from protein_design_mcp.meta_tools import DESCRIBE_TOOL_MANIFEST
 
+    # Verify the derivation function produces the expected shape
     derived = json_schema_for(DESCRIBE_TOOL_MANIFEST)
     assert derived["additionalProperties"] is False
     assert "required" not in derived["properties"]["name"]
     assert "example" not in derived["properties"]["name"]
+
+    # Verify that ServerApp.list_tools() uses the same derivation for describe_tool
+    app = ServerApp(ToolRegistry([]))
+    tools = asyncio.run(app.list_tools())
+    describe_tool_tool = next(t for t in tools if t.name == "describe_tool")
+    assert describe_tool_tool.inputSchema == derived
