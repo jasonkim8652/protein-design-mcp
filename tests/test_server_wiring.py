@@ -12,6 +12,16 @@ from protein_design_mcp.manifest.schema import parse_manifest
 MANIFEST_DIR = manifest_dir()
 
 
+def _text(result):
+    """Extract the first content block's text, whether ``call_tool``
+    returned a plain ``list[TextContent]`` (success) or a ``CallToolResult``
+    with ``isError=True`` (FIX 3: error paths now carry isError so a client
+    can tell a refusal from a result)."""
+    if isinstance(result, list):
+        return result[0].text
+    return result.content[0].text
+
+
 def _manifest_sharing_a_repo(name):
     """Two manifests that would collide if ADAPTERS were keyed on
     engine.repo instead of manifest.name (FIX 2)."""
@@ -67,14 +77,18 @@ async def test_composite_tool_is_absent_from_the_listing():
 @pytest.mark.asyncio
 async def test_calling_a_composite_tool_by_name_is_refused_with_a_reason():
     app = ServerApp(ToolRegistry([_composite()]))
-    payload = json.loads((await app.call_tool("run_boltzgen_run", {}))[0].text)
+    result = await app.call_tool("run_boltzgen_run", {})
+    assert result.isError is True
+    payload = json.loads(_text(result))
     assert "composite" in payload["error"]
 
 
 @pytest.mark.asyncio
 async def test_calling_an_unknown_tool_reports_it():
     app = ServerApp(ToolRegistry([]))
-    payload = json.loads((await app.call_tool("run_nope", {}))[0].text)
+    result = await app.call_tool("run_nope", {})
+    assert result.isError is True
+    payload = json.loads(_text(result))
     assert "unknown" in payload["error"]
 
 
@@ -94,10 +108,10 @@ async def test_invalid_input_returns_a_correctable_error_not_a_crash():
         [m for m in _load_real() if m.name == "run_prodigy"]
     )
     app = ServerApp(registry)
-    payload = json.loads(
-        (await app.call_tool("run_prodigy", {"complex_pdb": "notes.txt",
-                                             "chain_a": "A", "chain_b": "B"}))[0].text
-    )
+    result = await app.call_tool("run_prodigy", {"complex_pdb": "notes.txt",
+                                                  "chain_a": "A", "chain_b": "B"})
+    assert result.isError is True
+    payload = json.loads(_text(result))
     assert "complex_pdb" in payload["error"]
     assert "complex.pdb" in payload["error"]
 
@@ -110,6 +124,18 @@ def _load_real():
 
 def test_real_manifests_all_load():
     assert {m.name for m in _load_real()} >= {"run_prodigy"}
+
+
+@pytest.mark.asyncio
+async def test_describe_tool_is_routed_through_validate_and_fill():
+    """Regression for FIX 3: describe_tool used to be dispatched before any
+    validation. With SDK schema validation disabled, this manifest's own
+    validate_and_fill call is the only input-checking describe_tool gets."""
+    app = ServerApp(ToolRegistry([]))
+    result = await app.call_tool("describe_tool", {"bogus": "x"})
+    assert result.isError is True
+    payload = json.loads(_text(result))
+    assert "bogus" in payload["error"] or "unexpected" in payload["error"]
 
 
 @pytest.mark.asyncio
@@ -162,7 +188,9 @@ async def test_adapter_keyerror_produces_a_clear_error_not_a_crash(monkeypatch):
     )
 
     app = ServerApp(ToolRegistry([manifest]), dispatcher=_FakeDispatcher())
-    payload = json.loads((await app.call_tool("run_sharedrepo_broken", {}))[0].text)
+    result = await app.call_tool("run_sharedrepo_broken", {})
+    assert result.isError is True
+    payload = json.loads(_text(result))
     assert "error" in payload
     assert "run_sharedrepo_broken" in payload["error"]
     assert "adapter" in payload["error"]

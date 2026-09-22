@@ -54,8 +54,14 @@ async def list_tools() -> list[Tool]:
     return await _app.list_tools()
 
 
-@server.call_tool()
-async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+@server.call_tool(validate_input=False)
+async def call_tool(name: str, arguments: dict[str, Any]):
+    # validate_input=False: the SDK's default jsonschema validation runs
+    # BEFORE our handler and, on failure, replaces our message with its own
+    # generic "Input validation error: ...". validation.py exists precisely
+    # to name the offending parameter, state the constraint, and show a
+    # correct example for a model that will read the error and retry — so
+    # our validator, not jsonschema, must be the actual boundary.
     return await _app.call_tool(name, arguments)
 
 
