@@ -213,3 +213,30 @@ def test_parse_output_raises_when_generated_designs_missing(tmp_path):
     run = CompletedRun(returncode=0, stdout="", stderr="", workdir=tmp_path, outputs={})
     with pytest.raises(ValueError, match="generated_designs"):
         parse_output(_manifest(), run)
+
+
+def test_parse_output_ignores_npz_metadata_mixed_into_generated_designs(tmp_path):
+    """generated_designs' pattern now collects BOTH .cif and .npz (see the
+    manifest) so a downstream run_boltzgen_fold/analyze call can be handed
+    the combined list directly -- parse_output must skip the .npz entries
+    when building chain sequences, not try to parse them as structures."""
+    cif = tmp_path / "design_spec_0.cif"
+    npz = tmp_path / "design_spec_0.npz"
+    _write_cif(cif, {"A": "AALVL"})
+    npz.write_bytes(b"\x00not a cif")
+    run = CompletedRun(
+        returncode=0, stdout="", stderr="", workdir=tmp_path,
+        outputs={"generated_designs": [str(cif), str(npz)]},
+    )
+    result = parse_output(_manifest(), run)
+    assert result["num_designs"] == 1
+    assert result["designs"][0]["id"] == "design_spec_0"
+
+
+def test_manifest_generated_designs_pattern_also_collects_npz():
+    """The metadata .npz beside each .cif is required by BoltzGen's own
+    downstream fold/design_fold/analyze steps (data_from_generated.py reads
+    both from the SAME design_dir) -- without it, run_boltzgen_fold has no
+    path to this tool's output. See wave-E-report.md."""
+    pattern = _manifest().outputs[0].pattern
+    assert pattern.endswith(".[cn][ip][fz]")

@@ -82,17 +82,23 @@ def parse_output(manifest: Manifest, run: CompletedRun) -> dict[str, Any]:
     design_spec, and every chain (including the ones held fixed) is
     reported so a caller can confirm what did and did not change.
     ``manifest`` is unused (see ``build_args``).
+
+    ``inverse_folded_designs`` collects both each design's ``.cif`` AND its
+    companion ``.npz`` (see the manifest's ``outputs:`` comment) -- the
+    ``.npz`` is real, required output, just not something this payload's
+    ``designs`` describes a chain sequence for, so it is skipped here.
     """
     del manifest
-    cif_paths = run.outputs.get("inverse_folded_designs")
-    if not cif_paths:
+    all_paths = run.outputs.get("inverse_folded_designs")
+    if not all_paths:
         raise ValueError(
             "run_boltzgen_inverse_fold's declared 'inverse_folded_designs' "
             f"output was not collected -- no design file was found. "
             f"run.outputs was: {run.outputs}"
         )
-    if not isinstance(cif_paths, list):
-        cif_paths = [cif_paths]
+    if not isinstance(all_paths, list):
+        all_paths = [all_paths]
+    cif_paths = [path for path in all_paths if Path(path).suffix == ".cif"]
 
     designs = [
         {"id": Path(path).stem, "chains": _chains_from_cif(path)}

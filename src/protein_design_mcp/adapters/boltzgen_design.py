@@ -89,17 +89,25 @@ def parse_output(manifest: Manifest, run: CompletedRun) -> dict[str, Any]:
     reported, and the caller -- who wrote design_spec -- already knows which
     one(s) they marked for design. ``manifest`` is unused (see
     ``build_args``).
+
+    ``generated_designs`` collects both each design's ``.cif`` AND its
+    companion ``.npz`` (see the manifest's ``outputs:`` comment) -- the
+    ``.npz`` is real, required output (BoltzGen's own downstream fold/
+    analyze steps need it), just not something THIS payload's ``designs``
+    describes a chain sequence for, so it is skipped here rather than
+    fed to the mmCIF parser.
     """
     del manifest
-    cif_paths = run.outputs.get("generated_designs")
-    if not cif_paths:
+    all_paths = run.outputs.get("generated_designs")
+    if not all_paths:
         raise ValueError(
             "run_boltzgen_design's declared 'generated_designs' output was "
             f"not collected -- no design file was found. run.outputs was: "
             f"{run.outputs}"
         )
-    if not isinstance(cif_paths, list):
-        cif_paths = [cif_paths]
+    if not isinstance(all_paths, list):
+        all_paths = [all_paths]
+    cif_paths = [path for path in all_paths if Path(path).suffix == ".cif"]
 
     designs = [
         {"id": Path(path).stem, "chains": _chains_from_cif(path)}
