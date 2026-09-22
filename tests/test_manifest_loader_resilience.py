@@ -28,6 +28,7 @@ import textwrap
 
 import pytest
 
+from protein_design_mcp.app import ServerApp
 from protein_design_mcp.manifest.loader import load_manifests_resilient
 from protein_design_mcp.manifest.registry import ToolNotAvailable, ToolRegistry
 from protein_design_mcp.manifest.schema import ManifestError
@@ -82,9 +83,12 @@ def test_malformed_manifest_does_not_take_down_a_valid_sibling(tmp_path, monkeyp
     result = load_manifests_resilient(tmp_path)
 
     assert [m.name for m in result.manifests] == ["run_prodigy"]
-    assert "broken.yaml" in result.reasons
-    # the reason names the file
-    assert "broken.yaml" in result.reasons["broken.yaml"]
+    # Round-2 fix: broken.yaml's `name: run_broken` DID parse before the
+    # category check failed, so the reason must be reachable by the tool
+    # name a caller would actually ask for — not only by the filename,
+    # which resolve() is never called with.
+    assert "run_broken" in result.reasons
+    assert "broken.yaml" in result.reasons["run_broken"]
 
 
 def test_surviving_tool_is_resolvable_not_merely_counted(tmp_path, monkeypatch):
@@ -185,7 +189,12 @@ def test_every_manifest_malformed_yields_empty_registry_not_an_exception(
     result = load_manifests_resilient(tmp_path)
 
     assert result.manifests == []
-    assert set(result.reasons) == {"a.yaml", "b.yaml"}
+    # Neither file has a usable name (a.yaml never has a `name:` key at all;
+    # b.yaml isn't valid YAML), so both fall back to their filename stem —
+    # a convention, not a guarantee, but still the identifier a caller would
+    # plausibly ask for. The raw filenames may additionally be present for
+    # the startup exclusion table, but the stems must be there.
+    assert {"a", "b"} <= set(result.reasons)
 
     registry = ToolRegistry(result.manifests, load_failures=result.reasons)
     assert registry.tools() == []
@@ -226,3 +235,95 @@ def test_comment_only_yaml_file_is_excluded_not_treated_as_empty_dict(
 
     assert [m.name for m in result.manifests] == ["run_prodigy"]
     assert "comment.yaml" in result.reasons
+
+
+# --- Round 2: a load failure must be reachable by the name a model would
+# actually ask for, not only by an identifier resolve() never sees --------
+#
+# Round 1 keyed every _load_one failure by the source *filename*
+# ("run_mpnn.yaml"). That's fine for a failure that happens before any name
+# exists (invalid YAML) but wrong whenever the name DID parse before a later
+# check failed: resolve("run_mpnn") was never going to match a reasons key
+# of "run_mpnn.yaml", so it fell through to the generic "unknown tool"
+# branch — telling the model the tool never existed, not that its manifest
+# is broken. Confirmed against production code: injecting invalid YAML into
+# the real run_mpnn.yaml and calling ServerApp.call_tool("run_mpnn", ...)
+# returned {"error": "unknown tool: 'run_mpnn'"} instead of an explanation.
+
+
+def test_post_parse_failure_is_resolvable_by_tool_name_with_an_explanation(
+    tmp_path, monkeypatch
+):
+    """The name DID parse (this is a doc-reference violation, which only
+    happens after a full, successful Manifest parse) — resolve() by that
+    name must explain, not say "unknown tool"."""
+    _lenient(monkeypatch)
+    _write(tmp_path, "run_prodigy.yaml", VALID)
+    _write(tmp_path, "run_needs_ref.yaml", BAD_REF)
+
+    result = load_manifests_resilient(tmp_path)
+    registry = ToolRegistry(result.manifests, load_failures=result.reasons)
+
+    with pytest.raises(ToolNotAvailable) as excinfo:
+        registry.resolve("run_needs_ref")
+    message = str(excinfo.value)
+    assert "unknown tool" not in message
+    assert "run_ghost_tool" in message
+
+
+def test_unparseable_file_is_resolvable_by_its_filename_stem(tmp_path, monkeypatch):
+    """No name ever parses here (the file isn't valid YAML at all), so the
+    only identifier available is the filename convention (run_mpnn.yaml ->
+    run_mpnn). resolve() by that stem must explain the file failed to load
+    and must NOT assert that a tool by that name definitely exists — the
+    codebase has no invariant tying filename to tool name."""
+    _lenient(monkeypatch)
+    _write(tmp_path, "run_prodigy.yaml", VALID)
+    (tmp_path / "run_mpnn.yaml").write_text("key: [1, 2\n")  # invalid YAML
+
+    result = load_manifests_resilient(tmp_path)
+    assert "run_mpnn" in result.reasons  # the stem, not "run_mpnn.yaml"
+
+    registry = ToolRegistry(result.manifests, load_failures=result.reasons)
+    with pytest.raises(ToolNotAvailable) as excinfo:
+        registry.resolve("run_mpnn")
+    message = str(excinfo.value)
+    assert "unknown tool" not in message
+    assert "run_mpnn.yaml" in message  # names the actual file
+
+
+async def test_call_tool_for_a_post_parse_failure_does_not_say_unknown_tool(
+    tmp_path, monkeypatch
+):
+    _lenient(monkeypatch)
+    _write(tmp_path, "run_prodigy.yaml", VALID)
+    _write(tmp_path, "run_needs_ref.yaml", BAD_REF)
+
+    result = load_manifests_resilient(tmp_path)
+    registry = ToolRegistry(result.manifests, load_failures=result.reasons)
+    app = ServerApp(registry)
+
+    response = await app.call_tool("run_needs_ref", {})
+    text = response.content[0].text
+    assert "unknown tool" not in text
+    assert "run_ghost_tool" in text
+
+
+async def test_call_tool_for_an_unparseable_file_does_not_say_unknown_tool(
+    tmp_path, monkeypatch
+):
+    """The exact scenario from the round-2 probe: production code, called
+    through the real dispatch path, for a manifest that never parsed at
+    all."""
+    _lenient(monkeypatch)
+    _write(tmp_path, "run_prodigy.yaml", VALID)
+    (tmp_path / "run_mpnn.yaml").write_text("key: [1, 2\n")
+
+    result = load_manifests_resilient(tmp_path)
+    registry = ToolRegistry(result.manifests, load_failures=result.reasons)
+    app = ServerApp(registry)
+
+    response = await app.call_tool("run_mpnn", {})
+    text = response.content[0].text
+    assert "unknown tool" not in text
+    assert "run_mpnn.yaml" in text

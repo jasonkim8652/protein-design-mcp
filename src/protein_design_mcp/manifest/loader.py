@@ -10,7 +10,12 @@ from typing import NamedTuple
 
 import yaml
 
-from protein_design_mcp.manifest.schema import Manifest, ManifestError, parse_manifest
+from protein_design_mcp.manifest.schema import (
+    TOOL_NAME_RE,
+    Manifest,
+    ManifestError,
+    parse_manifest,
+)
 
 SIBLING_DOC_HEADING = "## When to use this instead of the alternatives"
 
@@ -116,6 +121,30 @@ def _load_one(path: Path) -> Manifest:
         raise ManifestError(f"{path.name}: {exc}") from exc
 
 
+def _probe_name(path: Path) -> str | None:
+    """Best-effort tool name for a manifest whose full load failed, used
+    only to key its exclusion reason so ``resolve(name)`` can find it.
+
+    Returns ``None`` when the file isn't valid YAML, isn't a mapping, or
+    has no ``name`` that even looks like a real tool name — callers must
+    fall back to the file's own name (or stem) in that case. That fallback
+    is a naming CONVENTION this codebase happens to follow (every real
+    manifest today is named after its tool), never a guarantee: nothing
+    enforces filename == tool name, so a caller relying on it must be told
+    honestly, not as if the tool is confirmed to exist.
+    """
+    try:
+        data = yaml.safe_load(path.read_text())
+    except yaml.YAMLError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    name = data.get("name")
+    if isinstance(name, str) and TOOL_NAME_RE.match(name):
+        return name
+    return None
+
+
 def _check_unique(manifests: list[Manifest]) -> None:
     counts = collections.Counter(m.name for m in manifests)
     duplicates = sorted(name for name, n in counts.items() if n > 1)
@@ -166,10 +195,20 @@ class ManifestLoadResult(NamedTuple):
 
     ``manifests`` is every manifest that is safe to serve. ``reasons`` maps
     an identifier to a model-facing explanation of why something else was
-    excluded: a tool name for a duplicate-name or bad-cross-reference
-    exclusion (both have a parsed, named manifest behind them), or a
-    ``*.yaml`` file name for a manifest that never got far enough to have a
-    name at all (unreadable file, invalid YAML, schema violation).
+    excluded, keyed by whatever a caller would plausibly ``resolve()``:
+
+    - the tool NAME whenever it is known — duplicate-name and
+      bad-cross-reference exclusions always have a fully parsed, named
+      Manifest behind them; a per-file failure (schema violation, etc.)
+      that happened AFTER ``name:`` itself parsed is keyed by that name too.
+    - the file's STEM (``run_mpnn.yaml`` -> ``run_mpnn``) when no name ever
+      parsed at all (unreadable file, invalid YAML, not even a mapping).
+      This is a naming convention this codebase's manifests happen to
+      follow, never a guarantee, so that reason says the FILE failed to
+      load rather than asserting a tool by that name exists.
+    - the raw file name may ALSO be present (for the startup exclusion
+      table) but is never the only key — nothing is ever resolvable only by
+      a ``*.yaml``-suffixed identifier, since no tool name ever has one.
     """
 
     manifests: list[Manifest]
@@ -285,7 +324,35 @@ def load_manifests_resilient(directory: Path) -> ManifestLoadResult:
         try:
             pairs.append((path, _load_one(path)))
         except ManifestError as exc:
-            reasons[path.name] = str(exc)
+            message = str(exc)
+            probed_name = _probe_name(path)
+            if probed_name is not None:
+                # The name parsed before something later failed (bad
+                # category, empty summary, etc.) — key by it so a caller
+                # asking for THAT tool gets told why, not "unknown tool".
+                reasons[probed_name] = (
+                    f"{probed_name} is unavailable: its manifest file "
+                    f"({path.name}) failed to load: {message}"
+                )
+            else:
+                # No name ever parsed (unreadable file, invalid YAML, not
+                # even a mapping). The filename stem is the only plausible
+                # identifier a caller might use — but it's a convention,
+                # not a fact, so say so rather than asserting the tool
+                # exists.
+                reasons[path.stem] = (
+                    f"a manifest file ({path.name}) failed to load, so it "
+                    "defines no tool right now. If a caller expected a "
+                    f"tool named {path.stem!r} here — going only by the "
+                    "filename, which this codebase does not guarantee "
+                    f"matches the tool's actual name — that name is "
+                    f"unavailable until the file is fixed: {message}"
+                )
+            # Keep the raw filename too (harmless, and useful for an
+            # operator scanning the startup log by file rather than tool
+            # name) but never as the ONLY key: resolve() is never called
+            # with a ".yaml" suffix.
+            reasons.setdefault(path.name, message)
 
     duplicate_reasons = _duplicate_exclusions(pairs)
     reasons.update(duplicate_reasons)
