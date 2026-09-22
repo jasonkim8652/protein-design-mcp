@@ -53,16 +53,43 @@ def stage_inputs(
     A name whose source file does not exist raises ``FileNotFoundError`` from
     the underlying ``shutil.copy2`` call, exactly as a missing file already
     fails at the point an engine subprocess would have tried to read it.
+
+    A ``params[name]`` that is a ``list`` (an array-of-``format: path``
+    schema parameter — see ``manifest.schema._validate_stage``) stages EVERY
+    item into that SAME ``workdir/<name>/`` directory, rather than each
+    getting its own subdirectory. This is the opposite tradeoff from two
+    DIFFERENT staged names (kept apart specifically so same-basename inputs
+    never collide): here, landing together in one directory is the whole
+    point — an engine like BoltzGen's ``fold``/``analyze`` reads each
+    design's ``.cif`` and its matching ``.npz`` out of the SAME directory,
+    matched by shared basename, so the caller's one file list (e.g. a prior
+    tool call's own combined ``outputs`` list) has to end up in one place.
+    Two list ITEMS that happen to share a basename overwrite each other
+    (last write wins, exactly like ``shutil.copy2`` always does) rather than
+    being deduplicated or renamed — a same-named collision within one list
+    is a caller error (a duplicate file), not something this function can
+    safely paper over. An empty list stages nothing and returns an empty
+    list, not ``None`` — this is a legitimate value (e.g. "nothing survived
+    upstream filtering"), never treated as "parameter absent".
     """
     staged = dict(params)
     for name in names:
         value = params.get(name)
         if value is None:
             continue
-        source = Path(str(value))
         dest_dir = workdir / name
         dest_dir.mkdir(parents=True, exist_ok=True)
-        dest = dest_dir / source.name
-        shutil.copy2(source, dest)
-        staged[name] = str(dest)
+        if isinstance(value, list):
+            staged_items = []
+            for item in value:
+                source = Path(str(item))
+                dest = dest_dir / source.name
+                shutil.copy2(source, dest)
+                staged_items.append(str(dest))
+            staged[name] = staged_items
+        else:
+            source = Path(str(value))
+            dest = dest_dir / source.name
+            shutil.copy2(source, dest)
+            staged[name] = str(dest)
     return staged

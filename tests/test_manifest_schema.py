@@ -309,6 +309,51 @@ def test_engine_stage_must_be_a_list_of_strings():
         parse_manifest(data)
 
 
+def _with_array_of_path_param():
+    """An array-of-path schema entry (items.format == 'path'), the shape
+    run_boltzgen_fold/design_fold/analyze need to stage many caller-supplied
+    files (a prior tool's whole outputs list) into one shared directory."""
+    return {
+        **MINIMAL,
+        "schema": {
+            **MINIMAL["schema"],
+            "generated_files": {
+                "type": "array",
+                "items": {"type": "string", "format": "path"},
+                "required": True,
+                "description": "Files to stage together.",
+                "example": ["a.cif", "a.npz"],
+            },
+        },
+    }
+
+
+def test_engine_stage_accepts_an_array_of_path_parameter():
+    data = _with_array_of_path_param()
+    data["engine"] = {**data["engine"], "stage": ["generated_files"]}
+    m = parse_manifest(data)
+    assert m.engine.stage == ("generated_files",)
+
+
+def test_engine_stage_rejects_an_array_whose_items_are_not_format_path():
+    """An array param without items.format == 'path' is exactly as
+    unstageable as a scalar without format: path."""
+    data = {
+        **MINIMAL,
+        "schema": {
+            **MINIMAL["schema"],
+            "plain_list": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Not paths.",
+            },
+        },
+    }
+    data["engine"] = {**data["engine"], "stage": ["plain_list"]}
+    with pytest.raises(ManifestError, match="format: path"):
+        parse_manifest(data)
+
+
 def test_integer_timeout_still_accepted():
     m = parse_manifest({**MINIMAL, "timeout_s": 120})
     assert m.timeout_s == 120

@@ -207,11 +207,31 @@ def _resolve_path_params(manifest: Manifest, params: dict[str, Any]) -> dict[str
     Resolution happens here, in the main server process, before the
     dispatcher ever changes into the scratch directory, so it is always
     relative to the server's own working directory (or already absolute).
+
+    An array schema entry whose ``items.format == "path"`` (see
+    ``manifest.schema._validate_stage``'s array-of-path support, used by
+    e.g. ``run_boltzgen_fold``'s ``generated_files``) gets the same
+    treatment applied to every element, not just a top-level string --
+    otherwise a caller-supplied relative path inside such a list would
+    resolve against ``engine.stage``'s staging step (or the engine
+    subprocess's own cwd) instead of the server's, silently landing
+    somewhere the caller did not intend.
     """
     resolved = dict(params)
     for key, spec in manifest.schema.items():
-        if spec.get("format") == "path" and isinstance(resolved.get(key), str):
-            resolved[key] = str(Path(resolved[key]).resolve())
+        value = resolved.get(key)
+        if spec.get("format") == "path" and isinstance(value, str):
+            resolved[key] = str(Path(value).resolve())
+        elif (
+            spec.get("type") == "array"
+            and isinstance(spec.get("items"), dict)
+            and spec["items"].get("format") == "path"
+            and isinstance(value, list)
+        ):
+            resolved[key] = [
+                str(Path(item).resolve()) if isinstance(item, str) else item
+                for item in value
+            ]
     return resolved
 
 

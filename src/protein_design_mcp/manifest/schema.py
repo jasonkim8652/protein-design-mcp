@@ -275,7 +275,14 @@ def _parse_engine(data: Any, name: str) -> EngineSpec:
 
 
 def _validate_stage(engine: EngineSpec, schema: dict, name: str) -> None:
-    """Every ``engine.stage`` entry must name a real, path-typed parameter.
+    """Every ``engine.stage`` entry must name a real, path-typed parameter --
+    either a scalar ``format: path`` string, or an array whose items are
+    themselves ``format: path`` (``staging.stage_inputs`` copies every item
+    of such an array into one shared ``workdir/<param_name>/`` directory;
+    see its own docstring for why a whole array, not just one file, needs
+    this — an engine whose predict step reads many paired input files out
+    of a single directory, e.g. BoltzGen's ``fold``/``analyze``, which reads
+    each design's ``.cif`` and ``.npz`` from the same ``design_dir``).
 
     Checked here (after both ``engine`` and ``schema`` are parsed) rather
     than inside ``_parse_engine``, which only ever sees the ``engine:``
@@ -288,10 +295,18 @@ def _validate_stage(engine: EngineSpec, schema: dict, name: str) -> None:
                 f"{name}: engine.stage names {param_name!r}, which is not a "
                 "schema parameter"
             )
-        if spec.get("format") != "path":
+        is_scalar_path = spec.get("format") == "path"
+        items = spec.get("items")
+        is_array_of_paths = (
+            spec.get("type") == "array"
+            and isinstance(items, dict)
+            and items.get("format") == "path"
+        )
+        if not (is_scalar_path or is_array_of_paths):
             raise ManifestError(
                 f"{name}: engine.stage names {param_name!r}, which is not "
-                "format: path — only a path parameter's file can be staged"
+                "format: path (nor an array whose items are format: path) "
+                "— only a path parameter's file(s) can be staged"
             )
 
 
