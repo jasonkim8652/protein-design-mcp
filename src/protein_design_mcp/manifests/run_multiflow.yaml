@@ -1,0 +1,256 @@
+name: run_multiflow
+category: monomer_generation
+composite: false
+timeout_s: 7200
+
+engine:
+  repo: multiflow
+  prefix: /home/jk661/.conda/envs/multiflow
+  entry: ["python", "/app/scripts/engines/multiflow.py"]
+  env_vars:
+    # Verified invocation (survey #10): `PYTHONPATH=<repo root>` is required
+    # -- the script's bundled `openfold/` is imported bare (`import
+    # openfold`, not `multiflow.openfold`), which only resolves with the
+    # repo root itself on sys.path, same class of requirement as FrameFlow
+    # (see run_frameflow.yaml).
+    PYTHONPATH: /home/jk661/projects/multiflow
+  # Same reasoning as run_frameflow.yaml's mounts comment: discover_mounts
+  # on the literal importable package name ("multiflow") only resolves to
+  # the repo's multiflow/ subdirectory, not the repo root that PYTHONPATH
+  # above needs mounted for the bundled `openfold` import to work. Hand-set
+  # to the whole repo root, matching PYTHONPATH exactly.
+  mounts:
+    - /home/jk661/projects/multiflow
+
+requires:
+  gpu: true
+
+outputs:
+  - name: backbones
+    # `sample_*/sample.pdb` (not a bare `**/sample.pdb`) is required:
+    # MultiFlow ALSO writes a copy of the same file to
+    # `sample_<i>/self_consistency/sample.pdb` for its own refold step --
+    # confirmed live -- which a bare recursive glob would double-count as a
+    # second, spurious sample.
+    pattern: "predict_out/**/sample_*/sample.pdb"
+    description: One backbone PDB per generated sample.
+    multiple: true
+  - name: codesign_sequences
+    pattern: "predict_out/**/self_consistency/codesign_seqs/codesign.fa"
+    description: >-
+      The ProteinMPNN-codesigned sequence for each sample, one FASTA per
+      sample directory (paired with backbones by shared parent directory).
+    multiple: true
+
+summary: >-
+  Generate an unconditional monomer backbone AND a ProteinMPNN-codesigned
+  sequence for it in one call with MultiFlow, a discrete + continuous flow
+  model (structure via SE(3) flow-matching, sequence via a discrete
+  diffusion head over amino acid identities, jointly). MultiFlow's own
+  built-in ESMFold self-consistency check is BLOCKED on this host (env is
+  missing deepspeed) -- this tool exposes only the generation half, which
+  still completes and writes normally; see the doc for what that means in
+  practice.
+
+doc: |
+  ## What this is
+  MultiFlow's `multiflow/experiments/inference_se3_flows.py -cn
+  inference_unconditional`: a backbone is sampled by SE(3) flow-matching
+  while a sequence is sampled JOINTLY by a discrete diffusion head over the
+  20 amino acid types, conditioned on the evolving structure at each step
+  (co-design, not a separate downstream step). ProteinMPNN also runs
+  afterward on the finished backbone to produce a second candidate sequence
+  for the SAME backbone -- both are returned (see "What you get back").
+
+  ## The ESMFold self-consistency step is blocked, and why this still works
+  Immediately after writing `sample.pdb`, MultiFlow's own script
+  unconditionally attempts to refold the codesigned sequence with ESMFold to
+  score self-consistency. On this host that refold crashes with
+  `ModuleNotFoundError: No module named 'deepspeed'` (the `multiflow` env's
+  bundled `openfold` imports it, and it was never installed here) --
+  confirmed live, and NOT fixed by `inference.also_fold_pmpnn_seq`, which
+  only gates a second, separate, optional fold. This tool's wrapper detects
+  that specific failure (subprocess exits non-zero, `sample.pdb` was
+  nonetheless written, stderr mentions `deepspeed`) and reports SUCCESS
+  anyway, since this tool exposes generation only -- the refold's own
+  self-consistency SCORE was never part of this tool's output. Score a
+  result yourself afterward with `run_esmfold2` (not yet implemented) +
+  `run_ipsae` if you need that number.
+
+  ## `aatypes_temp`/`aatypes_noise` -- the sequence-codesign knobs
+  These control the discrete diffusion head's own sampling, independent of
+  the structure knobs: `aatypes_temp` is the sampling temperature for amino
+  acid identity at each denoising step (lower is more conservative/greedy,
+  higher is more diverse); `aatypes_noise` scales how much re-masking noise
+  is injected during decoding. Both are MultiFlow's own defaults (0.1 and
+  20.0 respectively) unless changed.
+
+  ## When to use this instead of the alternatives
+  - `run_genie2`, `run_frameflow` and `run_genie3_scaffold`
+    (not yet implemented) generate backbones only; this tool additionally
+    gives you a designed sequence for free, at the cost of MultiFlow's own
+    (currently unscoreable on this host) refold step being skipped.
+  - `run_la_proteina` (not yet implemented) also produces a full atomic
+    model with sequence, via a materially different (latent, autoencoder-
+    mediated) architecture rather than joint discrete/continuous
+    flow-matching.
+  - Either sequence this tool returns can still be independently verified:
+    fold it with `run_chai1` (not yet implemented) or `run_boltz`
+    (not yet implemented) and score the result with `run_ipsae`.
+
+  ## What is NOT exposed, and why
+  - **`also_fold_pmpnn_seq`** is fixed to `false` -- it only gates the
+    SECOND, entirely optional fold (not the one that crashes); leaving it on
+    would spend GPU time on a step that still cannot complete here.
+  - **`write_sample_trajectories`** is fixed to `false` -- intermediate
+    diffusion states, not part of this tool's declared output.
+  - **The checkpoint** is fixed to `weights/last_gpu0.ckpt`. MultiFlow's own
+    default (`weights/last.ckpt`) was saved pinned to `cuda:1` and crashes
+    under a single-visible-device dispatch (`RuntimeError: Attempting to
+    deserialize object on CUDA device 1 but torch.cuda.device_count() is
+    1`) -- confirmed live (survey). `last_gpu0.ckpt` is the repo's own
+    device-0-pinned copy of the same weights, provided for exactly this
+    case.
+  - **`interpolant.trans.potential`/`rog.weight`/`rog.cutoff`** (a
+    radius-of-gyration guidance potential in the shipped YAML) is not
+    exposed: `grep` across every `.py` file in this checkout found no code
+    path that reads `trans.potential` or the `rog` block at sampling time
+    at all -- it appears to be dead configuration, not a working knob, and
+    this tool does not invent an effect for a field it could not verify
+    does anything.
+
+  ## What you must supply
+  Nothing beyond the length range -- this is unconditional generation.
+
+  ## What you get back
+  `samples`: one entry per generated backbone, each `{"id", "length",
+  "codesign_sequence"}` (`codesign_sequence` is `null` if that sample's
+  FASTA was not found, which should not happen on a genuinely successful
+  run but is handled rather than assumed). `num_samples`, and under
+  `outputs` the paths to every `backbones` PDB and `codesign_sequences`
+  FASTA.
+
+schema:
+  min_length:
+    type: integer
+    minimum: 20
+    maximum: 384
+    required: true
+    description: >-
+      Shortest length to sample, inclusive. MultiFlow's own unconditional
+      config samples lengths up to 256 by default; longer lengths are
+      unverified but not blocked here.
+    example: 70
+  max_length:
+    type: integer
+    minimum: 20
+    maximum: 384
+    required: true
+    description: >-
+      Longest length to sample, inclusive. Set equal to min_length to sample
+      one length only.
+    example: 70
+  length_step:
+    type: integer
+    minimum: 1
+    maximum: 384
+    default: 10
+    description: >-
+      Gap between sampled lengths, from min_length to max_length. Ignored
+      when min_length equals max_length.
+    example: 10
+  samples_per_length:
+    type: integer
+    minimum: 1
+    maximum: 200
+    default: 1
+    description: >-
+      Number of samples to draw AT EACH sampled length. MultiFlow's own
+      default is 100; this tool defaults much lower since it multiplies
+      with the number of lengths in [min_length, max_length].
+    example: 1
+  num_timesteps:
+    type: integer
+    minimum: 1
+    maximum: 1000
+    default: 500
+    description: >-
+      Number of flow-integration steps for the structure. MultiFlow's own
+      default is 500 (higher than FrameFlow's 100 -- a different tuned
+      default for this model). More steps is finer-grained integration at
+      roughly linear cost.
+    example: 500
+  do_sde:
+    type: boolean
+    default: false
+    description: >-
+      Whether to integrate the structure flow with an SDE (stochastic)
+      rather than the default ODE (deterministic) solver. MultiFlow's own
+      default is false (ODE). SDE integration injects noise at every step,
+      trading determinism for (potentially) more diverse samples.
+    example: false
+  min_t:
+    type: number
+    minimum: 0.0001
+    maximum: 0.5
+    default: 0.01
+    description: >-
+      The minimum flow time the integrator runs to, stopping just short of
+      t=0 for numerical stability. MultiFlow's own default is 0.01.
+    example: 0.01
+  self_condition:
+    type: boolean
+    default: true
+    description: >-
+      Whether each structure-integration step also conditions on the
+      model's own prediction from the previous step. MultiFlow's own
+      default is true.
+    example: true
+  trans_sample_temp:
+    type: number
+    minimum: 0.01
+    maximum: 5.0
+    default: 1.0
+    description: >-
+      Sampling temperature for the translation (CA position) component of
+      the structure flow. MultiFlow's own default is 1.0; lower values
+      sample closer to the model's mean prediction (less diverse), higher
+      values inject more spread.
+    example: 1.0
+  aatypes_temp:
+    type: number
+    minimum: 0.01
+    maximum: 5.0
+    default: 0.1
+    description: >-
+      Sampling temperature for amino acid identity at each sequence-decoding
+      step. MultiFlow's own default is 0.1 (fairly conservative/greedy);
+      raising it samples more diverse sequences at the cost of lower
+      per-step confidence.
+    example: 0.1
+  aatypes_noise:
+    type: number
+    minimum: 0.0
+    maximum: 100.0
+    default: 20.0
+    description: >-
+      Re-masking noise scale for the discrete sequence-diffusion head.
+      MultiFlow's own default is 20.0. Higher values re-mask more
+      aggressively during decoding, giving the model more chances to revise
+      earlier choices at higher compute cost.
+    example: 20.0
+  aatypes_do_purity:
+    type: boolean
+    default: true
+    description: >-
+      Whether sequence decoding uses "purity sampling" (committing to the
+      most confident positions first each step) rather than a uniformly
+      random decoding order. MultiFlow's own default is true.
+    example: true
+  seed:
+    type: integer
+    minimum: 0
+    default: 123
+    description: >-
+      Random seed. MultiFlow's own default is 123.
+    example: 123
