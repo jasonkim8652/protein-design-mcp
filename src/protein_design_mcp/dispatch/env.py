@@ -52,10 +52,19 @@ class EnvDispatcher:
         self._scratch_root = Path(scratch_root) if scratch_root else Path(gettempdir())
 
     def build_command(self, engine: EngineSpec, args: Sequence[Any]) -> list[str]:
-        """Return the full argv. Pure — safe to assert on in tests."""
+        """Return the full argv. Pure — safe to assert on in tests.
+
+        ``engine.prefix`` (an absolute path to a host-mounted environment)
+        dispatches as ``run -p <prefix>``; ``engine.env`` (a name resolved
+        under the image's root prefix) keeps ``run -n <env>``. Exactly one
+        of the two is ever set — enforced at manifest load, not here.
+        """
         prefix: list[str] = []
         if self._runner:
-            prefix = [self._runner, "run", "-n", engine.env]
+            if engine.prefix is not None:
+                prefix = [self._runner, "run", "-p", engine.prefix]
+            else:
+                prefix = [self._runner, "run", "-n", engine.env]
         return [*prefix, *engine.entry, *(str(a) for a in args)]
 
     def _make_workdir(self) -> Path:
@@ -97,20 +106,42 @@ class EnvDispatcher:
         if workdir is None:
             workdir = self._make_workdir()
 
+        # env_vars is merged over a COPY of this process's environment —
+        # never passed alone as env=, which would strip PATH and the
+        # subprocess would not start (design §3.3). The cache variables are
+        # defaults: they point into THIS run's scratch workdir so an engine
+        # never writes into a read-only mount or collides with another
+        # engine in a shared ~/.cache, but engine.env_vars — applied last —
+        # can override any of them.
+        cache_dir = workdir / ".cache"
+        subprocess_env = {
+            **os.environ,
+            "HF_HOME": str(cache_dir / "huggingface"),
+            "TORCH_HOME": str(cache_dir / "torch"),
+            "XDG_CACHE_HOME": str(cache_dir),
+            **engine.env_vars,
+        }
+
+        env_desc = (
+            f"prefix {engine.prefix!r}"
+            if engine.prefix is not None
+            else f"environment {engine.env!r}"
+        )
         try:
             process = await asyncio.create_subprocess_exec(
                 *command,
                 cwd=str(workdir),
+                env=subprocess_env,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 start_new_session=True,
             )
         except (FileNotFoundError, PermissionError) as exc:
             raise EngineError(
-                f"could not start engine {engine.repo!r} in environment "
-                f"{engine.env!r}: {exc}. Check that the environment exists "
-                f"and that {command[0]!r} is on PATH. Working directory "
-                f"preserved for diagnosis: {workdir}"
+                f"could not start engine {engine.repo!r} in {env_desc}: "
+                f"{exc}. Check that the environment exists and that "
+                f"{command[0]!r} is on PATH. Working directory preserved "
+                f"for diagnosis: {workdir}"
             ) from exc
 
         try:
