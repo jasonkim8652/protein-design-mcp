@@ -146,7 +146,8 @@ def build_args(manifest: Manifest, params: dict[str, Any]) -> list[str]:
     """
     del manifest
 
-    config_overrides = [f"design_dir={params['design_dir']}", "outdir=."]
+    design_dir = str(Path(params["metrics_files"][0]).parent)
+    config_overrides = [f"design_dir={design_dir}", "outdir=."]
     for key in _SIMPLE_KEYS:
         config_overrides.append(f"{key}={_omega_scalar(params[key])}")
 
