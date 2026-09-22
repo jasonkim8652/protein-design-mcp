@@ -2,10 +2,11 @@
 
 Generalises ``live_proof_prodigy.py`` (which proved exactly one engine,
 PRODIGY) into a table-driven driver covering every engine the manifest
-registry exposes, plus the ``describe_tool`` meta-tool. Drives the REAL
-``mcp.server.Server`` request handler registered by ``protein_design_mcp.server``
-(not ``ServerApp.call_tool`` directly), so every call traverses the exact path
-a real MCP client's ``tools/call`` request would:
+registry exposes, plus the ``describe_tool`` meta-tool. Drives a REAL
+``mcp.server.Server`` request handler -- built the same way
+``protein_design_mcp.server`` builds its own (``Server`` + ``ServerApp`` +
+``build_registry``, see ``_server_for_device`` below) -- so every call
+traverses the exact path a real MCP client's ``tools/call`` request would:
 
     mcp.server.Server's CallToolRequest handler
       -> ServerApp.call_tool
@@ -21,37 +22,60 @@ environment, e.g.:
 
     micromamba run -n server python scripts/live_proof.py
 
-Before running any case, this script itself discovers every tool the real
-server would list (``ServerApp.list_tools()`` — every manifest-backed tool
-the registry makes available for this DEVICE, plus ``describe_tool``) and
-fails loudly if ``CASES`` does not cover all of them. That is what makes
-adding a new engine WITHOUT adding a live case visible here rather than
-silent: ``tests/test_live_proof_script.py`` runs the equivalent check on the
-host, without Docker, so the gap shows up in CI too.
+THE TOOL SURFACE IS DEVICE-DEPENDENT: ``build_registry(device="cpu")``
+excludes every ``requires.gpu: true`` manifest (see
+``ToolRegistry._exclusion_reason``), so a single-device coverage check can
+never see a GPU-only tool -- it would either block that tool from ever being
+added to ``CASES`` (breaking the coverage assertion the moment it tried), or,
+left out, silently prove nothing about it. So each case in ``CASES``
+DECLARES the device it needs (``"device": "cpu"`` or ``"device": "cuda"``),
+coverage is checked against the UNION of what ``build_registry`` returns
+across ``DEVICES`` (plus ``describe_tool``, which is device-agnostic), and
+each case is dispatched through a server built for ITS OWN declared device
+(see ``_server_for_device``) rather than one server shared by every case
+regardless of what it needs.
 
-Each case names a tool, the arguments to call it with, and the keys expected
-in the parsed JSON payload on success. A case whose ``expect_keys`` is
-``["error"]`` is an EXPECTED-FAILURE case: the driver asserts ``isError`` is
-True and that the payload carries an ``error`` message, rather than asserting
-success. No case currently uses this — every registered tool now has a
-proven success path — but the mechanism stays, since a genuinely unproven
-success path (as ``run_ipsae``'s was, until the staging fix below) is a real
-state a future engine can land in, and it must be reported honestly rather
-than silently omitted or faked.
+Before running any case, this script discovers every tool the real server
+would list on either device and fails loudly if ``CASES`` does not cover
+all of them. That is what makes adding a new engine WITHOUT adding a live
+case visible here rather than silent: ``tests/test_live_proof_script.py``
+runs the equivalent check on the host, without Docker, so the gap shows up
+in CI too.
+
+Each case names a tool, the device it needs, the arguments to call it with,
+and the keys expected in the parsed JSON payload on success. A case whose
+``expect_keys`` is ``["error"]`` is an EXPECTED-FAILURE case: the driver
+asserts ``isError`` is True and that the payload carries an ``error``
+message, rather than asserting success. No case currently uses this — every
+registered tool now has a proven success path — but the mechanism stays,
+since a genuinely unproven success path (as ``run_ipsae``'s was, until the
+staging fix below) is a real state a future engine can land in, and it must
+be reported honestly rather than silently omitted or faked.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+from typing import Any
 
 from mcp import types
+from mcp.server import Server
 
-from protein_design_mcp import server as pdmcp
+from protein_design_mcp.app import ServerApp, build_registry
+from protein_design_mcp.meta_tools import DESCRIBE_TOOL_MANIFEST
+
+# Every device server.py's own DEVICE resolution can select (env var
+# override, or torch.cuda.is_available()) -- see server.py. Coverage and
+# dispatch are checked against exactly these two, regardless of whatever
+# device this script's own process happens to be running under, so a case
+# is always checked/dispatched against the registry it actually declared.
+DEVICES = ("cpu", "cuda")
 
 CASES: list[dict] = [
     {
         "tool": "run_prodigy",
+        "device": "cpu",
         "arguments": {
             "complex_pdb": "tests/fixtures/test_pdbs/1BRS.pdb",
             "chain_a": "A",
@@ -79,6 +103,7 @@ CASES: list[dict] = [
         # residues require (GLY: N,CA,C,O; ALA: +CB, +OXT on the terminal
         # residue) — confirmed live to minimise cleanly.
         "tool": "run_openmm_minimize",
+        "device": "cpu",
         "arguments": {
             "input_pdb": "tests/fixtures/test_pdbs/mini_protein_complete.pdb",
             "max_iterations": 50,
@@ -87,6 +112,7 @@ CASES: list[dict] = [
     },
     {
         "tool": "run_mpnn",
+        "device": "cpu",
         "arguments": {
             "backbone_pdb": "tests/fixtures/test_pdbs/mini_protein.pdb",
             "num_sequences": 2,
@@ -113,6 +139,7 @@ CASES: list[dict] = [
         # without complaint — confirmed live, this is now a genuine SUCCESS
         # case, not a reduced one.
         "tool": "run_ipsae",
+        "device": "cpu",
         "arguments": {
             "pae_json": "tests/fixtures/pae/example_pae.json",
             "structure": "tests/fixtures/test_pdbs/two_chain_complex.pdb",
@@ -121,23 +148,73 @@ CASES: list[dict] = [
     },
     {
         "tool": "describe_tool",
+        "device": "cpu",
         "arguments": {"category": "scoring"},
         "expect_keys": ["tools"],
+    },
+    {
+        # BoltzGen's `filtering` step runs no model -- pure CPU dataframe
+        # ranking over a real (tiny, single-design) analysis directory this
+        # tool's own wave produced with a live GPU run (design_to_target_iptm
+        # 0.60088, design_ptm 0.9398 -- see tests/fixtures/boltzgen/ and
+        # wave-C-report.md). Included even on a CPU-only image, unlike the
+        # other GPU-required BoltzGen tools, because requires.gpu is false.
+        "tool": "run_boltzgen_filter",
+        "device": "cpu",
+        "arguments": {
+            "design_spec": "tests/fixtures/boltzgen/design_spec.yaml",
+            "design_dir": "tests/fixtures/boltzgen/analysis_dir",
+            "budget": 1,
+            "top_budget": 1,
+        },
+        "expect_keys": ["selected_designs", "num_selected"],
     },
 ]
 
 
-async def call_tool(name: str, arguments: dict) -> types.CallToolResult:
-    """Invoke the tool the same way a real MCP client's request would.
+_SERVERS: dict[str, Server] = {}
 
-    ``pdmcp.server`` is the ``mcp.server.Server`` instance built in
-    server.py; ``@server.call_tool(validate_input=False)`` registered our
-    handler under ``types.CallToolRequest`` in ``request_handlers``. This
-    fetches that handler and calls it with a real ``CallToolRequest``,
-    rather than calling ``ServerApp.call_tool`` (or ``_app.call_tool``)
-    directly.
+
+def _server_for_device(device: str) -> Server:
+    """Build (once, then cache) a real ``mcp.server.Server`` wired to a
+    ``ServerApp`` whose registry was built for ``device``.
+
+    Mirrors server.py's own wiring exactly (``Server`` + ``ServerApp`` +
+    ``build_registry``) -- see server.py's module-level ``server``/``_app``
+    and its ``list_tools``/``call_tool`` handlers -- but keyed PER DEVICE
+    instead of the single ``DEVICE`` the running process resolves from its
+    environment at import time. That is what makes a case declaring
+    ``device="cuda"`` actually get dispatched through a registry that has
+    the GPU-only tools, and a case declaring ``device="cpu"`` through one
+    that doesn't, regardless of how this script itself was launched.
     """
-    handler = pdmcp.server.request_handlers[types.CallToolRequest]
+    if device not in _SERVERS:
+        srv = Server("protein-design-mcp")
+        app = ServerApp(build_registry(device=device))
+
+        @srv.list_tools()
+        async def list_tools() -> list[types.Tool]:
+            return await app.list_tools()
+
+        @srv.call_tool(validate_input=False)
+        async def call_tool_handler(name: str, arguments: dict[str, Any]):
+            return await app.call_tool(name, arguments)
+
+        _SERVERS[device] = srv
+    return _SERVERS[device]
+
+
+async def call_tool(name: str, arguments: dict, device: str) -> types.CallToolResult:
+    """Invoke ``name`` the same way a real MCP client's request would,
+    against the server built for ``device`` (see ``_server_for_device``).
+
+    Fetches the ``types.CallToolRequest`` handler ``@srv.call_tool(...)``
+    registered in ``request_handlers`` and calls it with a real
+    ``CallToolRequest``, rather than calling ``ServerApp.call_tool`` (or
+    ``app.call_tool``) directly.
+    """
+    server = _server_for_device(device)
+    handler = server.request_handlers[types.CallToolRequest]
     request = types.CallToolRequest(
         method="tools/call",
         params=types.CallToolRequestParams(name=name, arguments=arguments),
@@ -154,38 +231,72 @@ def _print_result(label: str, result: types.CallToolResult) -> None:
             print(block.text)
 
 
-async def _check_coverage() -> None:
-    """Fail loudly if CASES does not exactly match the live server surface.
+def _registered_tool_names_by_device() -> dict[str, set[str]]:
+    """Tool name -> every device (of DEVICES) that registers it.
 
-    Mirrors tests/test_live_proof_script.py's host-side check, but runs it
-    against the REAL ``ServerApp.list_tools()`` this process is about to
-    call through — so a manifest excluded at runtime for this DEVICE (e.g. a
-    GPU-only tool on a CPU image) can never silently go untested, and
-    neither can a case left over for a tool that no longer exists.
+    ``describe_tool`` is a meta-tool with no manifest -- ``ServerApp.
+    list_tools`` adds it unconditionally, regardless of what device its
+    registry was built for (see app.py) -- so it maps to every entry of
+    DEVICES here too.
     """
-    tools = await pdmcp._app.list_tools()
-    registered = {t.name for t in tools}
+    registered: dict[str, set[str]] = {}
+    for device in DEVICES:
+        for tool in build_registry(device=device).tools():
+            registered.setdefault(tool.name, set()).add(device)
+    registered.setdefault(DESCRIBE_TOOL_MANIFEST.name, set()).update(DEVICES)
+    return registered
+
+
+def _check_coverage() -> None:
+    """Fail loudly if CASES does not exactly match the UNION of the cpu and
+    cuda live server surfaces.
+
+    Mirrors tests/test_live_proof_script.py's host-side check. Checking the
+    union (rather than the surface for one hardcoded device) is what lets a
+    ``requires.gpu: true`` tool ever be added to CASES without permanently
+    breaking this assertion, and what stops one from being silently left
+    off it: a manifest excluded from the CPU registry but present on CUDA
+    (or vice versa) can never go untested, and neither can a case left over
+    for a tool that no longer exists on either device.
+    """
+    registered = _registered_tool_names_by_device()
     covered = {case["tool"] for case in CASES}
 
-    missing = registered - covered
+    missing = registered.keys() - covered
     if missing:
-        raise SystemExit(
-            f"FATAL: tool(s) with no live-proof case: {sorted(missing)}"
+        detail = ", ".join(
+            f"{name} (device={sorted(registered[name])})" for name in sorted(missing)
         )
-    extra = covered - registered
+        raise SystemExit(f"FATAL: tool(s) with no live-proof case: {detail}")
+
+    extra = covered - registered.keys()
     if extra:
         raise SystemExit(
             f"FATAL: CASES references unregistered tool(s): {sorted(extra)}"
         )
 
+    # A case can name a tool that IS covered overall but declare the WRONG
+    # device for it (e.g. device="cpu" for a requires.gpu: true tool): that
+    # would dispatch it against a registry that excludes it for an
+    # unrelated (device) reason, and the resulting failure would look like
+    # a broken engine rather than a mislabelled case.
+    for case in CASES:
+        tool, device = case["tool"], case["device"]
+        if device not in registered[tool]:
+            raise SystemExit(
+                f"FATAL: {tool!r} case declares device={device!r}, but "
+                f"{tool} is only registered on {sorted(registered[tool])}"
+            )
+
 
 async def _run_case(case: dict) -> None:
     tool = case["tool"]
+    device = case["device"]
     expect_keys = case["expect_keys"]
     expect_error = expect_keys == ["error"]
 
-    result = await call_tool(tool, case["arguments"])
-    _print_result(tool, result)
+    result = await call_tool(tool, case["arguments"], device)
+    _print_result(f"{tool} (device={device})", result)
 
     if expect_error:
         if not result.isError:
@@ -203,7 +314,7 @@ async def _run_case(case: dict) -> None:
 
 
 async def main() -> None:
-    await _check_coverage()
+    _check_coverage()
 
     for case in CASES:
         await _run_case(case)
