@@ -77,13 +77,27 @@ def test_build_args_always_passes_a_seed_for_reproducibility():
     assert "99" in args
 
 
-def test_parse_output_drops_the_native_input_sequence():
-    """The first FASTA record is the input, not a design."""
-    result = parse_output(
-        _manifest(),
-        CompletedRun(returncode=0, stdout=SAMPLE_FASTA, stderr="",
-                     workdir=Path("/tmp")),
+def _completed_run_with_fasta(tmp_path: Path, text: str) -> CompletedRun:
+    """Build a CompletedRun whose 'designs_fasta' output points at a real
+    file on disk, the way the dispatcher actually populates run.outputs for
+    a multiple=true output spec (see results.collect_outputs): a LIST of
+    collected file paths, never stdout. Settled live in Task 7 — see the
+    module docstring in adapters/mpnn.py for the evidence."""
+    fasta_path = tmp_path / "seqs" / "backbone.fa"
+    fasta_path.parent.mkdir(parents=True, exist_ok=True)
+    fasta_path.write_text(text)
+    return CompletedRun(
+        returncode=0,
+        stdout="CUDA not available... using CPU\nDesigning protein from this path: backbone.pdb\n",
+        stderr="",
+        workdir=tmp_path,
+        outputs={"designs_fasta": [str(fasta_path)]},
     )
+
+
+def test_parse_output_drops_the_native_input_sequence(tmp_path):
+    """The first FASTA record is the input, not a design."""
+    result = parse_output(_manifest(), _completed_run_with_fasta(tmp_path, SAMPLE_FASTA))
     assert result["num_designs"] == 2
     assert all(d["id"] is not None for d in result["designs"])
     assert "MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQ" not in [
@@ -91,23 +105,43 @@ def test_parse_output_drops_the_native_input_sequence():
     ]
 
 
-def test_parse_output_reports_confidence_per_design():
-    result = parse_output(
-        _manifest(),
-        CompletedRun(returncode=0, stdout=SAMPLE_FASTA, stderr="",
-                     workdir=Path("/tmp")),
-    )
+def test_parse_output_reports_confidence_per_design(tmp_path):
+    result = parse_output(_manifest(), _completed_run_with_fasta(tmp_path, SAMPLE_FASTA))
     assert result["designs"][0]["overall_confidence"] == pytest.approx(0.5310)
 
 
-def test_parse_output_raises_when_only_the_input_record_is_present():
+def test_parse_output_raises_when_only_the_input_record_is_present(tmp_path):
     only_input = SAMPLE_FASTA.split(">input, id=1")[0]
     with pytest.raises(ValueError, match="no designs"):
-        parse_output(
-            _manifest(),
-            CompletedRun(returncode=0, stdout=only_input, stderr="",
-                         workdir=Path("/tmp")),
-        )
+        parse_output(_manifest(), _completed_run_with_fasta(tmp_path, only_input))
+
+
+def test_parse_output_reads_every_file_when_multiple_are_collected(tmp_path):
+    """multiple: true means run.outputs['designs_fasta'] can hold more than
+    one path; every file's records must be included."""
+    first = tmp_path / "seqs" / "a.fa"
+    second = tmp_path / "seqs" / "b.fa"
+    first.parent.mkdir(parents=True, exist_ok=True)
+    first.write_text(SAMPLE_FASTA)
+    second.write_text(SAMPLE_FASTA.replace("id=1", "id=3").replace("id=2", "id=4"))
+    run = CompletedRun(
+        returncode=0, stdout="", stderr="", workdir=tmp_path,
+        outputs={"designs_fasta": [str(first), str(second)]},
+    )
+    result = parse_output(_manifest(), run)
+    assert result["num_designs"] == 4
+    assert {d["id"] for d in result["designs"]} == {1, 2, 3, 4}
+
+
+def test_parse_output_raises_when_designs_fasta_output_is_missing(tmp_path):
+    """A dispatcher/manifest mismatch (e.g. collection silently producing an
+    empty result) must fail loudly rather than returning an empty design
+    list to the caller."""
+    run = CompletedRun(
+        returncode=0, stdout=SAMPLE_FASTA, stderr="", workdir=tmp_path, outputs={},
+    )
+    with pytest.raises(ValueError, match="designs_fasta"):
+        parse_output(_manifest(), run)
 
 
 def test_validation_rejects_an_unknown_model_type():

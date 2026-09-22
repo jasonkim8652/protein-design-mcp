@@ -1,27 +1,32 @@
 # syntax=docker/dockerfile:1
 #
 # Dockerfile.envs — proves the manifest-driven dispatch contract (spec §5.1)
-# for exactly ONE engine: PRODIGY, behind the run_prodigy tool.
+# for FOUR engines: PRODIGY, ipSAE, OpenMM minimisation, and LigandMPNN,
+# behind run_prodigy / run_ipsae / run_openmm_minimize / run_mpnn.
 #
 # This is NOT a replacement for Dockerfile / Dockerfile.full / Dockerfile.lite
 # / Dockerfile.colabfold / Dockerfile.patch, which pip-install everything into
 # one system Python and predate this design. This file realises the target
 # shape instead: one micromamba base image, one micromamba environment PER
 # ENGINE, and a thin outer environment for the MCP server itself that shares
-# no dependencies with any engine. ~28 more engines are expected to follow
-# this exact pattern — one more `micromamba create -n <env>` block, one more
-# adapter module, no changes to the server environment.
+# no dependencies with any engine.
 #
-# Two environments live in this image:
-#   - "scoring": prodigy-prot and nothing else. Pure Python + Biopython +
-#     freesasa, CPU-only, installs in seconds. This is what
-#     `engine.env: scoring` in run_prodigy.yaml names.
+# FIVE environments live in this image:
+#   - "scoring": prodigy-prot AND ipsae — both pure-Python/CPU-only with no
+#     conflicting pins, so they share one environment (spec §5.1 only
+#     requires isolation where pins would otherwise collide). This is what
+#     `engine.env: scoring` in run_prodigy.yaml and run_ipsae.yaml names.
+#   - "md": openmm and pdbfixer, for run_openmm_minimize. Installed from
+#     conda-forge, NOT pip — see the note on that block below for why.
+#   - "mpnn": ligandmpnn ALONE. It hard-pins torch==2.2.1 and requires
+#     Python >=3.11,<3.12 exactly (see its own dist-info), which conflicts
+#     with every other environment's freedom to float; it cannot share.
 #   - "server":  the protein-design-mcp package itself (mcp, pyyaml,
 #     biopython, etc. per pyproject.toml's base [project.dependencies]).
-#     It does NOT contain prodigy-prot. The whole point of the design is
-#     that the server never shares a dependency tree with an engine it
-#     dispatches to — so future engines with conflicting torch/numpy pins
-#     can't collide with each other or with the server.
+#     It does NOT contain any engine's dependencies. The whole point of the
+#     design is that the server never shares a dependency tree with an
+#     engine it dispatches to — so future engines with conflicting
+#     torch/numpy pins can't collide with each other or with the server.
 #
 # EnvDispatcher's default runner is the literal string "micromamba" (see
 # dispatch/env.py), resolved via PATH at subprocess-exec time in whichever
@@ -30,14 +35,13 @@
 # why this base image was chosen over a plain "install miniconda" Dockerfile.
 #
 # Build (from repo root):
-#   docker build -f Dockerfile.envs -t protein-design-mcp:envs-proto .
+#   docker build -f Dockerfile.envs -t protein-design-mcp:envs .
 #
-# Run the acceptance proof:
-#   docker run --rm protein-design-mcp:envs-proto \
-#       micromamba run -n server python scripts/live_proof_prodigy.py
+# Run the acceptance proof (the default command):
+#   docker run --rm protein-design-mcp:envs
 #
 # Interactive shell:
-#   docker run --rm -it protein-design-mcp:envs-proto bash
+#   docker run --rm -it protein-design-mcp:envs bash
 
 FROM mambaorg/micromamba:2.9.0-ubuntu22.04
 
@@ -53,11 +57,92 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 USER $MAMBA_USER
 WORKDIR /app
 
-# --- "scoring" environment: prodigy-prot ONLY, nothing else --------------
+# --- "scoring" environment: prodigy-prot AND ipsae, pinned -----------------
+# prodigy-prot was previously installed unpinned; PyPI now serves 2.4.0 while
+# earlier research reported 2.2.1, so the floating install was already
+# ambiguous. Pinned here to 2.4.0 (confirmed current on PyPI as of this
+# build). ipsae==1.0.1 is pure Python (its only dependency is numpy) with
+# nothing that conflicts with prodigy-prot, so per the spec it joins the same
+# environment rather than getting its own.
 RUN micromamba create -y -n scoring -c conda-forge python=3.11 pip \
-    && micromamba run -n scoring pip install --no-cache-dir prodigy-prot \
+    && micromamba run -n scoring pip install --no-cache-dir \
+        prodigy-prot==2.4.0 \
+        ipsae==1.0.1 \
     && micromamba run -n scoring prodigy --help \
+    && micromamba run -n scoring ipsae --help \
     && micromamba clean --all --yes
+
+# --- "md" environment: openmm + pdbfixer, for run_openmm_minimize ----------
+# Installed from conda-forge rather than pip. openmm==8.6.1 is on both, but
+# pdbfixer==1.11 is NOT available on PyPI at all — `pip index versions
+# pdbfixer` serves only 1.12.0 there (a different, newer maintainer's
+# package than the one conda-forge ships). conda-forge carries every version
+# back to 1.7, including 1.11, so both packages are pinned together in one
+# `micromamba create` so the solver resolves compatible builds instead of
+# each being installed independently and potentially disagreeing.
+# pdbfixer is not imported by scripts/engines/openmm_minimize.py today (it
+# only uses openmm.app directly) — it is pinned now because the task
+# requires it, for a fixer-based cleanup step expected to land later.
+RUN micromamba create -y -n md -c conda-forge python=3.11 openmm=8.6.1 pdbfixer=1.11 \
+    && micromamba run -n md python -c "import openmm; import pdbfixer; print('openmm', openmm.__version__); print('pdbfixer module imported OK:', pdbfixer.__file__)" \
+    && micromamba clean --all --yes
+
+# --- "mpnn" environment: ligandmpnn ALONE -----------------------------------
+# ligandmpnn==0.1.2 requires Python >=3.11,<3.12 exactly and hard-pins
+# torch==2.2.1 (see its dist-info METADATA) — a python=3.11 pin here matches
+# that upper bound; python=3.12 would fail to resolve. It cannot share an
+# environment with anything else in this image.
+#
+# SETTLED LIVE (Task 7): ligandmpnn/run.py does `import pkg_resources` (the
+# old setuptools API) to locate its bundled model_params/ directory. pip's
+# resolver satisfies ligandmpnn's unconstrained `Requires-Dist: setuptools`
+# with the newest setuptools on PyPI — 84.0.0 as of this build — but
+# setuptools removed pkg_resources entirely some versions back, so the
+# engine subprocess died with `ModuleNotFoundError: No module named
+# 'pkg_resources'` on the very first live run. `setuptools<81` still ships
+# it (confirmed locally with 79.0.1); pinned explicitly here for that reason,
+# not because ligandmpnn declares any such bound itself.
+#
+# SETTLED LIVE (Task 7), second finding: ligandmpnn's `torch==2.2.1` pin has
+# no build-variant qualifier, so plain PyPI resolves it to the default
+# linux wheel, which bundles the full CUDA 12.1 runtime (~2.8GB of
+# nvidia_* packages) even though this image is CPU-only and torch.cuda is
+# never available inside it — directly against "keep the image lean and do
+# not add GPU or CUDA layers". torch is installed FIRST from PyTorch's own
+# CPU-only wheel index; ligandmpnn's later `torch==2.2.1` requirement is
+# satisfied by the already-installed `2.2.1+cpu` (PEP 440 `==` ignores the
+# local version label unless the specifier itself has one), so pip does not
+# pull the CUDA build in afterwards.
+RUN micromamba create -y -n mpnn -c conda-forge python=3.11 pip \
+    && micromamba run -n mpnn pip install --no-cache-dir torch==2.2.1 \
+        --index-url https://download.pytorch.org/whl/cpu \
+    && micromamba run -n mpnn pip install --no-cache-dir "setuptools<81" ligandmpnn==0.1.2 \
+    && micromamba clean --all --yes
+
+# SETTLED LIVE (Task 7), third finding: importing ligandmpnn.run pulls in
+# ProDy -> Biopython's Bio.AlignIO -> the stdlib sqlite3 module -> conda's
+# own icu (libicui18n.so.78), which needs a newer libstdc++ (CXXABI_1.3.15)
+# than Ubuntu 22.04's system /lib/x86_64-linux-gnu/libstdc++.so.6 provides.
+# The mpnn environment DOES ship a new enough libstdc++.so.6 of its own
+# (conda-forge's libstdcxx package), but nothing upstream of icu in that
+# import chain (the pip-installed, non-RPATH'd numpy/scipy manylinux wheels
+# pulled in earlier) requests it by absolute path, so plain
+# `micromamba run -n mpnn ...` lets the dynamic linker's default search
+# order resolve the very first "libstdc++.so.6" DT_NEEDED entry against the
+# system copy instead — and once that soname is resolved for the process,
+# every later reference (including icu's own, RPATH-correct one) reuses it.
+# An activate.d hook scoped to just this environment (not a global
+# LD_LIBRARY_PATH, which would risk one environment's libraries shadowing
+# another's) fixes it by making the env's own lib/ win that FIRST
+# resolution, confirmed live to fix `python -m ligandmpnn.run --help`.
+RUN mkdir -p /opt/conda/envs/mpnn/etc/conda/activate.d \
+    && echo 'export LD_LIBRARY_PATH="/opt/conda/envs/mpnn/lib:${LD_LIBRARY_PATH:-}"' \
+        > /opt/conda/envs/mpnn/etc/conda/activate.d/ld_library_path.sh \
+    && micromamba run -n mpnn python -c \
+        "import pkg_resources; import ligandmpnn; import torch; \
+         print('torch', torch.__version__); \
+         assert not torch.cuda.is_available(), 'expected a CPU-only torch build'" \
+    && micromamba run -n mpnn python -m ligandmpnn.run --help > /dev/null
 
 # --- "server" environment: the MCP server package, no engine deps --------
 RUN micromamba create -y -n server -c conda-forge python=3.11 pip \
@@ -66,7 +151,11 @@ RUN micromamba create -y -n server -c conda-forge python=3.11 pip \
 COPY --chown=$MAMBA_USER:$MAMBA_USER pyproject.toml README.md ./
 COPY --chown=$MAMBA_USER:$MAMBA_USER src/ ./src/
 COPY --chown=$MAMBA_USER:$MAMBA_USER tests/ ./tests/
-COPY --chown=$MAMBA_USER:$MAMBA_USER scripts/live_proof_prodigy.py ./scripts/live_proof_prodigy.py
+# run_openmm_minimize.yaml's engine.entry is
+# ["python", "/app/scripts/engines/openmm_minimize.py"] — an absolute path
+# inside the image, not a package entry point — so scripts/ (both the engine
+# scripts AND the live-proof driver) has to be copied in too.
+COPY --chown=$MAMBA_USER:$MAMBA_USER scripts/ ./scripts/
 
 # Deliberately a normal (non-editable) install: this is what actually
 # exercises [tool.setuptools.package-data] and proves manifests/*.yaml ship
@@ -81,4 +170,4 @@ RUN micromamba run -n server pip install --no-cache-dir . \
          print('manifests found:', files); \
          assert 'run_prodigy.yaml' in files, 'run_prodigy.yaml missing from installed package data'"
 
-CMD ["micromamba", "run", "-n", "server", "python", "scripts/live_proof_prodigy.py"]
+CMD ["micromamba", "run", "-n", "server", "python", "scripts/live_proof.py"]
