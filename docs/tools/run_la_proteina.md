@@ -1,7 +1,7 @@
 # run_la_proteina
 
 **Category:** monomer_generation  
-**Engine:** `la_proteina`  
+**Engine:** `proteinfoundation`  
 **Environment:** `/home/jk661/.conda/envs/laproteina_env`  
 **GPU required:** yes
 

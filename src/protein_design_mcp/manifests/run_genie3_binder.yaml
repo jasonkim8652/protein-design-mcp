@@ -9,8 +9,13 @@ engine:
   entry: ["python", "/app/scripts/engines/genie3_binder.py"]
   env_vars:
     PYTHONPATH: /home/jk661/projects/genie3/.deps:/home/jk661/projects/genie3/src
+  # `discover_mounts(prefix, "genie3", env=env_vars)` (confirmed live)
+  # resolves only to genie3/src/genie3 -- see run_genie3_scaffold.yaml's
+  # identical mounts comment for the full reasoning (same engine, same
+  # PYTHONPATH).
   mounts:
     - /home/jk661/projects/genie3
+    - /home/jk661/projects/genie3/src/genie3
 
 requires:
   gpu: true

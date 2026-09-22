@@ -1,7 +1,7 @@
 # run_frameflow
 
 **Category:** monomer_generation  
-**Engine:** `frameflow`  
+**Engine:** `experiments`  
 **Environment:** `/home/jk661/.conda/envs/frameflow`  
 **GPU required:** yes
 
