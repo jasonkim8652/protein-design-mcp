@@ -79,7 +79,7 @@ async def test_http_transport_serves_requests():
         server_task = asyncio.create_task(
             run_server(transport="http", host="127.0.0.1", port=port)
         )
-    except:
+    except BaseException:
         patcher.stop()
         raise
 

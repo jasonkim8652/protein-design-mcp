@@ -13,10 +13,8 @@ from typing import Any
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import (
-    Tool,
-    TextContent,
-    Resource,
     ResourceTemplate,
+    Tool,
 )
 
 from protein_design_mcp.app import ServerApp, build_registry
@@ -104,7 +102,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "clients on other machines can reach the GPU host."
         ),
     )
-    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help=(
+            "Bind address. 0.0.0.0 exposes this server to other machines, "
+            "but it has no authentication and every tool takes a "
+            "caller-supplied filesystem path — put it behind a reverse "
+            "proxy or an SSH tunnel, never expose it directly."
+        ),
+    )
     parser.add_argument("--port", type=int, default=8765)
     return parser.parse_args(argv)
 
@@ -112,8 +119,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 async def run_server(transport: str = "stdio", host: str = "127.0.0.1", port: int = 8765):
     """Run the MCP server over the chosen transport."""
     if transport == "http":
-        from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
         import uvicorn
+        from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 
         manager = StreamableHTTPSessionManager(app=server)
         async with manager.run():
