@@ -4,19 +4,18 @@ doc for the full explanation of the trade-off -- summarised here for the
 implementation):
 
 - `"conda"` (default; matches this tool's own `engine:` dispatch, and every
-  other engine in this project): runs directly in this host's `rfd2_src`
+  other engine in this project): runs directly in this host's `rfd2_fixed`
   conda environment via the current interpreter (`sys.executable`), which
   already has `PYTHONPATH` pointed at the RFdiffusion2 checkout by the
   manifest's `engine.env_vars`. Needs no capability beyond what every other
-  tool in this server already needs. **NOT VERIFIED LIVE to complete a
-  generation on this host**: `import rf_diffusion` succeeds, but
-  `rf_diffusion.inference.model_runners` (which any real run reaches)
-  transitively imports `dgl`, which imports `pydantic` -- not installed in
-  `rfd2_src` (confirmed live, 2026-09-22:
-  `ModuleNotFoundError: No module named 'pydantic'`). This backend is kept
-  as the default anyway, on explicit instruction, because failing fast and
-  loudly with a real error is preferable to silently granting a
-  capability (see below) to route around it.
+  tool in this server already needs. **CONFIRMED LIVE to complete a
+  generation on this host**, 2026-09-22, through `ServerApp.call_tool` end
+  to end on GPU 7. `rfd2_fixed` is a clone of `rfd2_src` (left untouched)
+  with the gaps a real run reaches but a bare `import rf_diffusion` does
+  not closed: `pydantic` (`dgl`'s own import-time dependency, missing
+  outright), a scipy/numpy pairing left broken by an earlier, unrelated
+  `pip install` (fixed by a clean `numpy==1.26.4` reinstall), and `fire`
+  (imported directly by `rf_diffusion/run_inference.py`, missing outright).
 - `"docker"`: launches the OFFICIAL upstream container image
   (`rfdiffusion2-sif:converted`, converted from RFdiffusion2's own
   Apptainer `.sif` -- Apptainer itself cannot run on this host, a kernel
@@ -90,7 +89,7 @@ def _common_overrides(job: dict, out_dir: Path, ckpt_path: str) -> list[str]:
 
 def _run_conda(job: dict, out_dir: Path, ckpt_path: str) -> subprocess.CompletedProcess:
     """Default backend: invoke `run_inference.py` directly with the current
-    (rfd2_src) interpreter. `PYTHONPATH` is already set by the manifest's
+    (rfd2_fixed) interpreter. `PYTHONPATH` is already set by the manifest's
     `engine.env_vars`, so `rf_diffusion` resolves the same way this
     module's own docstring confirms it does.
     """
