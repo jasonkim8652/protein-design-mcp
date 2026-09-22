@@ -24,7 +24,7 @@ def _gpu_manifest(name="run_needs_gpu"):
     return parse_manifest(
         {
             "name": name,
-            "category": "generation",
+            "category": "binder_generation",
             "engine": {"repo": "r", "env": "e", "entry": ["x"]},
             "summary": "Summary.",
             "doc": "## What this is\nDoc.\n",
@@ -38,7 +38,7 @@ def _weights_manifest(name="run_needs_weights"):
     return parse_manifest(
         {
             "name": name,
-            "category": "generation",
+            "category": "binder_generation",
             "engine": {"repo": "r", "env": "e", "entry": ["x"]},
             "summary": "Summary.",
             "doc": "## What this is\nDoc.\n",
@@ -92,7 +92,7 @@ async def test_build_registry_logs_exclusions_at_startup(tmp_path, monkeypatch, 
     manifest_yaml = textwrap.dedent(
         """\
         name: run_needs_gpu
-        category: generation
+        category: binder_generation
         engine: {repo: r, env: e, entry: [x]}
         summary: Summary.
         doc: |

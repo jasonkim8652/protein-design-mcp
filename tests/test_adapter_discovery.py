@@ -58,7 +58,7 @@ def _write(directory: Path, filename: str, body: str) -> Path:
     return path
 
 
-def _manifest(name: str, category: str = "generation"):
+def _manifest(name: str, category: str = "binder_generation"):
     return parse_manifest(
         {
             "name": name,
@@ -109,18 +109,24 @@ def test_shipped_adapter_functions_are_callable_two_arg_functions():
     assert callable(parse_output)
 
 
-def test_the_real_adapters_directory_scans_exactly_the_four_shipped_modules():
+def test_the_real_adapters_directory_scans_exactly_the_shipped_modules():
     """Regression: the discovery machinery itself must never live inside
     the directory it scans. It used to (adapters/discovery.py), which made
     discovery.py a candidate '.py' file in its own scan — a false
     'stranded adapter' (module_name='discovery', no run_discovery manifest)
     reported at every single startup. Now the discovery code lives at
     protein_design_mcp.adapters_discovery, outside adapters/, so the real
-    directory contains only the four shipped tool adapters plus __init__.py."""
+    directory contains only the shipped tool adapters plus __init__.py."""
     from protein_design_mcp.app import adapters_dir
 
     result = discover_adapters(adapters_dir())
-    assert result.module_names == {"prodigy", "ipsae", "openmm_minimize", "mpnn"}
+    assert result.module_names == {
+        "prodigy",
+        "ipsae",
+        "openmm_minimize",
+        "mpnn",
+        "mmseqs_search",
+    }
     assert result.broken == {}
 
 
@@ -273,7 +279,7 @@ def test_missing_adapter_reason_flows_through_the_registry_exclusion_mechanism(t
     discovery = discover_adapters(tmp_path)
 
     prodigy = _manifest("run_prodigy", category="scoring")
-    missing = _manifest("run_missing", category="generation")
+    missing = _manifest("run_missing", category="binder_generation")
 
     reasons = missing_adapter_reasons([m.name for m in (prodigy, missing)], discovery)
     manifests = [m for m in (prodigy, missing) if m.name not in reasons]

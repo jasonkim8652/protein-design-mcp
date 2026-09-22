@@ -28,7 +28,7 @@ def _manifest_sharing_a_repo(name):
     return parse_manifest(
         {
             "name": name,
-            "category": "generation",
+            "category": "binder_generation",
             "engine": {"repo": "sharedrepo", "env": "e", "entry": ["x"]},
             "summary": "Summary.",
             "doc": "## What this is\nDoc.\n",
@@ -52,7 +52,7 @@ def _composite():
     return parse_manifest(
         {
             "name": "run_boltzgen_run",
-            "category": "generation",
+            "category": "binder_generation",
             "composite": True,
             "engine": {"repo": "boltzgen", "env": "boltzgen", "entry": ["boltzgen", "run"]},
             "summary": "Full pipeline.",

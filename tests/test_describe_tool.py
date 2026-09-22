@@ -7,7 +7,7 @@ from protein_design_mcp.meta_tools import DESCRIBE_TOOL_MANIFEST, describe_tool
 HEADING = "## When to use this instead of the alternatives"
 
 
-def _m(name, category="cofolding", **over):
+def _m(name, category="structure_prediction", **over):
     return parse_manifest(
         {
             "name": name,
@@ -60,18 +60,18 @@ def test_named_tool_includes_default_null_when_present():
 
 
 def test_category_mode_lists_every_sibling_with_its_summary():
-    result = describe_tool(REGISTRY, category="cofolding")
+    result = describe_tool(REGISTRY, category="structure_prediction")
     names = {tool["name"] for tool in result["tools"]}
     assert names == {"run_boltz", "run_chai1"}
     assert all("summary" in tool for tool in result["tools"])
 
 
 def test_category_mode_reports_the_category_back():
-    assert describe_tool(REGISTRY, category="cofolding")["category"] == "cofolding"
+    assert describe_tool(REGISTRY, category="structure_prediction")["category"] == "structure_prediction"
 
 
 def test_category_mode_returns_only_sibling_section_not_full_doc():
-    result = describe_tool(REGISTRY, category="cofolding")
+    result = describe_tool(REGISTRY, category="structure_prediction")
     for tool in result["tools"]:
         # Should contain the sibling section
         assert HEADING in tool["doc"]
@@ -80,7 +80,7 @@ def test_category_mode_returns_only_sibling_section_not_full_doc():
 
 
 def test_category_mode_includes_note_about_full_docs():
-    result = describe_tool(REGISTRY, category="cofolding")
+    result = describe_tool(REGISTRY, category="structure_prediction")
     assert "note" in result
     assert "describe_tool(name=" in result["note"]
 
@@ -108,7 +108,7 @@ def test_excluded_tool_explains_why_rather_than_pretending_it_is_missing():
 def test_unknown_category_lists_known_categories():
     result = describe_tool(REGISTRY, category="nope")
     assert "error" in result
-    assert "cofolding" in result["available"]
+    assert "structure_prediction" in result["available"]
 
 
 def test_requires_one_of_name_or_category():
@@ -117,7 +117,7 @@ def test_requires_one_of_name_or_category():
 
 
 def test_name_and_category_together_is_rejected():
-    result = describe_tool(REGISTRY, name="run_chai1", category="cofolding")
+    result = describe_tool(REGISTRY, name="run_chai1", category="structure_prediction")
     assert "error" in result
 
 
