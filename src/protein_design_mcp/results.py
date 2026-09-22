@@ -29,6 +29,43 @@ class AmbiguousOutputError(OSError):
     """
 
 
+class OutputPathEscapeError(OSError):
+    """A glob match resolves outside the workdir once symlinks are followed.
+
+    ``Path.relative_to`` raises a bare ``ValueError`` when its argument
+    isn't actually a prefix of the path being compared. That can happen
+    either because the scratch root itself is reached through a symlink (so
+    the workdir string and a glob match's string can resolve to different
+    real prefixes even though the match came from that workdir) or because
+    a matched file is itself a symlink pointing outside the workdir. Either
+    way, an unhandled ValueError would reach dispatch/env.py as a bare
+    traceback instead of the diagnosable EngineError every other collection
+    failure produces. Wrapping it in an OSError subclass fixes that; and a
+    match that genuinely resolves outside the workdir is refused here
+    rather than silently copied from wherever it actually points.
+    """
+
+
+def _relative_to_workdir(source: Path, workdir: Path, spec_name: str) -> Path:
+    """Return ``source``'s path relative to ``workdir``, resolved first.
+
+    Resolving both sides before comparing means a symlinked scratch root
+    cannot make this raise merely because pathlib built the two path
+    strings through different-looking (but equivalent) prefixes. A match
+    that genuinely resolves outside the workdir still raises — as
+    OutputPathEscapeError, not a bare ValueError — rather than being
+    silently copied from wherever it points.
+    """
+    try:
+        return source.resolve().relative_to(workdir.resolve())
+    except ValueError as exc:
+        raise OutputPathEscapeError(
+            f"declared output {spec_name!r} matched {source}, which "
+            f"resolves outside the working directory {workdir} (likely a "
+            "symlink); refusing to copy a file from outside the workdir"
+        ) from exc
+
+
 def results_dir() -> Path:
     """Where collected outputs live. Override with PROTEIN_MCP_RESULTS_DIR."""
     override = os.environ.get("PROTEIN_MCP_RESULTS_DIR")
@@ -61,6 +98,9 @@ def collect_outputs(
     basename), so two matches of the same spec that share a basename in
     different subdirectories don't collide with each other either — a path
     relative to the workdir is unique by construction.
+
+    A match that resolves outside the workdir (e.g. via a symlink) raises
+    OutputPathEscapeError rather than being copied from wherever it points.
     """
     if not specs:
         return {}
@@ -76,7 +116,7 @@ def collect_outputs(
                 f"{spec.pattern!r} in the engine's working directory"
             )
         if not spec.multiple and len(matches) > 1:
-            names = [str(m.relative_to(workdir)) for m in matches]
+            names = [str(_relative_to_workdir(m, workdir, spec.name)) for m in matches]
             raise AmbiguousOutputError(
                 f"declared output {spec.name!r} matched {len(matches)} files "
                 f"for pattern {spec.pattern!r} in the engine's working "
@@ -91,7 +131,8 @@ def collect_outputs(
         if spec.multiple:
             copied: list[str] = []
             for source in matches:
-                target = spec_dest / source.relative_to(workdir)
+                rel = _relative_to_workdir(source, workdir, spec.name)
+                target = spec_dest / rel
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source, target)
                 copied.append(str(target))
