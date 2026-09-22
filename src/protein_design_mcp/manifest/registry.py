@@ -31,7 +31,7 @@ class ToolNotAvailable(KeyError):
         return self.message
 
 
-def _json_schema_for(manifest: Manifest) -> dict[str, Any]:
+def json_schema_for(manifest: Manifest) -> dict[str, Any]:
     properties: dict[str, Any] = {}
     required: list[str] = []
     for key, spec in manifest.schema.items():
@@ -101,7 +101,7 @@ class ToolRegistry:
             Tool(
                 name=m.name,
                 description=m.summary,
-                inputSchema=_json_schema_for(m),
+                inputSchema=json_schema_for(m),
             )
             for m in sorted(self._available.values(), key=lambda m: m.name)
         ]

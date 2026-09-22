@@ -125,3 +125,14 @@ def test_the_meta_tool_manifest_is_itself_valid():
     assert DESCRIBE_TOOL_MANIFEST.name == "describe_tool"
     assert DESCRIBE_TOOL_MANIFEST.category == "meta"
     assert DESCRIBE_TOOL_MANIFEST.composite is False
+
+
+def test_describe_tool_schema_matches_the_registry_derivation():
+    """The meta-tool's schema must come from the same code path as every other."""
+    from protein_design_mcp.manifest.registry import json_schema_for
+    from protein_design_mcp.meta_tools import DESCRIBE_TOOL_MANIFEST
+
+    derived = json_schema_for(DESCRIBE_TOOL_MANIFEST)
+    assert derived["additionalProperties"] is False
+    assert "required" not in derived["properties"]["name"]
+    assert "example" not in derived["properties"]["name"]

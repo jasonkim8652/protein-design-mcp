@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import collections
+import re
 from pathlib import Path
 
 import yaml
@@ -10,6 +11,31 @@ import yaml
 from protein_design_mcp.manifest.schema import Manifest, ManifestError, parse_manifest
 
 SIBLING_DOC_HEADING = "## When to use this instead of the alternatives"
+
+_TOOL_MENTION_RE = re.compile(r"\brun_[a-z0-9_]+\b")
+_UNAVAILABLE_MARKER = "not yet implemented"
+
+
+def _check_doc_references(manifests: list[Manifest]) -> None:
+    """Every tool a doc names must exist, or be marked not yet implemented.
+
+    Without this, a doc that says "use run_x instead" keeps saying it after
+    run_x ships under a different name, or before it ships at all — and the
+    model acts on it either way.
+    """
+    known = {m.name for m in manifests}
+    for manifest in manifests:
+        for line in manifest.doc.splitlines():
+            for mentioned in _TOOL_MENTION_RE.findall(line):
+                if mentioned in known or mentioned == manifest.name:
+                    continue
+                if _UNAVAILABLE_MARKER in line.lower():
+                    continue
+                raise ManifestError(
+                    f"{manifest.name}: doc names {mentioned!r}, which is not a "
+                    "known tool. Either fix the name, or mark it "
+                    f"'({_UNAVAILABLE_MARKER})' on the same line."
+                )
 
 
 def _load_one(path: Path) -> Manifest:
@@ -56,4 +82,5 @@ def load_manifests(directory: Path) -> list[Manifest]:
     manifests = [_load_one(p) for p in sorted(directory.glob("*.yaml"))]
     _check_unique(manifests)
     _check_sibling_docs(manifests)
+    _check_doc_references(manifests)
     return sorted(manifests, key=lambda m: m.name)
