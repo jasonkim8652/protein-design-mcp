@@ -2,14 +2,14 @@
 
 **Category:** scoring  
 **Engine:** `pyrosetta`  
-**Environment:** `/home/jk661/.conda/envs/pyrosetta`  
+**Environment:** `/home/jk661/.conda/envs/BindCraft`  
 **GPU required:** no
 
 > This file is generated from `src/protein_design_mcp/manifests/run_rosetta_interface.yaml`. Edit the manifest, then run `python scripts/generate_tool_docs.py`.
 
 ## Summary
 
-Physics-based protein-protein interface analysis with PyRosetta's InterfaceAnalyzerMover: binding energy (dG), buried surface area (dSASA), Lawrence-Coleman shape complementarity, and interface hydrogen-bond counts. NOT VERIFIED LIVE on this host -- read the doc's "Verification status" section before relying on this tool; use run_prodigy for a physics-based interface number that IS confirmed working here.
+Physics-based protein-protein interface analysis with PyRosetta's InterfaceAnalyzerMover: binding energy (dG), buried surface area (dSASA), Lawrence-Coleman shape complementarity, and interface hydrogen-bond counts. CONFIRMED LIVE end to end through ServerApp.call_tool, 2026-09-22 -- see the doc's "Verification status" section for the environment this runs from and why.
 
 ## What this is
 PyRosetta's `InterfaceAnalyzerMover` run over an existing protein-protein
@@ -20,42 +20,30 @@ area (`dSASA`), the Lawrence & Coleman shape-complementarity statistic
 (`sc_value`, 0-1, higher is a tighter geometric fit), and interface
 hydrogen-bond counts.
 
-## Verification status -- read this before using this tool
-This tool could not be exercised end to end on this host. The wheel this
-environment installs from, `/opt/pyrosetta_wheels/pyrosetta-2017-cp312-cp312-linux_x86_64.whl`
-(1.8GB), contains the pure-Python `pyrosetta` wrapper layer and the
-~3.3GB Rosetta parameter database, but CONFIRMED LIVE (2026-09-22,
-inspecting the wheel's own file listing and the installed package) it
-contains **zero `.so` compiled extension files anywhere** -- the actual
-`pyrosetta.rosetta` C++ binary bindings that every single PyRosetta
-operation (including this one) depends on are simply absent from this
-asset. `import pyrosetta` fails immediately and deterministically with
-`ModuleNotFoundError: No module named 'pyrosetta.rosetta'`, before any
-code this tool wrote runs at all. This is not an environment-configuration
-problem this wave could fix (a different python version, extra pip
-packages, or extra mounts would not help) -- the wheel itself is missing
-its core binary. See the wave report for what an operator needs to do:
-obtain a complete PyRosetta wheel (or the standard `.whl` + separately
-distributed compiled `.so`) that actually bundles the compiled `rosetta`
-extension for cp312/linux_x86_64.
+## Verification status
+This tool's own `engine.prefix` env, `~/.conda/envs/BindCraft`, is NOT a
+dedicated PyRosetta install -- it is an existing environment this server
+excludes as a *tool* (BindCraft itself is out of scope by design, spec
+§3.3, gradient-based hallucination) but reuses here, READ-ONLY, purely for
+the working `pyrosetta` package installed inside it. It is never modified
+by this project. (An earlier `/opt/pyrosetta_wheels/pyrosetta-2017-cp312-cp312-linux_x86_64.whl`-based
+env was tried first and is broken -- 1.8GB, zero compiled `.so` files
+among its 24,335 entries, so `import pyrosetta` fails immediately with
+`ModuleNotFoundError: No module named 'pyrosetta.rosetta'`. Do not use it;
+no environment configuration fixes a wheel missing its compiled
+extension.)
 
-Everything below (constructor arguments, output field names, and the
-Lawrence-Coleman `sc_value` in particular) WAS independently confirmed
-live on this same host, end to end, against a genuinely working PyRosetta
-install found in a DIFFERENT, pre-existing environment
-(`/home/jk661/.conda/envs/BindCraft`, python 3.10, used strictly
-READ-ONLY to verify the API surface -- never modified, and this tool does
-not depend on it) -- over `tests/fixtures/test_pdbs/1BRS.pdb` (the
-barnase-barstar complex), chains `A_D`:
-`InterfaceAnalyzerMover(DockingPartners.docking_partners_from_string("A_D"), False, scorefxn, True, False, True)`
-followed by `.set_compute_interface_sc(True)` and `.apply(pose)` produced
-`dG=210.3`, `dSASA=1574.0`, `sc_value=0.72` (a physically sane
-shape-complementarity value for a real, tight protein-protein interface),
-`interface_hbonds=13`, `delta_unsat_hbonds=10`, `packstat=0.55` -- so this
-tool's wrapper script is built against a verified-correct API, even
-though it cannot currently run in ITS OWN (differently-versioned, broken
-wheel) environment. `run_prodigy` remains the confirmed-working choice
-for a physics-based interface number on this host right now.
+CONFIRMED LIVE, 2026-09-22, running this tool's actual committed wrapper
+script (`scripts/engines/rosetta_interface.py`, not a hand-typed snippet)
+through `~/.conda/envs/BindCraft`'s interpreter over
+`tests/fixtures/test_pdbs/1BRS.pdb` (the barnase-barstar complex), chains
+`A_D`: `dG=210.29`, `dSASA=1573.97`, `shape_complementarity=0.72` (a
+physically sane Lawrence-Coleman value for a real, tight protein-protein
+interface), `interface_hbonds=13`, `delta_unsat_hbonds=10`,
+`num_interface_residues=67`, `packstat=0.56`. Turning `pack_separated`
+off on the same complex (also confirmed live, same run) moves `dG` from
++210.29 to -54.20 -- confirming this doc's own claim about why that
+default matters, not just asserting it.
 
 ## `interface` -- Rosetta's own docking-partner notation, not reinvented
 `"A_B"` for a simple two-chain interface, or `"AB_HL"` for a multi-chain
@@ -103,10 +91,10 @@ statistic, when `compute_packstat` was left on), and `num_interface_residues`.
 - `run_prodigy` is a linear-regression estimate from contact counts alone
   -- much faster, needs no repacking, but calibrated on natural complexes
   and known to mis-rank de novo designs. This tool gives a full
-  all-atom-energy decomposition instead, at much higher CPU cost, and is
-  NOT confirmed working on this host right now (see above) -- use
-  `run_prodigy` unless you specifically need this tool's fields once a
-  working wheel is installed.
+  all-atom-energy decomposition instead, at much higher CPU cost -- prefer
+  `run_prodigy` for a fast first pass over many candidates and this tool
+  when you need the full energy breakdown (or `run_prodigy`'s natural-
+  complex calibration is a specific concern) for a shortlist.
 - `run_ipsae` and a co-folding tool's own `iptm` measure predictor
   CONFIDENCE, not physical interface quality -- a different question from
   either of the above.

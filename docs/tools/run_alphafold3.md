@@ -12,14 +12,46 @@
 Predict a multi-chain protein structure with AlphaFold 3, given an explicit alignment (or none) per chain. The heaviest tool in this server: runs as a SIBLING Docker container from AF3's own image, not a process in a mounted conda environment -- see the doc's "How this tool is dispatched" section, since that changes what an operator must configure for this one tool to work at all. MSA is optional and NEVER built by this tool (AF3's own alignment-search step is always disabled) -- pass run_mmseqs_search's unpaired_a3m/paired_a3m outputs, or null/null to run MSA-free. Protein chains only in this version -- no RNA, DNA, ligands, covalent bonds, or templates; see "Not exposed".
 
 ## What this is
-AlphaFold 3, run from the user's own checkout `~/projects/af3-mmseqs-gpu`
-(ground truth for invocation: the reference inference script under its
-`benchmarks/` directory for the `docker run` shape,
-`docs/input.md`/`docs/output.md` for the JSON schema and output layout)
--- the current state-of-the-art structure
-predictor, covering the same "chains + optional per-chain MSA" job shape
-as `run_boltz`/`run_chai1`/`run_protenix`/`run_openfold3`, but from a
-genuinely different model.
+AlphaFold 3, the current state-of-the-art structure predictor, run as a
+sibling Docker container from `romerolabduke/alphafast:latest` (the
+RomeroLab MMseqs2-GPU fork), covering the same "chains + optional
+per-chain MSA" job shape as `run_boltz`/`run_chai1`/`run_protenix`/
+`run_openfold3`, but from a genuinely different model. Ground truth for
+the `docker run` invocation SHAPE (GPU pinning, bind-mount pattern,
+in-container venv activation) is the user's own checkout,
+`~/projects/af3-mmseqs-gpu` (the reference inference script under its
+`benchmarks/` directory) -- but NOT for which entrypoint script executes
+inside the container: see "Which entrypoint script executes" below for
+why this tool uses the image's own baked-in copy instead of the one that
+script mounts from the host repo. `docs/input.md` for the AlphaFold 3
+JSON schema still applies either way (shared, package-level code, not
+entrypoint-script-specific).
+
+## Which entrypoint script executes -- confirmed live, not assumed
+The ground-truth benchmark script bind-mounts the host repo's own
+inference entrypoint into the container. **This tool does NOT do that**
+-- CONFIRMED LIVE, 2026-09-22, that doing so fails immediately:
+`ModuleNotFoundError: No module named 'alphafold3.jax.attention'`. That
+host script's top-level `from alphafold3.jax.attention import attention`
+(added by a LATER point in the same RomeroLab fork's history than this
+image was built from) has no matching module in the `alphafold3` package
+this image actually bakes in (confirmed by listing the image's
+`alphafold3/jax/` directory: only a `geometry` subpackage). Instead, this
+tool runs the image's OWN baked-in inference entrypoint
+(`/app/alphafold/` inside the container) directly -- the same fork
+family, the same data-pipeline-disable flag and recycle/sample/MSA-
+overlap/flash-attention/bucket/conformer flags this tool's schema already
+covers below, built against `tokamax`/`ModelRunner` instead, and
+guaranteed self-consistent with the package actually installed in this
+image. This is a real, live-confirmed incompatibility between two
+snapshots of the same upstream fork, not a bug in either script on its
+own.
+
+This also changes the OUTPUT layout from what the official AlphaFold 3
+docs describe (see each `outputs:` entry's own comment in this manifest):
+called with `--json_path` (not `--input_dir`) and the data-pipeline flag
+disabled -- this tool's own call shape -- this entrypoint writes
+DIRECTLY into `output_dir`, with no extra `<job_name>/` nesting.
 
 ## How this tool is dispatched -- read this before deploying it
 AF3 runs from its OWN Docker image (per the design spec, §4: "AF3 itself

@@ -23,31 +23,40 @@ requires:
   gpu: true
 
 outputs:
+  # NOT "out/job/job_model.cif" -- the official AlphaFold 3 docs describe
+  # output nested under <output_dir>/<sanitised job name>/, but the image's
+  # OWN baked-in entrypoint this wrapper actually runs (see
+  # scripts/engines/alphafold3.py's own docstring for why the host repo's
+  # newer copy cannot be used against this image) writes DIRECTLY into
+  # output_dir with no job-name nesting when called with --json_path +
+  # --run_data_pipeline=false, exactly this wrapper's own call shape --
+  # CONFIRMED LIVE and by reading alphafold3/model/inference.py inside the
+  # image, 2026-09-22.
   - name: model_cif
-    pattern: "out/job/job_model.cif"
+    pattern: "out/job_model.cif"
     description: Top-ranked predicted structure across every seed/sample.
   - name: confidences_json
-    pattern: "out/job/job_confidences.json"
+    pattern: "out/job_confidences.json"
     description: >-
       Top-ranked prediction's full per-token/per-atom confidence arrays
       (pae, atom_plddts, contact_probs, ...).
   - name: summary_confidences_json
-    pattern: "out/job/job_summary_confidences.json"
+    pattern: "out/job_summary_confidences.json"
     description: >-
       Top-ranked prediction's summary confidence scalars (ptm, iptm,
       ranking_score, chain_ptm, chain_iptm, chain_pair_iptm, ...) -- this is
       what this tool's own JSON reply is built from.
   - name: ranking_scores_csv
-    pattern: "out/job/job_ranking_scores.csv"
+    pattern: "out/job_ranking_scores.csv"
     description: ranking_score for every seed/sample this call produced, highest first.
   - name: per_sample_cifs
-    pattern: "out/job/seed-*_sample-*/job_seed-*_sample-*_model.cif"
+    pattern: "out/seed-*_sample-*/job_seed-*_sample-*_model.cif"
     description: >-
       Every individual seed/sample structure (not just the top-ranked one),
       one per num_seeds x num_diffusion_samples combination.
     multiple: true
   - name: per_sample_confidences_json
-    pattern: "out/job/seed-*_sample-*/job_seed-*_sample-*_confidences.json"
+    pattern: "out/seed-*_sample-*/job_seed-*_sample-*_confidences.json"
     description: Per-sample confidence arrays, paired with per_sample_cifs by seed/sample.
     multiple: true
 
@@ -66,14 +75,46 @@ summary: >-
 
 doc: |
   ## What this is
-  AlphaFold 3, run from the user's own checkout `~/projects/af3-mmseqs-gpu`
-  (ground truth for invocation: the reference inference script under its
-  `benchmarks/` directory for the `docker run` shape,
-  `docs/input.md`/`docs/output.md` for the JSON schema and output layout)
-  -- the current state-of-the-art structure
-  predictor, covering the same "chains + optional per-chain MSA" job shape
-  as `run_boltz`/`run_chai1`/`run_protenix`/`run_openfold3`, but from a
-  genuinely different model.
+  AlphaFold 3, the current state-of-the-art structure predictor, run as a
+  sibling Docker container from `romerolabduke/alphafast:latest` (the
+  RomeroLab MMseqs2-GPU fork), covering the same "chains + optional
+  per-chain MSA" job shape as `run_boltz`/`run_chai1`/`run_protenix`/
+  `run_openfold3`, but from a genuinely different model. Ground truth for
+  the `docker run` invocation SHAPE (GPU pinning, bind-mount pattern,
+  in-container venv activation) is the user's own checkout,
+  `~/projects/af3-mmseqs-gpu` (the reference inference script under its
+  `benchmarks/` directory) -- but NOT for which entrypoint script executes
+  inside the container: see "Which entrypoint script executes" below for
+  why this tool uses the image's own baked-in copy instead of the one that
+  script mounts from the host repo. `docs/input.md` for the AlphaFold 3
+  JSON schema still applies either way (shared, package-level code, not
+  entrypoint-script-specific).
+
+  ## Which entrypoint script executes -- confirmed live, not assumed
+  The ground-truth benchmark script bind-mounts the host repo's own
+  inference entrypoint into the container. **This tool does NOT do that**
+  -- CONFIRMED LIVE, 2026-09-22, that doing so fails immediately:
+  `ModuleNotFoundError: No module named 'alphafold3.jax.attention'`. That
+  host script's top-level `from alphafold3.jax.attention import attention`
+  (added by a LATER point in the same RomeroLab fork's history than this
+  image was built from) has no matching module in the `alphafold3` package
+  this image actually bakes in (confirmed by listing the image's
+  `alphafold3/jax/` directory: only a `geometry` subpackage). Instead, this
+  tool runs the image's OWN baked-in inference entrypoint
+  (`/app/alphafold/` inside the container) directly -- the same fork
+  family, the same data-pipeline-disable flag and recycle/sample/MSA-
+  overlap/flash-attention/bucket/conformer flags this tool's schema already
+  covers below, built against `tokamax`/`ModelRunner` instead, and
+  guaranteed self-consistent with the package actually installed in this
+  image. This is a real, live-confirmed incompatibility between two
+  snapshots of the same upstream fork, not a bug in either script on its
+  own.
+
+  This also changes the OUTPUT layout from what the official AlphaFold 3
+  docs describe (see each `outputs:` entry's own comment in this manifest):
+  called with `--json_path` (not `--input_dir`) and the data-pipeline flag
+  disabled -- this tool's own call shape -- this entrypoint writes
+  DIRECTLY into `output_dir`, with no extra `<job_name>/` nesting.
 
   ## How this tool is dispatched -- read this before deploying it
   AF3 runs from its OWN Docker image (per the design spec, §4: "AF3 itself
