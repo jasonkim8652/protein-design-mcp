@@ -64,6 +64,12 @@ def build_args(manifest: Manifest, params: dict[str, Any]) -> list[str]:
         f"design_dir={design_dir}",
         f"data.cfg.num_workers={params['num_workers']}",
         f"num_processes={params['num_processes']}",
+        # foldseek_binary is a plain host path, not a "huggingface:..."
+        # artifact reference, so (unlike moldir/checkpoint) it needs no
+        # top-level-flag resolution and can go through --config directly.
+        # Passed unconditionally: Analyze only USES it when run_clustering
+        # is true, so passing it when clustering is off is harmless.
+        f"foldseek_binary={params['foldseek_binary']}",
     ]
     for key in _BOOLEAN_KEYS:
         config_overrides.append(f"{key}={_bool_str(params[key])}")
