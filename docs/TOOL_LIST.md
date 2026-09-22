@@ -1,7 +1,9 @@
 # protein-design-mcp — full tool list
 
 The list agreed in `docs/superpowers/specs/2026-09-21-atomistic-tool-refresh-design.md`
-§3.2: **29 tools + 2 meta**. Status checked against this host on 2026-09-22, including
+§3.2, **amended 2026-09-22**: the spec's 29 tools + 2 meta, plus two Genie 3 tools added
+below (Genie 3 does binder design and motif scaffolding, which the spec did not cover) —
+**31 tools + 2 meta**. Status checked against this host on 2026-09-22, including
 a GPU survey that actually ran the engines on **GPU 7 only** (0 MiB before/during/after
 on every other index).
 
@@ -15,7 +17,7 @@ wrapper not written · 🟡 engine present, invocation confirmed but job not exe
 
 ---
 
-## A. Target-conditioned binder generation (10)
+## A. Target-conditioned binder generation (11)
 
 | Tool | Engine | Status | Invocation / blocker |
 |---|---|---|---|
@@ -25,16 +27,18 @@ wrapper not written · 🟡 engine present, invocation confirmed but job not exe
 | `run_proteina_complexa_analyze` | ″ | 🟡 | aggregate analysis over a run |
 | `run_rfdiffusion2` | RFdiffusion2 | 🟡 | Official path needs **apptainer, which is not installed** (`.sif` present, 13.6G). Workaround verified: `PYTHONPATH=<repo> python rf_diffusion/benchmark/pipeline.py --config-name=...` in env `rfd2_src` |
 | `run_protpardelle` | Protpardelle-1c | 🟢 | `python -m protpardelle.sample <yaml> --num-mpnn-seqs 0` (env `pp1c`, editable → `~/projects/protpardelle-1c/src`) |
+| `run_genie3_binder` | Genie 3 | 🟡 | `~/projects/genie3`, `scripts/problem/binder_design/`. Imports under the `genie2` env; **checkpoints not downloaded** (`assets/` is 6 MB, a gif) |
 | `run_rfdiffusion_binder` | RFdiffusion | 🟡 | env `SE3nv` has `rfdiffusion 1.1.0`; not exercised in this survey |
 | `run_boltzgen_design` | BoltzGen 0.3.2 | ⬜ | **not on this host** — MIT code+weights+data |
 | `run_boltzgen_inverse_fold` | ″ | ⬜ | ″ — BoltzGen's own IF head, not ProteinMPNN |
 | `run_boltzgen_filter` | ″ | ⬜ | ″ — CPU-only, re-rankable without regenerating |
 
-## B. Monomer / scaffold generation (4)
+## B. Monomer / scaffold generation (5)
 
 | Tool | Engine | Status | Invocation / blocker |
 |---|---|---|---|
-| `run_genie2` | Genie2 | 🟢 | `python genie/sample_unconditional.py --name base --epoch 40 --scale 0.6 --outdir DIR`. **`~/projects/genie3` is also here** — Genie 3 adds binder design; worth promoting |
+| `run_genie3_scaffold` | Genie 3 | 🟡 | Motif scaffolding. Same checkout and env as `run_genie3_binder`; checkpoints still needed |
+| `run_genie2` | Genie2 | 🟢 | `python genie/sample_unconditional.py --name base --epoch 40 --scale 0.6 --outdir DIR`. Unconditional only — `sample_scaffold.py`/`sample_unconditional.py` are its whole surface. Genie 3 supersedes it once weights land |
 | `run_frameflow` | FrameFlow | 🟢 | `PYTHONPATH=<repo> python experiments/inference_se3_flows.py -cn inference_unconditional`. ⚠ writes to cwd-relative `./inference_outputs/` and **ignores `inference.output_dir`** |
 | `run_multiflow` | MultiFlow | 🟠 | Core flow-matching + ProteinMPNN codesign **ran and wrote output**. Built-in ESMFold self-consistency scoring is blocked — `deepspeed` missing from the env |
 | `run_la_proteina` | La-Proteina | 🟡 | `~/projects/la-proteina`; checkpoints not yet downloaded |
@@ -43,7 +47,7 @@ wrapper not written · 🟡 engine present, invocation confirmed but job not exe
 
 | Tool | Engine | Status | Notes |
 |---|---|---|---|
-| `run_mpnn` | LigandMPNN | ✅ | Live: `num_designs: 2`. Serves ProteinMPNN / LigandMPNN / SolubleMPNN via `model_type`. Survey also found a second checkout at `proteina-complexa/community_models/LigandMPNN` — the shipped tool uses the pip build, not this one |
+| `run_mpnn` | **ProteinMPNN** / LigandMPNN / SolubleMPNN | ✅ | Live: `num_designs: 2`. Serves ProteinMPNN / LigandMPNN / SolubleMPNN via `model_type`. Survey also found a second checkout at `proteina-complexa/community_models/LigandMPNN` — the shipped tool uses the pip build, not this one |
 
 ## D. Co-folding / structure prediction (8)
 
@@ -84,12 +88,12 @@ wrapper not written · 🟡 engine present, invocation confirmed but job not exe
 |---|---|
 | ✅ Shipped as MCP tools, live-verified | **4** + `describe_tool` |
 | 🟢 Executed successfully on GPU 7 | **4** |
-| 🟡 Present, invocation known, job not run | **9** |
+| 🟡 Present, invocation known, job not run | **11** |
 | 🟠 Partially working | **1** |
 | ⬜ Needs installing | **9** |
-| | **29 + 2 meta** |
+| | **31 + 2 meta** |
 
-**20 of 29 are reachable with what is already on this box**, and 8 of those have now been
+**22 of 31 are reachable with what is already on this box**, and 8 of those have now been
 run or had their exact invocation confirmed. Of the 9 missing, 7 are permissively
 licensed installs (BoltzGen MIT; Chai-1, Protenix, OpenFold3 Apache-2.0; Promera MIT) —
 a fetch, not a blocker. RF3 and AF2-Multimer need a decision: RF3's output schema is
@@ -143,3 +147,4 @@ AlphaProteo, Pearl, Proteina (original), Chroma — no public/permissive weights
 | **G4** | `run_prodigy` omits `timeout_s` |
 | **M1** | `describe_tool` returns `isError=False` while carrying an error |
 | **M2** | 4 of 6 advertised `category` values error; `meta` permanently excludes `describe_tool` from its own listing |
+| **M3** | **ProteinMPNN is effectively undiscoverable.** It is the default of `run_mpnn` (`model_type` enum `protein`/`soluble`/`ligand`, default `protein`), but the enum values never name their engine, `model_type`'s description is only "Which trained variant to use.", and `docs/tools/run_mpnn.md` says "ProteinMPNN" exactly once. On a protein–protein binder-design server the standard sequence-design step must be findable by name. Fix by naming the engine behind each enum value and in the doc — **not** by splitting into three tools; it is one codebase and the spec's one-tool argument still holds |
