@@ -313,3 +313,78 @@ async def test_manifest_outputs_reach_the_dispatcher(tmp_path):
         {"complex_pdb": str(pdb), "chain_a": "A", "chain_b": "B"},
     )
     assert [o.name for o in dispatcher.outputs] == ["o"]
+
+
+@pytest.mark.asyncio
+async def test_adapter_returning_outputs_key_fails_loudly(monkeypatch):
+    """An adapter that returns 'outputs' in its payload causes a collision.
+    Must fail loudly with an error naming the tool and the reserved key,
+    not silently overwrite the dispatcher's outputs."""
+    manifest = _manifest_sharing_a_repo("run_broken_adapter")
+
+    def broken_build_args(manifest, params):
+        return ["arg"]
+
+    def broken_parse_output(manifest, run):
+        # This adapter incorrectly returns an 'outputs' key
+        return {"result": "value", "outputs": "adapter_outputs"}
+
+    monkeypatch.setattr(
+        app_module,
+        "ADAPTERS",
+        {"run_broken_adapter": (broken_build_args, broken_parse_output)},
+    )
+
+    app = ServerApp(ToolRegistry([manifest]), dispatcher=_FakeDispatcher())
+    result = await app.call_tool("run_broken_adapter", {})
+    assert result.isError is True
+    payload = json.loads(_text(result))
+    assert "error" in payload
+    assert "run_broken_adapter" in payload["error"]
+    assert "outputs" in payload["error"]
+    assert "reserved" in payload["error"]
+
+
+@pytest.mark.asyncio
+async def test_adapter_output_merges_with_dispatcher_outputs(tmp_path, monkeypatch):
+    """An adapter that returns ordinary keys alongside a manifest with
+    declared outputs should merge both successfully into the final result."""
+    manifest = _timeout_manifest()
+
+    def merging_build_args(manifest, params):
+        return ["arg"]
+
+    def merging_parse_output(manifest, run):
+        # This adapter returns normal result keys (not 'outputs')
+        return {"affinity": "1.5", "kd": "1e-8"}
+
+    monkeypatch.setattr(
+        app_module,
+        "ADAPTERS",
+        {"run_prodigy": (merging_build_args, merging_parse_output)},
+    )
+
+    class _OutputDispatcher(_RecordingDispatcher):
+        async def run(self, engine, args, *, timeout, outputs=()):
+            await super().run(engine, args, timeout=timeout, outputs=outputs)
+            # Return some outputs from the dispatcher
+            from protein_design_mcp.dispatch.env import CompletedRun
+            return CompletedRun(
+                returncode=0, stdout="", stderr="", workdir=Path("/tmp"),
+                outputs={"o": "output_value.txt"}
+            )
+
+    dispatcher = _OutputDispatcher()
+    app = ServerApp(ToolRegistry([manifest]), dispatcher=dispatcher)
+    pdb = tmp_path / "c.pdb"
+    pdb.write_text("ATOM\n")
+
+    result = await app.call_tool(
+        "run_prodigy",
+        {"complex_pdb": str(pdb), "chain_a": "A", "chain_b": "B"},
+    )
+    payload = json.loads(_text(result))
+    # Both adapter output and dispatcher outputs should be present
+    assert payload["affinity"] == "1.5"
+    assert payload["kd"] == "1e-8"
+    assert payload["outputs"] == {"o": "output_value.txt"}
