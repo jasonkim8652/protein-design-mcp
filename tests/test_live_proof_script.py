@@ -33,7 +33,7 @@ import sys
 from pathlib import Path
 
 from protein_design_mcp.app import build_registry
-from protein_design_mcp.meta_tools import DESCRIBE_TOOL_MANIFEST
+from protein_design_mcp.meta_tools import DESCRIBE_TOOL_MANIFEST, GET_JOB_STATUS_MANIFEST
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
@@ -43,15 +43,20 @@ from live_proof import CASES, DEVICES  # noqa: E402
 def _registered_tools_by_device() -> dict[str, set[str]]:
     """tool name -> every device (of DEVICES) that registers it.
 
-    ``describe_tool`` is device-agnostic (``ServerApp.list_tools`` adds it
-    unconditionally, regardless of what device its registry was built for),
-    so it maps to every entry of DEVICES here.
+    ``describe_tool`` and ``get_job_status`` are both device-agnostic
+    (``ServerApp.list_tools`` adds them unconditionally, regardless of what
+    device its registry was built for), so they map to every entry of
+    DEVICES here. (Task 11: this used to add only ``describe_tool``, which
+    made ``get_job_status`` permanently uncoverable -- any CASES entry
+    naming it would fail ``test_no_case_references_an_unregistered_tool``
+    even though it is a real tool ``ServerApp.call_tool`` dispatches.)
     """
     registered: dict[str, set[str]] = {}
     for device in DEVICES:
         for tool in build_registry(device=device).tools():
             registered.setdefault(tool.name, set()).add(device)
     registered.setdefault(DESCRIBE_TOOL_MANIFEST.name, set()).update(DEVICES)
+    registered.setdefault(GET_JOB_STATUS_MANIFEST.name, set()).update(DEVICES)
     return registered
 
 

@@ -63,7 +63,7 @@ from mcp import types
 from mcp.server import Server
 
 from protein_design_mcp.app import ServerApp, build_registry
-from protein_design_mcp.meta_tools import DESCRIBE_TOOL_MANIFEST
+from protein_design_mcp.meta_tools import DESCRIBE_TOOL_MANIFEST, GET_JOB_STATUS_MANIFEST
 
 # Every device server.py's own DEVICE resolution can select (env var
 # override, or torch.cuda.is_available()) -- see server.py. Coverage and
@@ -473,6 +473,402 @@ CASES: list[dict] = [
         },
         "expect_keys": ["error"],
     },
+    {
+        # Task 11: get_job_status has no engine at all (wired like
+        # describe_tool -- see meta_tools.py/wave-H-report.md), so its live
+        # proof is a registry/dispatch check, not an engine run: a
+        # deliberately unknown job_id, driven through the real
+        # ServerApp.call_tool path, exercises the exact same lookup a real
+        # job_id would hit (get_job_queue().get_job(...) -> None -> the
+        # ValueError this tool's own wrapper translates into {"error": ...}),
+        # confirmed live to return isError=True with a real "Job not found"
+        # message.
+        "tool": "get_job_status",
+        "device": "cpu",
+        "arguments": {"job_id": "nonexistent-job-id-live-proof-check"},
+        "expect_keys": ["error"],
+    },
+    {
+        # Task 11: AlphaFold 3 via its sibling romerolabduke/alphafast:latest
+        # Docker container (task-10's fixed version -- the image's own
+        # baked-in entrypoint, not the host repo's newer, incompatible copy;
+        # outputs land at out/*, not out/job/*). MSA-free, 20-residue
+        # Trp-cage, seeds=[1], num_recycles/num_diffusion_samples dropped to
+        # 1 for speed. Confirmed live on GPU 7: isError=False,
+        # ranking_score=ptm=0.12 (a real, if low-confidence, monomer
+        # prediction -- iptm is null, correctly, since a single chain has no
+        # cross-chain interface to report). Verified end to end via
+        # EnvDispatcher(runner=None) (this tool's own env: "scoring" is
+        # baked into the deployed image only, per the manifest's dispatch
+        # doc -- not a change to this tool's real dispatch path, only to how
+        # this host-side check reaches it, same technique wave-H/task-10
+        # used).
+        "tool": "run_alphafold3",
+        "device": "cuda",
+        "arguments": {
+            "chains": [
+                {
+                    "sequence": "NLYIQWLKDGGPSSGRPPPS",
+                    "unpaired_msa": None,
+                    "paired_msa": None,
+                    "copies": 1,
+                }
+            ],
+            "seeds": [1],
+            "num_recycles": 1,
+            "num_diffusion_samples": 1,
+        },
+        "expect_keys": ["ranking_score", "ptm", "iptm"],
+    },
+    {
+        # Task 11: BoltzGen's `analysis` step (CPU dataframe/geometry work,
+        # requires.gpu is false) over a REAL design -> fold chain this task
+        # generated live (num_designs=1, sampling_steps=20 for fold) and
+        # committed as fixtures -- tests/fixtures/boltzgen/generated_designs/
+        # (run_boltzgen_design's own outputs.generated_designs) and
+        # tests/fixtures/boltzgen/refold/ (run_boltzgen_fold's own
+        # outputs.refolded_structures/refold_metrics on that same design).
+        # designfolding_metrics left at its false default (no
+        # design_refold_structures/metrics supplied) -- matching wave E's
+        # own live-verified chain; that optional path is unit-tested but not
+        # live-verified, per that wave's report. Confirmed live:
+        # isError=False, num_designs_analyzed=1.
+        "tool": "run_boltzgen_analyze",
+        "device": "cpu",
+        "arguments": {
+            "design_spec": "tests/fixtures/boltzgen/design_spec.yaml",
+            "generated_files": [
+                "tests/fixtures/boltzgen/generated_designs/design_spec.cif",
+                "tests/fixtures/boltzgen/generated_designs/design_spec.npz",
+            ],
+            "refold_structures": ["tests/fixtures/boltzgen/refold/design_spec.cif"],
+            "refold_metrics": ["tests/fixtures/boltzgen/refold/design_spec.npz"],
+        },
+        "expect_keys": ["num_designs_analyzed"],
+    },
+    {
+        # Task 11: BoltzGen's `design_folding` step (design refolded ALONE,
+        # target stripped out) -- same real generated_files fixture as
+        # run_boltzgen_fold below (see that case's comment for provenance).
+        # sampling_steps dropped from the 200 default to 20 for speed.
+        # Confirmed live on GPU 7: isError=False, one refolds entry with a
+        # real design_ptm/design_iptm (no target-relative fields, correctly
+        # -- the target is absent from this step's input entirely).
+        "tool": "run_boltzgen_design_fold",
+        "device": "cuda",
+        "arguments": {
+            "design_spec": "tests/fixtures/boltzgen/design_spec.yaml",
+            "generated_files": [
+                "tests/fixtures/boltzgen/generated_designs/design_spec.cif",
+                "tests/fixtures/boltzgen/generated_designs/design_spec.npz",
+            ],
+            "sampling_steps": 20,
+            "diffusion_samples": 1,
+        },
+        "expect_keys": ["refolds", "num_refolds"],
+    },
+    {
+        # Task 11: BoltzGen's `folding` step (design refolded WITH its
+        # target present -- the interface-confidence step everything
+        # downstream ranks on). generated_files is a REAL design this task
+        # produced live via run_boltzgen_design (design_spec.yaml,
+        # num_designs=1) and committed as a fixture (both the .cif and its
+        # .npz -- dropping either makes this tool unable to read the design
+        # back, see the manifest doc) -- not synthetic, not reused from
+        # another wave's fixture. sampling_steps dropped from the 200
+        # default to 20 for speed. Confirmed live on GPU 7: isError=False,
+        # one refolds entry with a real design_to_target_iptm=0.53.
+        "tool": "run_boltzgen_fold",
+        "device": "cuda",
+        "arguments": {
+            "design_spec": "tests/fixtures/boltzgen/design_spec.yaml",
+            "generated_files": [
+                "tests/fixtures/boltzgen/generated_designs/design_spec.cif",
+                "tests/fixtures/boltzgen/generated_designs/design_spec.npz",
+            ],
+            "sampling_steps": 20,
+            "diffusion_samples": 1,
+        },
+        "expect_keys": ["refolds", "num_refolds"],
+    },
+    {
+        # Task 11: ColabFold's own MMseqs2 search (requires.gpu is false).
+        # `backend` has no default -- it is a required, explicit choice
+        # (local/remote). "local" cannot work on this host: ColabFold's own
+        # UniRef30/envDB databases are not installed anywhere on it (task-10
+        # confirmed this by exhaustive search) -- only "remote" is usable
+        # here. THIS CALL LEAVES THE MACHINE: "remote" transmits the query
+        # sequence to https://api.colabfold.com, the ColabFold project's own
+        # public server, not this deployment -- see the manifest doc's
+        # "backend" section before reusing this case's shape elsewhere.
+        # Reuses the same 76-residue ubiquitin sequence as run_mmseqs_search
+        # above. Confirmed live: isError=False, query_length=76, a real
+        # ~3MB merged a3m with genuine UniRef100 hits returned in ~2s.
+        "tool": "run_colabfold_search",
+        "device": "cpu",
+        "arguments": {
+            "sequence": "MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG",
+            "backend": "remote",
+        },
+        "expect_keys": ["query_length"],
+    },
+    {
+        # Task 11: ESM2-650M masked-marginal pseudo-log-likelihood scoring
+        # (task-10's fixed dispatch, engine.prefix esm_env). Reuses the same
+        # 76-residue ubiquitin sequence as run_esmfold2/run_mmseqs_search
+        # above. Confirmed live on GPU 7: isError=False,
+        # pseudo_log_likelihood=-1.04 (a physically sane value, matching
+        # wave-H's own live finding).
+        "tool": "run_esm_score",
+        "device": "cuda",
+        "arguments": {
+            "sequence": "MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG",
+            "batch_size": 32,
+        },
+        "expect_keys": ["pseudo_log_likelihood", "per_residue_log_likelihood", "sequence_length"],
+    },
+    {
+        # Task 11: FrameFlow unconditional monomer generation. min_length is
+        # this schema's own floor (20) to keep the run fast; samples_per_
+        # length=1, num_timesteps dropped from the 100 default to 10.
+        # Confirmed live on GPU 7: isError=False, one 20-residue backbone
+        # (length verified from the file's own CA atoms, not just the
+        # filename).
+        "tool": "run_frameflow",
+        "device": "cuda",
+        "arguments": {
+            "min_length": 20,
+            "max_length": 20,
+            "samples_per_length": 1,
+            "num_timesteps": 10,
+        },
+        "expect_keys": ["backbones", "num_backbones"],
+    },
+    {
+        # Task 11: Genie 2 unconditional monomer generation, matching wave
+        # F's own live-verified shape (1x50-residue sample). Confirmed live
+        # on GPU 7: isError=False, backbones=[{"id": "50_0", "length": 50}].
+        "tool": "run_genie2",
+        "device": "cuda",
+        "arguments": {
+            "min_length": 50,
+            "max_length": 50,
+            "num_samples": 1,
+            "batch_size": 1,
+        },
+        "expect_keys": ["backbones", "num_backbones"],
+    },
+    {
+        # Task 11: Genie 3 target-conditioned binder generation
+        # (genie2_fixed env, Bio.PDB available). target_pdb is
+        # mini_protein.pdb (a genuine standalone 5-residue single chain,
+        # already used by run_epitope_scan/run_openmm_minimize elsewhere in
+        # this file) -- hotspots A2/A4 on it, binder fixed to 20 residues,
+        # n_sample_step dropped from the 100 default to 10 for speed.
+        # expand_interface left at its false default (condition on exactly
+        # the given hotspots). Confirmed live on GPU 7: isError=False, one
+        # 20-residue binder chain (A) plus the unchanged 5-residue target
+        # (B), cond_strategy="hotspot".
+        "tool": "run_genie3_binder",
+        "device": "cuda",
+        "arguments": {
+            "target_pdb": "tests/fixtures/test_pdbs/mini_protein.pdb",
+            "hotspot_residues": ["A2", "A4"],
+            "binder_min_length": 20,
+            "binder_max_length": 20,
+            "num_samples": 1,
+            "n_sample_step": 10,
+        },
+        "expect_keys": ["binders", "num_binders"],
+    },
+    {
+        # Task 11: Genie 3 unconditional monomer generation (shares the
+        # genie2 conda env's interpreter via an explicit PYTHONPATH -- see
+        # the manifest's engine comment). n_sample_step dropped from the 100
+        # default to 10 for speed; model_variant left at its "v1"/DDIM
+        # default. Confirmed live on GPU 7: isError=False, one 60-residue
+        # backbone.
+        "tool": "run_genie3_scaffold",
+        "device": "cuda",
+        "arguments": {
+            "min_length": 60,
+            "max_length": 60,
+            "num_samples": 1,
+            "batch_size": 1,
+            "n_sample_step": 10,
+        },
+        "expect_keys": ["backbones", "num_backbones"],
+    },
+    {
+        # Task 11: La-Proteina unconditional, all-atom monomer generation
+        # (LD1/AE1 checkpoint pair). nsteps=20 matches this manifest's own
+        # documented fast-smoke-test value (its doc explicitly notes this is
+        # "far below the recommended value ... only appropriate for
+        # confirming the path works"). Confirmed live on GPU 7:
+        # isError=False, one 50-residue backbone
+        # (id="job_0_n_50_id_0", matching wave F's own live finding).
+        "tool": "run_la_proteina",
+        "device": "cuda",
+        "arguments": {
+            "lengths": [50],
+            "num_samples": 1,
+            "max_nsamples_per_batch": 1,
+            "nsteps": 20,
+        },
+        "expect_keys": ["backbones", "num_backbones"],
+    },
+    {
+        # Task 11: MultiFlow unconditional generation WITH ProteinMPNN
+        # codesign and its own ESMFold self-consistency refold
+        # (multiflow_fixed env, deepspeed installed -- per commit 9af9079,
+        # engine caches are now per-engine and persistent, so the ESMFold
+        # weight download this refold triggers costs once, not once per
+        # call). min_length is this schema's own floor (20); num_timesteps
+        # dropped from the 500 default to 10 for speed. Confirmed live on
+        # GPU 7: isError=False, one 20-residue sample with a real codesigned
+        # sequence AND a real self_consistency score
+        # (bb_rmsd=0.61, mean_plddt=82.5 -- the refold genuinely completed,
+        # not the defensive {} fallback).
+        "tool": "run_multiflow",
+        "device": "cuda",
+        "arguments": {
+            "min_length": 20,
+            "max_length": 20,
+            "samples_per_length": 1,
+            "num_timesteps": 10,
+        },
+        "expect_keys": ["samples", "num_samples"],
+    },
+    {
+        # Task 11: Protpardelle-1c target-conditioned binder generation
+        # (cc83, the BindCraft-benchmark backbone-only multi-chain model --
+        # this schema's own default). target_pdb is mini_protein.pdb (the
+        # same standalone 5-residue chain run_genie3_binder/
+        # run_rfdiffusion_binder/run_rfdiffusion2/run_rfdiffusion3_binder
+        # below all use as a target) -- contig "A1-5;/;20-20" keeps the
+        # whole 5-residue chain fixed and generates a 20-residue second
+        # chain; hotspots left null (a real, documented "no hotspot bias"
+        # choice, not an oversight) since this fixture's target has no
+        # literature-known interface to point at. Confirmed live on GPU 7:
+        # isError=False, one sample with chain A (target, unchanged at 5
+        # residues) and chain B (generated, 20 residues).
+        "tool": "run_protpardelle",
+        "device": "cuda",
+        "arguments": {
+            "target_pdb": "tests/fixtures/test_pdbs/mini_protein.pdb",
+            "contig": "A1-5;/;20-20",
+            "total_lengths": [[5, 5], [20, 20]],
+            "hotspots": None,
+            "num_samples": 1,
+            "batch_size": 1,
+        },
+        "expect_keys": ["samples", "num_samples"],
+    },
+    {
+        # Task 11: RFdiffusion2, conda backend (this schema's own default --
+        # task 9 fixed rfd2_fixed so this works with no Docker socket; see
+        # that manifest's engine comment). target_pdb is mini_protein.pdb,
+        # whose whole 5-residue chain A is exactly what contig
+        # "A1-5_10-10" (RFdiffusion2's own underscore-separated grammar)
+        # names as the fixed target segment, generating a 10-residue
+        # binder. diffusion_steps=15 matches task 9's own confirmed-live
+        # value. Confirmed live on GPU 7: isError=False, num_structures=1.
+        "tool": "run_rfdiffusion2",
+        "device": "cuda",
+        "arguments": {
+            "target_pdb": "tests/fixtures/test_pdbs/mini_protein.pdb",
+            "contig": "A1-5_10-10",
+            "backend": "conda",
+            "num_designs": 1,
+            "diffusion_steps": 15,
+            "ckpt_variant": "140",
+        },
+        "expect_keys": ["num_structures"],
+    },
+    {
+        # Task 11: RFdiffusion3's binder (PPI) path -- RosettaCommons'
+        # rc-foundry rfd3, comma-separated contig grammar (diffused segment
+        # first, unlike RFdiffusion 1.1.0's target-first convention).
+        # target_pdb is mini_protein.pdb; contig "10-10,/0,A1-5" generates a
+        # 10-residue binder against the whole 5-residue target chain, with
+        # select_hotspots "A2,A4". num_timesteps dropped from the 200
+        # default to 10 for speed, matching wave G's own live-verified
+        # shape. Confirmed live on GPU 7: isError=False, num_structures=1,
+        # a real metrics dict (clash counts, radius of gyration, ...) and
+        # diffused_index_map.
+        "tool": "run_rfdiffusion3_binder",
+        "device": "cuda",
+        "arguments": {
+            "target_pdb": "tests/fixtures/test_pdbs/mini_protein.pdb",
+            "contig": "10-10,/0,A1-5",
+            "select_hotspots": "A2,A4",
+            "diffusion_batch_size": 1,
+            "num_timesteps": 10,
+        },
+        "expect_keys": ["num_structures", "metrics", "diffused_index_map", "ckpt_path"],
+    },
+    {
+        # Task 11: RFdiffusion3's monomer/scaffold path -- same engine as
+        # run_rfdiffusion3_binder above, no target chain (unconditional,
+        # length only). length="25" matches wave G's own live-verified
+        # value; diffusion_batch_size dropped to 1 (from the 8 default) and
+        # num_timesteps to 10 (from 200) for speed. Confirmed live on GPU 7:
+        # isError=False, num_structures=1, a real metrics dict.
+        "tool": "run_rfdiffusion3_scaffold",
+        "device": "cuda",
+        "arguments": {
+            "length": "25",
+            "diffusion_batch_size": 1,
+            "num_timesteps": 10,
+        },
+        "expect_keys": ["num_structures", "metrics", "ckpt_path"],
+    },
+    {
+        # Task 11: RFdiffusion 1.1.0's legacy binder-design path (the
+        # /file_server/data/jk661/pioneer/RFdiffusion checkout, PYTHONPATH +
+        # nvrtc/JIT-fusion workaround baked into the manifest -- see its
+        # engine comment). target_pdb is mini_protein.pdb; contig
+        # "A1-5/0 10-10" (RFdiffusion 1.1.0's own space-separated,
+        # target-first grammar -- NOT the same grammar as run_rfdiffusion2's
+        # or run_rfdiffusion3_binder's contig above, despite superficial
+        # similarity) fixes the whole 5-residue target chain and generates a
+        # 10-residue binder, hotspot_res A2/A4. diffusion_steps=15 is this
+        # schema's own CONFIRMED LIVE hard floor (T<15 raises an
+        # AssertionError before any GPU work starts -- see the manifest
+        # doc). Confirmed live on GPU 7: isError=False, num_structures=1,
+        # checkpoint_used/contig_used echoed back from the engine's own log.
+        "tool": "run_rfdiffusion_binder",
+        "device": "cuda",
+        "arguments": {
+            "target_pdb": "tests/fixtures/test_pdbs/mini_protein.pdb",
+            "contig": "A1-5/0 10-10",
+            "hotspot_res": ["A2", "A4"],
+            "num_designs": 1,
+            "diffusion_steps": 15,
+        },
+        "expect_keys": ["num_structures", "checkpoint_used", "contig_used"],
+    },
+    {
+        # Task 11: PyRosetta's InterfaceAnalyzerMover (task-10's fixed
+        # dispatch, engine.prefix repointed at the working ~/.conda/envs/
+        # BindCraft install -- the dedicated pyrosetta env's own wheel is
+        # missing its compiled extension and can never work, see the
+        # manifest's engine comment). Same complex/chains as run_prodigy's
+        # own case above (1BRS, barnase/barstar, chains A/D). Every
+        # repacking/packstat/shape-complementarity knob left at its default.
+        # requires.gpu is false -- confirmed live (CPU): isError=False,
+        # dG=209.63, dSASA=1573.97,
+        # shape_complementarity=0.72, interface_hbonds=13 -- matching
+        # task-10's own live finding (dG=210.05) to within run-to-run
+        # packing-stochasticity noise.
+        "tool": "run_rosetta_interface",
+        "device": "cpu",
+        "arguments": {
+            "complex_pdb": "tests/fixtures/test_pdbs/1BRS.pdb",
+            "interface": "A_D",
+        },
+        "expect_keys": ["dG", "dSASA", "shape_complementarity", "interface_hbonds"],
+    },
 ]
 
 
@@ -538,16 +934,22 @@ def _print_result(label: str, result: types.CallToolResult) -> None:
 def _registered_tool_names_by_device() -> dict[str, set[str]]:
     """Tool name -> every device (of DEVICES) that registers it.
 
-    ``describe_tool`` is a meta-tool with no manifest -- ``ServerApp.
-    list_tools`` adds it unconditionally, regardless of what device its
-    registry was built for (see app.py) -- so it maps to every entry of
-    DEVICES here too.
+    ``describe_tool`` and ``get_job_status`` are both meta-tools with no
+    manifest -- ``ServerApp.list_tools`` adds them unconditionally,
+    regardless of what device its registry was built for (see app.py) --
+    so they map to every entry of DEVICES here too. (Task 11: this used to
+    add only ``describe_tool``, which silently left ``get_job_status``
+    permanently uncoverable -- CASES could never list it without
+    ``_check_coverage`` rejecting it as "references unregistered tool(s)",
+    even though it is a real tool a client can call through the same
+    handler.)
     """
     registered: dict[str, set[str]] = {}
     for device in DEVICES:
         for tool in build_registry(device=device).tools():
             registered.setdefault(tool.name, set()).add(device)
     registered.setdefault(DESCRIBE_TOOL_MANIFEST.name, set()).update(DEVICES)
+    registered.setdefault(GET_JOB_STATUS_MANIFEST.name, set()).update(DEVICES)
     return registered
 
 
