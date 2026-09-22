@@ -22,11 +22,14 @@ OUTPUT_NAME_RE = re.compile(r"^[A-Za-z0-9_]+$")
 
 CATEGORIES = frozenset(
     {
-        "generation",
+        "binder_generation",
         "monomer_generation",
         "sequence_design",
-        "cofolding",
+        "structure_prediction",
+        "msa",
         "scoring",
+        "run_analysis",
+        "preparation",
         "meta",
     }
 )
