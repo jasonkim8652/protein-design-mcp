@@ -40,7 +40,16 @@ def test_manifest_loads_and_is_not_composite():
 def test_manifest_documents_verification_status():
     doc = _manifest().doc
     assert "## Verification status" in doc
-    assert "NOT VERIFIED LIVE" in _manifest().summary
+    assert "CONFIRMED LIVE" in _manifest().summary
+
+
+def test_manifest_engine_points_at_bindcraft_read_only():
+    """The dedicated `pyrosetta` env's wheel is broken (no compiled `.so`
+    files) -- this tool must point at the working PyRosetta install inside
+    `~/.conda/envs/BindCraft` instead, read-only, never the broken env."""
+    engine = _manifest().engine
+    assert engine.prefix is not None
+    assert engine.prefix.endswith("/BindCraft")
 
 
 def test_build_args_serialises_all_job_fields():

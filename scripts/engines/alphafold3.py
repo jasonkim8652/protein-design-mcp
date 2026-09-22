@@ -18,10 +18,54 @@ arguments and in-container activation sequence, ``docs/input.md`` for the
 AlphaFold 3 JSON schema, ``docs/output.md`` for the output directory
 layout this wrapper's manifest ``outputs:`` patterns are built from.
 
-The job is always named ``"job"`` (never derived from caller input) so the
-output directory (``AlphaFold 3 writes into
-<output_dir>/<sanitised job name>/``) is fixed and predictable, the same
-convention ``scripts/engines/boltz.py`` already uses for its own job file.
+The image is ``romerolabduke/alphafast:latest`` (12.1GB, present on this
+host; verified live 2026-09-22 that ``/alphafold3_venv`` inside it is a
+real AlphaFold 3 venv) -- the RomeroLab MMseqs2-GPU fork the design spec
+names, and the same image the benchmark script's own ``DOCKER_IMAGE="$2"``
+takes as an argument rather than hardcoding.
+
+**This wrapper runs the image's OWN baked-in entrypoint,
+``/app/alphafold/run_alphafold.py`` -- NOT the ground-truth benchmark
+script's mounted copy.** CONFIRMED LIVE, 2026-09-22: mounting the host's own
+``~/projects/af3-mmseqs-gpu/run_alphafold.py`` in, exactly as
+``benchmarks/run_inference_original_db.sh`` does, fails immediately with
+``ModuleNotFoundError: No module named 'alphafold3.jax.attention'`` --
+that host script's top-level ``from alphafold3.jax.attention import
+attention`` (added by a LATER point in the same RomeroLab fork's history)
+has no matching module in the ``alphafold3`` package actually baked into
+this image (confirmed by listing ``/app/alphafold/src/alphafold3/jax/``
+inside the image: only a ``geometry`` subpackage, no ``attention`` one).
+This image's own ``/app/alphafold/run_alphafold.py`` is genuinely the same
+fork family -- same flag surface (``--run_data_pipeline``,
+``--num_recycles``, ``--num_diffusion_samples``, ``--resolve_msa_overlaps``,
+``--flash_attention_implementation``, ``--buckets``,
+``--conformer_max_iterations``, ...) built against ``tokamax``/
+``ModelRunner`` instead -- and is guaranteed self-consistent with the
+package actually installed here, so this wrapper uses it directly rather
+than mounting anything from the host repo at all.
+
+``MODEL_DIR_HOST`` is ``/opt/alphafold3_data/weights`` (contains
+``af3.bin``/``af3.bin.zst`` -- note the identically-named
+``/opt/alphafold3_data/models`` is empty and is NOT this path); AlphaFold
+3's own ``params.select_model_files`` matches ``af3.bin.zst`` first and
+returns just that one file, so having both the raw and compressed weight
+file in the same directory does not trigger its "Multiple models matched"
+error (confirmed by reading ``alphafold3/model/params.py`` directly out of
+the image, 2026-09-22).
+
+The job is always named ``"job"`` (never derived from caller input).
+**Output layout, confirmed live and by reading
+``alphafold3/model/inference.py`` inside the image (2026-09-22), differs
+from the official AlphaFold 3 docs' ``<output_dir>/<sanitised job name>/``
+convention**: this entrypoint's own ``main()``, when called with
+``--json_path`` (rather than ``--input_dir``) and
+``--run_data_pipeline=false``, passes ``output_dir`` (``_OUTPUT_DIR.value``,
+i.e. ``/output`` here) to ``process_fold_input`` DIRECTLY, with no extra
+``<job_name>/`` nesting -- so the top-ranked structure lands at
+``/output/job_model.cif`` (not ``/output/job/job_model.cif``), and each
+seed/sample directory (``seed-<seed>_sample-<n>/``) sits directly under
+``/output/`` too. The manifest's ``outputs:`` patterns match this real
+layout, not the official docs' generic one.
 
 ``--run_data_pipeline=false`` is always passed -- AlphaFold 3 must never
 search for its own alignment (see the manifest's "MSA is optional"
@@ -47,8 +91,12 @@ JOB_NAME = "job"
 INPUT_NAME = "input.json"
 OUT_DIR = "out"
 
-DOCKER_IMAGE = "alphafold3-mmseqs:latest"
+DOCKER_IMAGE = "romerolabduke/alphafast:latest"
 MODEL_DIR_HOST = "/opt/alphafold3_data/weights"
+# The image's OWN baked-in entrypoint -- NOT a host-mounted script. See this
+# module's own docstring for why the ground-truth benchmark script's mounted
+# copy cannot be used against this image.
+RUN_ALPHAFOLD_IN_IMAGE = "/app/alphafold/run_alphafold.py"
 GPU_DEVICE = "7"
 
 _LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -100,7 +148,7 @@ def main() -> None:
 
     run_alphafold_args = [
         "python",
-        "/run_alphafold.py",
+        RUN_ALPHAFOLD_IN_IMAGE,
         "--json_path=/input.json",
         "--output_dir=/output",
         "--model_dir=/models",

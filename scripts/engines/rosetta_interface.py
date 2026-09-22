@@ -1,17 +1,22 @@
 """Wrapper for PyRosetta's InterfaceAnalyzerMover (``run_rosetta_interface``).
-Runs inside the ``pyrosetta`` environment.
+Runs inside the manifest's ``engine.prefix`` env, ``~/.conda/envs/BindCraft``
+-- reused strictly READ-ONLY for its working ``pyrosetta`` install, never
+modified (see the manifest's "Verification status" section for why: the
+dedicated ``pyrosetta`` env built from
+``/opt/pyrosetta_wheels/pyrosetta-2017-cp312-cp312-linux_x86_64.whl`` is
+broken -- that wheel ships zero compiled ``.so`` extensions, so
+``import pyrosetta`` can never succeed from it).
 
-See ``adapters/rosetta_interface.py`` and the manifest's "Verification
-status" section for why `import pyrosetta` currently fails deterministically
-in THIS environment (the shipped wheel is missing its compiled `.so`
-extension -- not something this script can work around). Everything below
-is built against the InterfaceAnalyzerMover API this wave verified live, end
-to end, in a separate, genuinely working PyRosetta install on this same host
-(see the wave report) -- ``DockingPartners.docking_partners_from_string``
-for the "A_B" interface notation, the 6-positional-argument
-InterfaceAnalyzerMover constructor, ``set_compute_interface_sc``, and the
-``InterfaceData`` struct's field names (``dG``, ``dSASA``, ``sc_value``,
-``interface_hbonds``, ``delta_unsat_hbonds``, ``packstat``).
+CONFIRMED LIVE end to end, 2026-09-22, running this exact script through
+``~/.conda/envs/BindCraft``'s interpreter over
+``tests/fixtures/test_pdbs/1BRS.pdb`` (barnase-barstar, chains ``A_D``) --
+see the manifest's "Verification status" section for the returned values.
+``DockingPartners.docking_partners_from_string`` for the "A_B" interface
+notation, the 6-positional-argument InterfaceAnalyzerMover constructor,
+``set_compute_interface_sc``, and the ``InterfaceData`` struct's field names
+(``dG``, ``dSASA``, ``sc_value``, ``interface_hbonds``, ``delta_unsat_hbonds``,
+``packstat``) are all exercised for real by this run, not merely read from
+source.
 
 Reads one argv: a JSON object (see ``adapters/rosetta_interface.py`` for its
 exact shape). Prints one JSON object as the LAST line of stdout; nothing is

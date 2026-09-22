@@ -1,12 +1,23 @@
-"""Adapter for ColabFold's local MMseqs2 search
+"""Adapter for ColabFold's MMseqs2 search
 (``scripts/engines/colabfold_search.py``, env ``colabfold``).
+
+``backend`` (``"local"`` or ``"remote"``, no default -- see the manifest's
+``backend`` schema entry and its "`backend`" doc section) selects between
+``colabfold_search``'s own local CLI and ColabFold's public remote MSA
+server; it is always passed through to the wrapper first, regardless of
+which path it selects, so the wrapper can branch before touching any of the
+local-search-only flags below.
 
 ``MMSEQS_BINARY`` and ``DB_ROOT`` are deployment facts, not something a
 caller should choose per call -- same reasoning as
 ``mmseqs_search.MMSEQS_BINARY``/``DB_ROOT``, and they must match
 ``engine.mounts`` in run_colabfold_search.yaml. ``DB_ROOT`` is currently an
 EMPTY placeholder directory -- see the manifest's "Verification status"
-section for why.
+section for why. Both are still passed through unconditionally even when
+``backend == "remote"``, where the wrapper ignores them -- keeps this
+adapter's argv construction uniform rather than branching on ``backend``
+itself, since the wrapper is the one place that needs to know which path is
+live.
 """
 
 from __future__ import annotations
@@ -30,6 +41,8 @@ def build_args(manifest: Manifest, params: dict[str, Any]) -> list[str]:
     del manifest
     args = [
         str(params["sequence"]),
+        "--backend",
+        str(params["backend"]),
         "--mmseqs-binary",
         MMSEQS_BINARY,
         "--db-root",
