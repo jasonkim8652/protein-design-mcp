@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import re
 import shutil
 import signal
 import uuid
@@ -113,7 +114,17 @@ class EnvDispatcher:
         # never writes into a read-only mount or collides with another
         # engine in a shared ~/.cache, but engine.env_vars — applied last —
         # can override any of them.
-        cache_dir = workdir / ".cache"
+        # PER-ENGINE and PERSISTENT, deliberately NOT per-call. This used to
+        # be `workdir / ".cache"`, which met the two goals below but threw the
+        # cache away on every call: run_multiflow's self-consistency refold
+        # re-downloaded ~8.5GB of ESMFold weights each time it ran, adding
+        # minutes per call and hammering the network for nothing.
+        # Namespacing by engine identity keeps both original properties — it
+        # is writable scratch, so no engine writes into a read-only mount, and
+        # two engines never collide in a shared ~/.cache.
+        cache_key = re.sub(r"[^A-Za-z0-9_.-]", "_", engine.prefix or engine.env or "shared")
+        cache_dir = self._scratch_root / ".pdmcp-engine-cache" / cache_key
+        cache_dir.mkdir(parents=True, exist_ok=True)
         subprocess_env = {
             **os.environ,
             "HF_HOME": str(cache_dir / "huggingface"),
