@@ -87,7 +87,28 @@ BoltzGen's own weights rather than third-party tools.
 So the rule is: **expose the steps, block the orchestrator.** `complexa design`
 and `boltzgen run` are not registered; their steps are.
 
-### 3.2 The tool list (29 tools + 1 meta-tool)
+### 3.2 The tool list (32 tools + 2 meta-tools)
+
+> **Amended 2026-09-22.** The original list held 29 tools and was written before the
+> engine version sweep. Two engines were missed for the same reason — both postdate it —
+> and both were caught by the user, not by this document:
+>
+> - **Genie 3** does binder design and motif scaffolding, not only the unconditional
+>   generation Genie 2 offers. Its README claims "unconditional generation, motif
+>   scaffolding, and binder design", and `scripts/problem/binder_design/` exists in the
+>   checkout. Genie was filed under §B alone, which was wrong — it belongs in §A too.
+>   Added `run_genie3_binder` (§A) and `run_genie3_scaffold` (§B).
+> - **RFdiffusion3** was released in December 2025, after this list was written. Added
+>   `run_rfdiffusion3` (§A). It ships through RosettaCommons **foundry**
+>   (`pip install rc-foundry`, BSD-3), whose `models/` holds `rf3`, `rfd3`, `rfd3na`
+>   and `mpnn` — one install serves both `run_rfdiffusion3` and `run_rf3`.
+>   **`rc-foundry` requires python 3.12**; querying it from a 3.10 interpreter returns
+>   "No matching distribution found", which is indistinguishable from the package not
+>   existing. That false negative nearly removed RFD3 from this plan.
+>
+> The lesson for whoever amends this next: a list assembled from a point-in-time sweep
+> goes stale silently, and "engine X is unavailable" must be checked with the right
+> interpreter and the right distribution channel before it is believed.
 
 #### A. Target-conditioned binder generation
 
@@ -102,12 +123,15 @@ and `boltzgen run` are not registered; their steps are.
 | `run_boltzgen_filter` | ″ | ″ | CPU-only, cheap; re-rankable without regenerating. |
 | `run_rfdiffusion_binder` | RFdiffusion | BSD-3 (weights status ambiguous — see §7) | Backbone only; legacy baseline for comparison. |
 | `run_rfdiffusion2` | RFdiffusion2 | BSD-3 | All-atom motif/interface. |
+| `run_rfdiffusion3` | RFdiffusion3 (RFD3) | BSD-3 | All-atom diffusion under complex constraints. Via foundry: `pip install rc-foundry` then `foundry install rfd3`. **Python 3.12 only.** Added 2026-09-22. |
+| `run_genie3_binder` | Genie 3 | permissive | Target-conditioned binder design (`scripts/problem/binder_design/`). Added 2026-09-22 — Genie 3 is not merely a newer Genie 2. |
 | `run_protpardelle` | Protpardelle-1c | CC-BY-4.0 | All-atom multichain with hotspot conditioning. |
 
 #### B. Monomer / scaffold generation
 
 | Tool | Engine | License |
 |---|---|---|
+| `run_genie3_scaffold` | Genie 3 | permissive |
 | `run_genie2` | Genie2 | permissive |
 | `run_frameflow` | FrameFlow | permissive |
 | `run_multiflow` | MultiFlow | permissive |
@@ -117,11 +141,18 @@ These generate monomers, not complexes. They are included so a caller can build
 a scaffold first and condition on it, which is a distinct workflow from direct
 binder generation.
 
+`run_genie3_scaffold` is motif scaffolding — conditioning on a motif rather than on a
+target — which is why it sits here and `run_genie3_binder` sits in §A. `run_genie2`
+is kept alongside it because Genie 2's surface is exactly
+`sample_unconditional.py` / `sample_scaffold.py`, it has working weights on this host,
+and Genie 3's checkpoints are not downloaded yet (`assets/` is 6 MB, a demo gif).
+Retire `run_genie2` once Genie 3's weights are in place and exercised.
+
 #### C. Sequence design
 
 | Tool | Engine | License | Notes |
 |---|---|---|---|
-| `run_mpnn` | `dauparas/LigandMPNN` | **MIT, weights in-repo** | One codebase serves ProteinMPNN, LigandMPNN and SolubleMPNN. Selected by `model_type`, not by three separate tools. |
+| `run_mpnn` | **ProteinMPNN** / LigandMPNN / SolubleMPNN (`dauparas/LigandMPNN`) | **MIT, weights in-repo** | One codebase serves all three; selected by `model_type` (`protein` is the default and IS ProteinMPNN), not by three separate tools. **The one-tool decision stands, but discoverability does not follow from it**: the enum values never name their engine, so a caller searching for "ProteinMPNN" cannot find it. Each enum value must name its engine in the schema description and in `docs/tools/run_mpnn.md`. Tracked as M3. |
 
 #### D. Co-folding / structure prediction
 
@@ -147,7 +178,7 @@ binder generation.
 | `run_openmm_minimize` | OpenMM 8.6 | MIT/LGPL | Relaxation before scoring. |
 | `run_esm_score` | ESM2-650M / ESM-C 300M | MIT | Pseudo-likelihood as a developability proxy, not a binding predictor. |
 
-#### F. Meta
+#### F. Meta (2)
 
 | Tool | Purpose |
 |---|---|
