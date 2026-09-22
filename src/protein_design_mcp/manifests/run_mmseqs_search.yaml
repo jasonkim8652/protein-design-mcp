@@ -95,14 +95,15 @@ doc: |
   reimplementation from the MMseqs2 manual).
 
   ## What it is for
-  This is the ONLY alignment-producing tool in this server (alongside
-  `run_colabfold_search` (not yet implemented), which searches a *different*
-  sequence universe -- UniRef30/envDB, not these databases -- and whose a3m
-  is NOT interchangeable with this one). No structure-prediction tool here
-  builds its own alignment: hiding that step would make model-to-model
-  comparison meaningless and would silently send novel design sequences to
-  whichever MSA source a folding tool defaulted to. Call this first, then
-  pass its output into the folding tool's `msa` parameter.
+  This is one of two alignment-producing tools in this server (the other is
+  `run_colabfold_search`, which searches a *different* sequence universe --
+  UniRef30/envDB, not these databases -- and whose a3m is NOT interchangeable
+  with this one; see "When to use this instead of the alternatives" below).
+  No structure-prediction tool here builds its own alignment: hiding that
+  step would make model-to-model comparison meaningless and would silently
+  send novel design sequences to whichever MSA source a folding tool
+  defaulted to. Call this first, then pass its output into the folding
+  tool's `msa` parameter.
 
   ## Which output goes where
   - `unpaired_a3m`: every planned consumer that takes one plain a3m --
@@ -126,13 +127,27 @@ doc: |
   might end up in a multimer, including when you are not yet sure. Either
   way `paired_a3m` is always written (see that output's own description).
 
+  ## When to use this instead of the alternatives
+  - `run_colabfold_search` runs MMseqs2 against ColabFold's OWN database set
+    (UniRef30/envDB) instead of these AlphaFold-3-oriented databases -- a
+    different sequence universe with different filtering defaults. Prefer
+    THIS tool (`run_mmseqs_search`) by default: it is the alignment every
+    other tool in this server was built and verified against, and its
+    `unpaired_a3m`/`paired_a3m`/`templates_a3m` split matches what
+    `run_alphafold3` and the rest of the structure-prediction family expect.
+    Prefer `run_colabfold_search` only when a specific downstream consumer
+    documents that it wants ColabFold's own alignment shape instead.
+  - Never mix the two on the same prediction, or hand one tool's a3m to a
+    consumer built for the other's -- both search different sequence
+    universes, so a consumer built against one and handed the other's a3m
+    usually returns WORSE results, not an error.
+
   ## Important caveats
   - MMseqs2 against these local databases, and `run_colabfold_search`
-    (not yet implemented) against UniRef30/envDB via `colabfold_search`,
-    search different sequence universes. A consumer built against one and
-    handed the other's a3m usually returns WORSE results, not an error --
-    state which producer a folding tool's `msa` parameter expects before
-    mixing them.
+    against UniRef30/envDB via `colabfold_search`, search different
+    sequence universes. A consumer built against one and handed the other's
+    a3m usually returns WORSE results, not an error -- state which producer
+    a folding tool's `msa` parameter expects before mixing them.
   - `sequence` is validated against the standard 20 amino acids plus the
     common ambiguity codes (X, B, Z, J, U, O), uppercase only, BEFORE
     mmseqs ever sees it. This was checked live: mmseqs' own `createdb`
