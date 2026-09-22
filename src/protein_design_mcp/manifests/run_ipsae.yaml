@@ -1,0 +1,77 @@
+name: run_ipsae
+category: scoring
+composite: false
+timeout_s: 300
+
+engine:
+  repo: ipsae
+  env: scoring
+  entry: ["ipsae"]
+
+requires:
+  gpu: false
+
+summary: >-
+  Score how confident a structure predictor was about a protein-protein
+  interface, from the PAE matrix it already produced (ipSAE). This is the
+  field's standard discriminator between real and spurious binders and is the
+  metric to rank designs by. It scores a prediction you already have: run a
+  co-folding tool first and feed this its PAE output.
+
+doc: |
+  ## What this is
+  ipSAE (interface Score from Aligned Errors) reads a structure predictor's
+  predicted aligned error matrix and returns a per-chain-pair confidence in the
+  interface itself, rather than in the fold as a whole.
+
+  ## What it is for
+  Ranking designed binders. Benchmarking across AF2-IG, Boltz-1, Boltz-2,
+  Chai-1, ColabFold and Protenix found ipSAE roughly 1.4x more precise than
+  ipTM at separating true binders from non-binders, and it remains the field
+  standard as of late 2026.
+
+  ## When to use this instead of the alternatives
+  - `run_prodigy` returns an absolute binding free energy on a physical scale,
+    but is calibrated on natural complexes and mis-ranks de novo designs. Use
+    PRODIGY for a sanity floor, ipSAE for ranking.
+  - The raw `iptm` a co-folding tool reports is the older, less precise form of
+    the same idea. Prefer ipSAE when you have the PAE matrix.
+  - ipSAE tells you nothing about the physics of the interface. For buried
+    surface area, hydrogen bonds and shape complementarity you need a
+    physics-based interface analysis, which is not yet implemented here.
+
+  ## What you must supply
+  The PAE JSON a predictor emitted, and the structure it goes with.
+
+  ## What you get back
+  `ipsae`, `iptm_af`, `pdockq` and the `chain_pair` they describe.
+
+schema:
+  pae_json:
+    type: string
+    format: path
+    pattern: '\.json$'
+    required: true
+    description: PAE matrix JSON produced by a structure predictor.
+    example: pae.json
+  structure:
+    type: string
+    format: path
+    pattern: '\.(pdb|cif)$'
+    required: true
+    description: The predicted structure the PAE matrix belongs to.
+    example: model.cif
+  pae_cutoff:
+    type: number
+    minimum: 1.0
+    maximum: 30.0
+    default: 10.0
+    description: PAE cutoff in Angstroms.
+    example: 10.0
+  dist_cutoff:
+    type: number
+    minimum: 1.0
+    maximum: 30.0
+    default: 10.0
+    description: Distance cutoff in Angstroms.
+    example: 10.0

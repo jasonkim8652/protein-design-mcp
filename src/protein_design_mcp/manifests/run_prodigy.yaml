@@ -34,10 +34,10 @@ doc: |
     hydrogen bond counts) and will be the better choice when you need to know
     *why* an interface scores as it does. It is slower and depends on a
     license-gated PyRosetta install. Until then, use PRODIGY.
-  - `run_ipsae` (not yet implemented) and ipTM fields from co-folding tools
-    measure model *confidence* in the interface, not its energy. Those
-    discriminate binders from non-binders better than PRODIGY does and will
-    be preferred for ranking designs once available. Until then, use PRODIGY.
+  - `run_ipsae` and ipTM fields from co-folding tools measure model
+    *confidence* in the interface, not its energy. Those discriminate binders
+    from non-binders better than PRODIGY does and are preferred for ranking
+    designs. Use PRODIGY for a sanity floor, ipSAE for ranking.
   - Use PRODIGY when you want an absolute number on a physical scale rather
     than a model-internal confidence score.
 
