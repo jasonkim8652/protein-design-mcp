@@ -9,7 +9,7 @@
 
 ## Summary
 
-Generate an unconditional monomer backbone with Genie 3, an all-atom SE(3)-equivariant diffusion model (backbone frames only here -- no sequence, no side chains; design a sequence for the result with run_mpnn). Only unconditional generation is exposed; Genie 3's motif-scaffolding and binder-design entry points are separate (the latter is `run_genie3_binder` (not yet implemented)).
+Generate an unconditional monomer backbone with Genie 3, an all-atom SE(3)-equivariant diffusion model (backbone frames only here -- no sequence, no side chains; design a sequence for the result with run_mpnn). Only unconditional generation is exposed; Genie 3's motif-scaffolding and binder-design entry points are separate (the latter is `run_genie3_binder`).
 
 ## What this is
 Genie 3's unconditional generation path (`genie3.cli generate`, dataset
