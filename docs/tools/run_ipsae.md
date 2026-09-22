@@ -36,7 +36,11 @@ standard as of late 2026.
 The PAE JSON a predictor emitted, and the structure it goes with.
 
 ## What you get back
-`ipsae`, `iptm_af`, `pdockq` and the `chain_pair` they describe.
+`ipsae`, `iptm_af`, `pdockq` and the `chain_pair` they describe. ipSAE
+emits one row per chain pair; for a complex with more than two chains,
+only the first chain-pair row is returned, with no indication of which
+pair that is beyond `chain_pair` itself. Score the specific pair you care
+about by supplying a structure/PAE containing only those two chains.
 
 ## Parameters
 
