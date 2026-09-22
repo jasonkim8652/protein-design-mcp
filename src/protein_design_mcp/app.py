@@ -15,7 +15,7 @@ from typing import Any
 
 from mcp.types import CallToolResult, TextContent, Tool
 
-from protein_design_mcp.adapters import ipsae, openmm_minimize, prodigy
+from protein_design_mcp.adapters import ipsae, mpnn, openmm_minimize, prodigy
 from protein_design_mcp.dispatch.env import EngineError, EnvDispatcher
 from protein_design_mcp.dispatch.serialize import to_jsonable
 from protein_design_mcp.manifest.loader import load_manifests
@@ -37,6 +37,7 @@ ADAPTERS = {
     "run_prodigy": (prodigy.build_args, prodigy.parse_output),
     "run_ipsae": (ipsae.build_args, ipsae.parse_output),
     "run_openmm_minimize": (openmm_minimize.build_args, openmm_minimize.parse_output),
+    "run_mpnn": (mpnn.build_args, mpnn.parse_output),
 }
 
 
