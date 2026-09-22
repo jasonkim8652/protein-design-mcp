@@ -147,6 +147,35 @@ CASES: list[dict] = [
         "expect_keys": ["ipsae", "chain_pair"],
     },
     {
+        # Real biological interface, not synthetic: 1BRS chain A (barnase)
+        # / chain D (barstar), the same pair run_prodigy's own case above
+        # uses. Confirmed live: hotspot_tags includes A59, A83, A27, A102 --
+        # residues well established in the literature as barnase-barstar
+        # interface hotspots -- so this is not just a shape check.
+        "tool": "run_interface_residues",
+        "device": "cpu",
+        "arguments": {
+            "complex_pdb": "tests/fixtures/test_pdbs/1BRS.pdb",
+            "target_chain": "A",
+            "binder_chains": ["D"],
+        },
+        "expect_keys": ["hotspot_tags", "residues", "n_interface_residues"],
+    },
+    {
+        # mini_protein.pdb is a genuinely standalone single-chain file (no
+        # other chains to accidentally treat as "bound"), matching this
+        # tool's own "unbound target" input contract. msa: null is the
+        # documented, valid, no-conservation path.
+        "tool": "run_epitope_scan",
+        "device": "cpu",
+        "arguments": {
+            "target_pdb": "tests/fixtures/test_pdbs/mini_protein.pdb",
+            "chain": "A",
+            "msa": None,
+        },
+        "expect_keys": ["hotspot_tags", "residues", "n_exposed_residues"],
+    },
+    {
         "tool": "describe_tool",
         "device": "cpu",
         "arguments": {"category": "scoring"},
