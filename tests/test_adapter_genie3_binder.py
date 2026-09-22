@@ -28,6 +28,10 @@ DEFAULT_PARAMS = {
     "noise_scale": 1.0,
     "predict_sidechain": False,
     "seed": 0,
+    "expand_interface": False,
+    "interface_cutoff_angstrom": 6.0,
+    "interface_rsa_threshold": 0.25,
+    "interface_abs_sasa_threshold": 10.0,
 }
 
 
@@ -137,3 +141,90 @@ def test_validation_fills_defaults():
     assert params["num_samples"] == 2
     assert params["model_variant"] == "v1"
     assert params["predict_sidechain"] is False
+    # expand_interface defaults to false: unchanged behavior for existing
+    # callers who never asked for interface expansion.
+    assert params["expand_interface"] is False
+    assert params["interface_cutoff_angstrom"] == 6.0
+    assert params["interface_rsa_threshold"] == 0.25
+    assert params["interface_abs_sasa_threshold"] == 10.0
+
+
+def test_manifest_runs_under_genie2_fixed_not_the_original_genie2():
+    """The environment fix (wave-I): this tool's prefix must point at the
+    Biopython-patched clone, not the original genie2 env, which still
+    lacks Biopython (confirmed live, see the wave's report)."""
+    assert _manifest().engine.prefix == "/home/jk661/.conda/envs/genie2_fixed"
+
+
+def test_build_args_includes_interface_expansion_flags():
+    args = build_args(_manifest(), DEFAULT_PARAMS)
+    assert "--expand-interface" in args
+    assert args[args.index("--expand-interface") + 1] == "false"
+    assert "--interface-cutoff-angstrom" in args
+    assert args[args.index("--interface-cutoff-angstrom") + 1] == "6.0"
+    assert "--interface-rsa-threshold" in args
+    assert args[args.index("--interface-rsa-threshold") + 1] == "0.25"
+    assert "--interface-abs-sasa-threshold" in args
+    assert args[args.index("--interface-abs-sasa-threshold") + 1] == "10.0"
+
+
+def test_build_args_passes_expand_interface_true():
+    params = dict(DEFAULT_PARAMS, expand_interface=True)
+    args = build_args(_manifest(), params)
+    assert args[args.index("--expand-interface") + 1] == "true"
+
+
+def test_parse_output_reports_cond_strategy_from_interface_conditioning(tmp_path: Path):
+    complex_pdb = (
+        "ATOM      1  N   GLY A   1      11.104  13.207   2.145  1.00  0.00           N\n"
+        "ATOM      2  CA  GLY A   1      12.560  13.207   2.145  1.00  0.00           C\n"
+        "TER\n"
+    )
+    pdb_path = tmp_path / "target_0.pdb"
+    pdb_path.write_text(complex_pdb)
+    conditioning_path = tmp_path / "interface_conditioning.json"
+    conditioning_path.write_text(
+        '{"cond_strategy": "extended", "hotspot_residues": ["A19"], '
+        '"extended_interface_residues": ["A18", "A19", "A20"]}'
+    )
+    run = CompletedRun(
+        returncode=0,
+        stdout="",
+        stderr="",
+        workdir=tmp_path,
+        outputs={
+            "binders": [str(pdb_path)],
+            "interface_conditioning": str(conditioning_path),
+        },
+    )
+    result = parse_output(_manifest(), run)
+    assert result["cond_strategy"] == "extended"
+    assert result["extended_interface_residues"] == ["A18", "A19", "A20"]
+
+
+def test_parse_output_extended_interface_residues_null_when_not_expanded(tmp_path: Path):
+    complex_pdb = (
+        "ATOM      1  N   GLY A   1      11.104  13.207   2.145  1.00  0.00           N\n"
+        "ATOM      2  CA  GLY A   1      12.560  13.207   2.145  1.00  0.00           C\n"
+        "TER\n"
+    )
+    pdb_path = tmp_path / "target_0.pdb"
+    pdb_path.write_text(complex_pdb)
+    conditioning_path = tmp_path / "interface_conditioning.json"
+    conditioning_path.write_text(
+        '{"cond_strategy": "hotspot", "hotspot_residues": ["A19"], '
+        '"extended_interface_residues": null}'
+    )
+    run = CompletedRun(
+        returncode=0,
+        stdout="",
+        stderr="",
+        workdir=tmp_path,
+        outputs={
+            "binders": [str(pdb_path)],
+            "interface_conditioning": str(conditioning_path),
+        },
+    )
+    result = parse_output(_manifest(), run)
+    assert result["cond_strategy"] == "hotspot"
+    assert result["extended_interface_residues"] is None

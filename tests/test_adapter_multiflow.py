@@ -109,6 +109,63 @@ def test_parse_output_raises_when_no_backbones_collected():
         parse_output(_manifest(), run)
 
 
+def test_parse_output_merges_self_consistency_score(tmp_path: Path):
+    pdb_path = tmp_path / "backbones" / "predict_out" / "length_70" / "sample_0" / "sample.pdb"
+    pdb_path.parent.mkdir(parents=True)
+    pdb_path.write_text(MINIMAL_PDB)
+
+    summary_path = tmp_path / "self_consistency_summary.json"
+    summary_path.write_text(
+        '{"length_70/sample_0": {"bb_rmsd": 0.637, "mean_plddt": 81.96}}'
+    )
+
+    run = CompletedRun(
+        returncode=0,
+        stdout="",
+        stderr="",
+        workdir=tmp_path,
+        outputs={
+            "backbones": [str(pdb_path)],
+            "codesign_sequences": [],
+            "self_consistency_summary": str(summary_path),
+        },
+    )
+    result = parse_output(_manifest(), run)
+    sample = result["samples"][0]
+    assert sample["self_consistency"] == {"bb_rmsd": 0.637, "mean_plddt": 81.96}
+
+
+def test_parse_output_self_consistency_none_when_summary_empty(tmp_path: Path):
+    """Empty collection corner case: the defensive-fallback shape ({})."""
+    pdb_path = tmp_path / "backbones" / "predict_out" / "length_70" / "sample_0" / "sample.pdb"
+    pdb_path.parent.mkdir(parents=True)
+    pdb_path.write_text(MINIMAL_PDB)
+
+    summary_path = tmp_path / "self_consistency_summary.json"
+    summary_path.write_text("{}")
+
+    run = CompletedRun(
+        returncode=0,
+        stdout="",
+        stderr="",
+        workdir=tmp_path,
+        outputs={
+            "backbones": [str(pdb_path)],
+            "codesign_sequences": [],
+            "self_consistency_summary": str(summary_path),
+        },
+    )
+    result = parse_output(_manifest(), run)
+    assert result["samples"][0]["self_consistency"] is None
+
+
+def test_manifest_runs_under_multiflow_fixed_not_the_original_multiflow():
+    """The environment fix (wave-I): this tool's prefix must point at the
+    deepspeed-patched clone, not the original multiflow env, which still
+    lacks deepspeed (confirmed live, see the wave's report)."""
+    assert _manifest().engine.prefix == "/home/jk661/.conda/envs/multiflow_fixed"
+
+
 def test_validation_requires_min_and_max_length():
     with pytest.raises(ToolInputError, match="min_length"):
         validate_and_fill(_manifest(), {"max_length": 70})
