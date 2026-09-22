@@ -1,0 +1,216 @@
+name: run_boltzgen_fold
+category: structure_prediction
+composite: false
+timeout_s: 1800
+
+engine:
+  repo: boltzgen
+  # See run_boltzgen_filter's manifest comment for the identity-verification
+  # and mount-discovery detail; identical for every tool on this engine.
+  prefix: /home/jk661/miniforge3/envs/boltzgen
+  entry: ["boltzgen", "run"]
+  # BoltzGen's own `folding` step reads each design's `.cif`+`.npz` AND
+  # writes its refold output (refold_cif/, fold_out_npz/) into the SAME
+  # `design_dir` -- the ipSAE "writes beside its input" pattern, generalised
+  # to a whole directory of paired input files instead of one. `stage`
+  # copies the caller's WHOLE `generated_files` list (both file types, from
+  # a prior run_boltzgen_design/run_boltzgen_inverse_fold call's own
+  # `outputs`) into one shared `generated_files/` directory first, so
+  # "beside the input" becomes "inside the scratch directory", where the
+  # `outputs:` below can reach the newly-written refold_cif/fold_out_npz.
+  stage: ["generated_files"]
+  env_vars:
+    # This step's checkpoint (boltz2_conf_final.ckpt, ~2.0G) is already
+    # downloaded to the host's real HuggingFace cache -- see
+    # install-boltzgen-chai1.md. Without this override,
+    # dispatch.env.EnvDispatcher's own default (HF_HOME inside this run's
+    # disposable scratch workdir) would force a multi-GB re-download on
+    # every single call.
+    HF_HOME: /home/jk661/.cache/huggingface
+  mounts:
+    - /home/jk661/.cache/huggingface
+
+requires:
+  gpu: true
+
+outputs:
+  - name: refolded_structures
+    pattern: "generated_files/refold_cif/*.cif"
+    description: >-
+      One refolded mmCIF per design (the highest-confidence of
+      diffusion_samples internal samples, by 0.8*iptm + 0.2*ptm -- the same
+      selection BoltzGen's own writer uses). pLDDT is in the B-factor column.
+    multiple: true
+  - name: refold_metrics
+    pattern: "generated_files/fold_out_npz/*.npz"
+    description: >-
+      Per-design confidence metrics for EVERY internal sample (arrays of
+      length diffusion_samples), not just the best one -- read this if you
+      want the full spread rather than only the headline numbers this
+      tool's own payload reports.
+    multiple: true
+
+summary: >-
+  Refold a design WITH its target present and score the interface --
+  BoltzGen's own `folding` pipeline step (its Boltz-2-derived confidence
+  model, boltz2_conf_final.ckpt), run in isolation. Structure prediction,
+  not scoring from an already-known structure: this generates new
+  coordinates and a confidence estimate together. Takes no MSA -- BoltzGen's
+  confidence model does not use one, at any step. Feed it the WHOLE
+  `outputs.generated_designs` (or `outputs.inverse_folded_designs`) list
+  from run_boltzgen_design or run_boltzgen_inverse_fold -- both the `.cif`
+  and its `.npz` are required, not just the structure file.
+
+doc: |
+  ## What this is
+  BoltzGen's `folding` pipeline step
+  (`boltzgen.task.predict.predict.Predict` over `fold.yaml`, writer
+  `FoldingWriter`), run in isolation via `boltzgen run <design_spec>
+  --steps folding`. Refolds each design WITH its target chain(s) present
+  (unlike `run_boltzgen_design_fold`, which refolds the design ALONE) using
+  BoltzGen's own confidence model -- the same architecture family as
+  Boltz-2, but this is BoltzGen's own weights, not a call to `run_boltz`.
+  Reports the interface confidence metrics that make this the step
+  everything downstream (`run_boltzgen_analyze`, `run_boltzgen_filter`)
+  actually ranks on.
+
+  ## `--protocol` has no effect on this step for the six protocols that
+  matter here (verified empirically the same way as `run_boltzgen_design`:
+  diffing `boltzgen configure --steps folding`'s resolved `fold.yaml` shows
+  every protocol identical except `protein-redesign`, which sets
+  `data.design_mask_templates=true` -- a redesign-specific mode this tool
+  does not support). `protocol` is not exposed here for the same reason it
+  is not exposed on `run_boltzgen_design`: a parameter with no effect on
+  the path this tool actually takes would be misleading to document as a
+  real choice.
+
+  ## When to use this instead of the alternatives
+  - `run_boltzgen_design_fold` refolds the design ALONE, target absent -- a
+    self-consistency check on the design's own shape, not an interface
+    confidence estimate. Run both if you want each design's `analyze` step
+    (`run_boltzgen_analyze`) to include `designfolding-*` columns.
+  - `run_chai1`/`run_boltz` (not yet implemented) are general-purpose
+    structure predictors that take an MSA; this tool is BoltzGen-specific
+    and MSA-free, and its output feeds `run_boltzgen_analyze` in the exact
+    shape that step expects -- do not substitute a different predictor's
+    output here, `run_boltzgen_analyze` reads BoltzGen's own `.npz`
+    metadata format, not a generic confidence JSON.
+
+  ## What you must supply
+  - `design_spec`: the SAME design specification YAML the designs came
+    from. Its content does not change this step's own numbers (verified,
+    see above) -- required because `boltzgen run` validates every design
+    spec it is given before running any step at all.
+  - `generated_files`: the WHOLE `outputs.generated_designs` list from
+    `run_boltzgen_design`, or `outputs.inverse_folded_designs` from
+    `run_boltzgen_inverse_fold` -- every `.cif` AND every `.npz` that call
+    returned, unfiltered. Passing only the `.cif` paths (dropping the
+    `.npz`) makes this tool unable to read the design back at all.
+
+  ## What you get back
+  `refolds`: one entry per design, `{"id", "design_ptm", "design_iptm",
+  "design_to_target_iptm", "design_iiptm", "design_residue_iptm",
+  "min_interaction_pae", "min_design_to_target_pae", "interaction_pae",
+  "iptm", "ptm", "protein_iptm", "target_ptm", "ligand_iptm",
+  "complex_plddt", "complex_iplddt", "complex_pde", "complex_ipde",
+  "num_samples", "best_sample_index"}` -- the metrics of the
+  highest-confidence internal sample (0.8*iptm + 0.2*ptm, matching which
+  sample `refolded_structures` wrote). `num_refolds`, and under `outputs`
+  the paths to every refolded structure and the full per-sample metrics.
+  PAE here is in Angstroms, lower is better; every `*iptm`/`*ptm`/`*plddt`
+  field is 0-1, higher is better.
+
+schema:
+  design_spec:
+    type: string
+    format: path
+    pattern: '\.(yaml|yml)$'
+    required: true
+    description: >-
+      The design specification YAML the designs came from. Its content has
+      no effect on this step's own numbers -- required only because
+      `boltzgen run` validates every design spec it is given before running
+      any step, `--steps folding` included.
+    example: design_spec.yaml
+  generated_files:
+    type: array
+    minItems: 2
+    items:
+      type: string
+      format: path
+    required: true
+    description: >-
+      The WHOLE `outputs.generated_designs` (from run_boltzgen_design) or
+      `outputs.inverse_folded_designs` (from run_boltzgen_inverse_fold)
+      list -- every `.cif` AND `.npz` path that call returned, passed
+      through unfiltered. Both file types for at least one design are
+      required (hence minItems: 2); dropping the `.npz` half leaves this
+      tool with no way to read the design back.
+    example: ["design_spec_0.cif", "design_spec_0.npz"]
+  folding_checkpoint:
+    type: string
+    default: "huggingface:boltzgen/boltzgen-1:boltz2_conf_final.ckpt"
+    description: >-
+      Path or huggingface:repo:file reference for the folding (confidence
+      model) checkpoint. BoltzGen's own default, already cached on this
+      host (~2.0G).
+    example: "huggingface:boltzgen/boltzgen-1:boltz2_conf_final.ckpt"
+  recycling_steps:
+    type: integer
+    minimum: 0
+    maximum: 10
+    default: 3
+    description: >-
+      Number of recycling passes through the trunk before diffusion. More
+      recycling can improve hard interfaces at roughly linear extra cost;
+      3 is BoltzGen's own default for this step.
+    example: 3
+  sampling_steps:
+    type: integer
+    minimum: 1
+    maximum: 1000
+    default: 200
+    description: >-
+      Number of diffusion denoising steps per refold sample. Fewer is
+      faster and lower quality; 200 is BoltzGen's own default for this
+      step (verified live: a full 200-step refold of a 179-token complex
+      took 52.6s on this host's GPU 7, well within this tool's timeout).
+    example: 200
+  diffusion_samples:
+    type: integer
+    minimum: 1
+    maximum: 25
+    default: 5
+    description: >-
+      Number of independent refold samples per design. This tool reports
+      the highest-confidence one as its headline metrics (see "What you
+      get back"), but `refold_metrics` carries the full spread for all of
+      them. 5 is BoltzGen's own default for this step.
+    example: 5
+  use_kernels:
+    type: string
+    enum: ["auto", "true", "false"]
+    default: auto
+    description: >-
+      Whether to use BoltzGen's fused CUDA kernels. "auto" (BoltzGen's own
+      default) enables them when the GPU's compute capability is >= 8.0 --
+      confirmed live on this host's GPUs (capability 8.9), kernels are used.
+    example: auto
+  moldir:
+    type: string
+    default: "huggingface:boltzgen/inference-data:mols.zip"
+    description: >-
+      Path or huggingface:repo:file reference for BoltzGen's canonical
+      molecule/CCD library, needed to resolve residue and ligand chemistry.
+      BoltzGen's own default, already cached on this host.
+    example: "huggingface:boltzgen/inference-data:mols.zip"
+  num_workers:
+    type: integer
+    minimum: 0
+    maximum: 32
+    default: 1
+    description: >-
+      DataLoader worker process count. 1 is a safe default for a single
+      interactive call; raise it only if data loading, not GPU compute, is
+      the bottleneck.
+    example: 1
