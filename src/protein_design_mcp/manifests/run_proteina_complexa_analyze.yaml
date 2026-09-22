@@ -5,11 +5,24 @@ timeout_s: 1800
 
 engine:
   repo: proteinfoundation
-  prefix: /home/jk661/.conda/envs/proteina
+  # See run_proteina_complexa_generate.yaml's engine comment: `proteina`
+  # (this tool's original prefix) is the user's own mixed, partially-broken
+  # environment and is not repaired -- `proteina_complexa` is a separate
+  # env built and fixed up independently. Confirmed live, 2026-09-22:
+  # `complexa analyze` completes under it (no GPU needed), materialising
+  # binder_results_analyze_0.csv from a real generate run's own PDB output
+  # and producing real res_div_foldseek_*/res_div_mmseqs_*/RAW_*_combined
+  # CSVs (foldseek/mmseqs both degrade gracefully -- not fail -- on this
+  # single-sample smoke set, correctly reporting (1.0, 1, 1)).
+  prefix: /home/jk661/.conda/envs/proteina_complexa
   entry: ["complexa", "analyze"]
   env_vars:
     # See run_proteina_complexa_generate.yaml's env_vars comment -- same
     # host-wide user-site phantom-mount situation, same fix.
+    # `python -m protein_design_mcp.mounts
+    # /home/jk661/.conda/envs/proteina_complexa proteinfoundation` (re-run
+    # live, 2026-09-22) resolves to the same single mount as before the
+    # prefix switch -- mounts below unchanged.
     PYTHONNOUSERSITE: "1"
     # `complexa` refuses every step EXCEPT init/demo/download/validate/
     # status unless COMPLEXA_INIT is set (cli_runner.py:1962-1977,

@@ -43,7 +43,7 @@ def test_manifest_loads_and_is_gpu_binder_generation():
 
 def test_manifest_uses_prefix_not_env():
     engine = _manifest().engine
-    assert engine.prefix == "/home/jk661/.conda/envs/proteina"
+    assert engine.prefix == "/home/jk661/.conda/envs/proteina_complexa"
     assert engine.env is None
     assert engine.entry == ("complexa", "generate")
     assert engine.repo == "proteinfoundation"
