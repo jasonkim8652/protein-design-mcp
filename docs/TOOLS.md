@@ -1,6 +1,6 @@
 # protein-design-mcp — tools
 
-**36 tools** (34 `run_*` + 2 meta), classified by **function** — not by which engine a
+**39 tools** (37 `run_*` + 2 meta), classified by **function** — not by which engine a
 tool came from.
 
 ---
@@ -35,7 +35,7 @@ tool came from.
 | `run_mpnn` | ProteinMPNN / LigandMPNN / SolubleMPNN |
 | `run_boltzgen_inverse_fold` | BoltzGen's own inverse-folding head |
 
-## 4. `structure_prediction` — predict a structure (9)
+## 4. `structure_prediction` — predict a structure (11)
 
 | Tool | Engine | MSA |
 |---|---|---|
@@ -48,6 +48,8 @@ tool came from.
 | `run_rf3` | RoseTTAFold3 | optional |
 | `run_alphafold3` | AlphaFold 3 | optional (paired + unpaired) |
 | `run_alphafold2_multimer` | AF2-Multimer / ColabFold | optional |
+| `run_boltzgen_fold` | BoltzGen (refolding mode) | none |
+| `run_boltzgen_design_fold` | BoltzGen (designfolding mode) | none |
 
 No tool here requires an alignment, and none builds its own — see below.
 
@@ -67,11 +69,12 @@ No tool here requires an alignment, and none builds its own — see below.
 | `run_rosetta_interface` | PyRosetta InterfaceAnalyzer |
 | `run_esm_score` | ESM2-650M / ESM-C |
 
-## 7. `run_analysis` — operate on a finished run's outputs (3)
+## 7. `run_analysis` — operate on a finished run's outputs (4)
 
 | Tool | Engine | Runs a model |
 |---|---|---|
 | `run_proteina_complexa_filter` | Proteina-Complexa | no |
+| `run_boltzgen_analyze` | BoltzGen | no — CPU metrics + aggregation |
 | `run_boltzgen_filter` | BoltzGen | no |
 | `run_proteina_complexa_analyze` | Proteina-Complexa | no (foldseek / mmseqs) |
 
