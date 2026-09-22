@@ -1,7 +1,7 @@
 # run_chai1
 
 **Category:** structure_prediction  
-**Engine:** `chai1`  
+**Engine:** `chai_lab`  
 **Environment:** `None`  
 **GPU required:** yes
 

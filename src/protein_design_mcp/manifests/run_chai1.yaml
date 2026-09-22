@@ -4,7 +4,12 @@ composite: false
 timeout_s: 3600
 
 engine:
-  repo: chai1
+  # By convention engine.repo names the primary importable module (see
+  # tests/test_mounts.py) -- the PyPI project is "chai_lab" and so is the
+  # importable module (there is no "chai1" module; the console script is
+  # named "chai-lab" and the CLI's package is "Chai-1", but `import chai1`
+  # does not exist).
+  repo: chai_lab
   # Plain PyPI install (chai_lab==0.6.1), not editable -- confirmed live via
   # `python -m protein_design_mcp.mounts /home/jk661/.conda/envs/chai1
   # chai_lab`, which returned no extra mounts. No `mounts:` needed.
