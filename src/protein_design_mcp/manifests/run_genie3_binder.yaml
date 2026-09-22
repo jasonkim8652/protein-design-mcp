@@ -80,14 +80,13 @@ doc: |
   sequence that may be under embargo.
 
   ## When to use this instead of the alternatives
-  - `run_protpardelle` (not yet implemented) is the direct sibling --
-    another target-conditioned binder generator, using RFdiffusion-style
-    contig strings instead of a target-PDB-plus-hotspots JSON problem, and
-    a materially different (non-latent-diffusion) architecture.
+  - `run_protpardelle` is the direct sibling -- another target-conditioned
+    binder generator, using RFdiffusion-style contig strings instead of a
+    target-PDB-plus-hotspots JSON problem, and a materially different
+    (non-latent-diffusion) architecture.
   - Neither this tool nor `run_protpardelle` scores the result. Refold with
-    `run_chai1` (not yet implemented) or `run_boltz` (not yet implemented)
-    with the target chain present, then score the interface with
-    `run_ipsae`.
+    `run_chai1` or `run_boltz` with the target chain present, then score
+    the interface with `run_ipsae`.
   - Design a sequence for the target chain if you need one --
     `predict_sidechain: true` gives side-chain ATOMS for the binder chain
     Genie 3 itself placed, not an independently verified sequence; for that,

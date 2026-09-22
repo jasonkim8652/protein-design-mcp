@@ -74,8 +74,8 @@ doc: |
   nonetheless written, stderr mentions `deepspeed`) and reports SUCCESS
   anyway, since this tool exposes generation only -- the refold's own
   self-consistency SCORE was never part of this tool's output. Score a
-  result yourself afterward with `run_esmfold2` (not yet implemented) +
-  `run_ipsae` if you need that number.
+  result yourself afterward with `run_esmfold2` + `run_ipsae` if you need
+  that number.
 
   ## `aatypes_temp`/`aatypes_noise` -- the sequence-codesign knobs
   These control the discrete diffusion head's own sampling, independent of
@@ -86,17 +86,16 @@ doc: |
   20.0 respectively) unless changed.
 
   ## When to use this instead of the alternatives
-  - `run_genie2`, `run_frameflow` and `run_genie3_scaffold`
-    (not yet implemented) generate backbones only; this tool additionally
-    gives you a designed sequence for free, at the cost of MultiFlow's own
-    (currently unscoreable on this host) refold step being skipped.
-  - `run_la_proteina` (not yet implemented) also produces a full atomic
-    model with sequence, via a materially different (latent, autoencoder-
-    mediated) architecture rather than joint discrete/continuous
-    flow-matching.
+  - `run_genie2`, `run_frameflow` and `run_genie3_scaffold` generate
+    backbones only; this tool additionally gives you a designed sequence
+    for free, at the cost of MultiFlow's own (currently unscoreable on this
+    host) refold step being skipped.
+  - `run_la_proteina` also produces a full atomic model with sequence, via
+    a materially different (latent, autoencoder-mediated) architecture
+    rather than joint discrete/continuous flow-matching.
   - Either sequence this tool returns can still be independently verified:
-    fold it with `run_chai1` (not yet implemented) or `run_boltz`
-    (not yet implemented) and score the result with `run_ipsae`.
+    fold it with `run_chai1` or `run_boltz` and score the result with
+    `run_ipsae`.
 
   ## What is NOT exposed, and why
   - **`also_fold_pmpnn_seq`** is fixed to `false` -- it only gates the

@@ -57,22 +57,20 @@ doc: |
   triangular-update layers.
 
   ## When to use this instead of the alternatives
-  - `run_genie2`, `run_frameflow` and `run_genie3_scaffold`
-    (not yet implemented) generate BACKBONE-ONLY monomers; this tool
-    produces every heavy atom directly, at the cost of a materially
-    different (latent, autoencoder-mediated) architecture. If all you need
-    is a backbone to design a sequence for afterward with `run_mpnn`, the
-    backbone-only tools are simpler and this tool's extra atoms would be
-    thrown away.
-  - `run_multiflow` (not yet implemented) also co-designs a sequence, via a
-    discrete diffusion head over amino acid TYPES on a backbone-only
-    structure, and can still be refolded/scored independently; this tool's
-    sequence comes from the SAME latent decode as its structure, which is a
-    different kind of guarantee (self-consistent by construction, but not
-    independently checkable the way a separate inverse-folding step is).
+  - `run_genie2`, `run_frameflow` and `run_genie3_scaffold` generate
+    BACKBONE-ONLY monomers; this tool produces every heavy atom directly,
+    at the cost of a materially different (latent, autoencoder-mediated)
+    architecture. If all you need is a backbone to design a sequence for
+    afterward with `run_mpnn`, the backbone-only tools are simpler and this
+    tool's extra atoms would be thrown away.
+  - `run_multiflow` also co-designs a sequence, via a discrete diffusion
+    head over amino acid TYPES on a backbone-only structure, and can still
+    be refolded/scored independently; this tool's sequence comes from the
+    SAME latent decode as its structure, which is a different kind of
+    guarantee (self-consistent by construction, but not independently
+    checkable the way a separate inverse-folding step is).
   - For a target-conditioned binder, none of the monomer-generation tools
-    apply -- use `run_genie3_binder` (not yet implemented) or
-    `run_protpardelle` (not yet implemented) instead.
+    apply -- use `run_genie3_binder` or `run_protpardelle` instead.
 
   ## What is NOT exposed, and why
   - **Motif scaffolding** (La-Proteina's LD4-7 checkpoints, indexed/unindexed
@@ -86,7 +84,7 @@ doc: |
     config can compute these inline (several invoke ESMFold internally).
     This tool forces every one of them off: it exposes GENERATION only, like
     every other tool in this wave; score a result afterward with
-    `run_esmfold2` (not yet implemented) + `run_ipsae`, or design a sequence
+    `run_esmfold2` + `run_ipsae`, or design a sequence
     for it with `run_mpnn` if you want an independent (non-self-decoded)
     one.
 

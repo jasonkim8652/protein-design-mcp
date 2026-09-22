@@ -43,18 +43,16 @@ doc: |
   do not need motif scaffolding or a binder against a specific target.
 
   ## When to use this instead of the alternatives
-  - `run_frameflow` (not yet implemented) and `run_genie3_scaffold`
-    (not yet implemented) are the direct siblings -- other unconditional
-    monomer generators (flow-matching and diffusion respectively). No single
-    one is strictly better across all lengths; this one has no CLI-exposed
-    seed (see below), which the others do.
-  - `run_multiflow` (not yet implemented) additionally co-designs a sequence
-    with ProteinMPNN in the same call; this tool produces backbones only,
-    designed afterward with `run_mpnn`.
+  - `run_frameflow` and `run_genie3_scaffold` are the direct siblings --
+    other unconditional monomer generators (flow-matching and diffusion
+    respectively). No single one is strictly better across all lengths;
+    this one has no CLI-exposed seed (see below), which the others do.
+  - `run_multiflow` additionally co-designs a sequence with ProteinMPNN in
+    the same call; this tool produces backbones only, designed afterward
+    with `run_mpnn`.
   - For a target-conditioned binder rather than a free-standing monomer, use
-    `run_genie3_binder` (not yet implemented) or `run_protpardelle`
-    (not yet implemented) instead -- this tool has no notion of a target at
-    all.
+    `run_genie3_binder` or `run_protpardelle` instead -- this tool has no
+    notion of a target at all.
 
   ## `min_length`/`max_length`/`length_step` -- this multiplies with `num_samples`
   Genie 2 samples `num_samples` structures **at every length** from
