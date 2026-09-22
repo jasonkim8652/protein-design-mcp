@@ -21,7 +21,6 @@ engine:
   # ("do not hand-write them") and it genuinely is on this env's sys.path,
   # even though rf3 itself does not need it.
   mounts:
-    - /home/jk661/projects/protein-design-mcp/src
     # RF3's checkpoint (2.83G, installed via `foundry install rf3`, public,
     # not gated) lives under the host home directory, outside the prefix.
     # No env_vars override needed: `~/.foundry/checkpoints` is foundry's

@@ -24,7 +24,6 @@ engine:
     # section) -- not promera source, but discover_mounts is the
     # authoritative source per WAVE-COMMON.md ("do not hand-write them")
     # and it genuinely is on this env's sys.path.
-    - /home/jk661/projects/protein-design-mcp/src
     # Weights (1.9G, downloaded, not gated) and tinyprot's CCD/taxonomy
     # caches (9.1G) live under the host home directory, outside the
     # prefix -- both required at import/run time regardless of the `msa`

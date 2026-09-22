@@ -42,7 +42,6 @@ engine:
     # against engine.mounts, not path-containment, so the parent-
     # directory mount alone does not satisfy it.
     - /home/jk661/projects/proteina-complexa/src/proteinfoundation
-    - /home/jk661/projects/protein-design-mcp/src
   # Each design's structure file is copied into workdir/structure_paths/ --
   # this is what gives this adapter's build_args (a pure function of
   # manifest+params with no other handle on the scratch directory) a way

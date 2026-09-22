@@ -29,7 +29,6 @@ engine:
     # against engine.mounts, not path-containment, so the parent-
     # directory mount alone does not satisfy it.
     - /home/jk661/projects/proteina-complexa/src/proteinfoundation
-    - /home/jk661/projects/protein-design-mcp/src
   # rewards_csv is staged into workdir/rewards_csv/<basename> -- this
   # tool's own root_path override (see the adapter) points AT that staged
   # directory, so "beside the input" becomes "inside the scratch directory"

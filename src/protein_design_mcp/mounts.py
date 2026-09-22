@@ -198,6 +198,31 @@ def discover_mounts(
             else:
                 mounts.add(str(origin_path.parent))
 
+    # This server's OWN package is never a mount: it ships in the image.
+
+    # discover_mounts reports it honestly when a checkout of
+
+    # protein_design_mcp is on the target env's sys.path -- which it is on
+
+    # several engine envs, pointing at a DIFFERENT checkout than the one we
+
+    # deploy. Mounting it would shadow the container's own server code with
+
+    # whatever is in that other working tree. Excluded structurally rather
+
+    # than per manifest, because every engine env picks it up.
+
+    mounts = {
+
+        path
+
+        for path in mounts
+
+        if not (Path(path) / 'protein_design_mcp').is_dir()
+
+    }
+
+
     return sorted(mounts)
 
 
