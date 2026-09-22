@@ -2,14 +2,14 @@
 
 **Category:** binder_generation  
 **Engine:** `boltzgen`  
-**Environment:** `None`  
+**Environment:** `/home/jk661/miniforge3/envs/boltzgen`  
 **GPU required:** yes
 
 > This file is generated from `src/protein_design_mcp/manifests/run_boltzgen_design.yaml`. Edit the manifest, then run `python scripts/generate_tool_docs.py`.
 
 ## Summary
 
-Generate a binder against a target with BoltzGen's all-atom diffusion model, MSA-free (BoltzGen never builds or accepts an alignment -- the target comes straight from a PDB/CIF you supply inside design_spec). This is the `design` step of BoltzGen's own pipeline, run in isolation: it samples backbone coordinates AND a sequence together, but the sequence it proposes is usually lower quality than what BoltzGen's own inverse-folding head produces afterward -- chain this tool's output into `run_boltzgen_inverse_fold` (not yet implemented) for the sequence BoltzGen's own default pipeline would actually keep.
+Generate a binder against a target with BoltzGen's all-atom diffusion model, MSA-free (BoltzGen never builds or accepts an alignment -- the target comes straight from a PDB/CIF you supply inside design_spec). This is the `design` step of BoltzGen's own pipeline, run in isolation: it samples backbone coordinates AND a sequence together, but the sequence it proposes is usually lower quality than what BoltzGen's own inverse-folding head produces afterward -- chain this tool's output into `run_boltzgen_inverse_fold` for the sequence BoltzGen's own default pipeline would actually keep.
 
 ## What this is
 BoltzGen's `design` pipeline step (`boltzgen.task.predict.predict.Predict`
@@ -53,7 +53,7 @@ protocol name.
 - This tool's own generated sequence is usually a starting point, not the
   keeper -- BoltzGen's own default pipeline immediately re-derives it with
   its inverse-folding head. Feed this tool's output `.cif` into
-  `run_boltzgen_inverse_fold` (not yet implemented), marking the designed
+  `run_boltzgen_inverse_fold`, marking the designed
   chain for redesign, to get the sequence BoltzGen's own pipeline would
   actually keep.
 - After that, refold the result with a structure predictor (e.g.
@@ -77,7 +77,7 @@ full grammar (multi-entity mixes, binding-site hints, motifs,
 ## Important caveats
 - This tool runs no scoring of any kind -- not even an internal one. A
   design with a low design_ptm/design_iptm after refolding is expected and
-  normal; that is what `run_boltzgen_inverse_fold` (not yet implemented)
+  normal; that is what `run_boltzgen_inverse_fold`
   and `run_boltzgen_filter` are for.
 - `--reuse` (BoltzGen's own flag to skip regenerating designs already on
   disk) is not exposed here: every call gets a fresh, empty scratch
