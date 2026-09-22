@@ -59,6 +59,7 @@ doc: |
 schema:
   complex_pdb:
     type: string
+    format: path
     pattern: '\.(pdb|cif|ent)$'
     required: true
     description: Path to a structure file containing both partners.

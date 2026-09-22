@@ -20,7 +20,7 @@ from protein_design_mcp.dispatch.env import EngineError, EnvDispatcher
 from protein_design_mcp.dispatch.serialize import to_jsonable
 from protein_design_mcp.manifest.loader import load_manifests
 from protein_design_mcp.manifest.registry import ToolNotAvailable, ToolRegistry
-from protein_design_mcp.manifest.schema import ManifestError
+from protein_design_mcp.manifest.schema import Manifest, ManifestError
 from protein_design_mcp.meta_tools import DESCRIBE_TOOL_MANIFEST, describe_tool
 from protein_design_mcp.validation import ToolInputError, validate_and_fill
 
@@ -77,6 +77,31 @@ def build_registry(device: str = "cuda") -> ToolRegistry:
         )
         manifests = []
     return ToolRegistry(manifests, device=device)
+
+
+def _resolve_path_params(manifest: Manifest, params: dict[str, Any]) -> dict[str, Any]:
+    """Resolve caller-supplied path parameters to absolute paths.
+
+    Every engine subprocess runs with ``cwd`` set to a freshly created,
+    EMPTY scratch directory (see ``dispatch.env.EnvDispatcher``). A relative
+    path the caller supplied — including the exact relative path a
+    manifest's own ``example:`` shows, e.g. ``run_prodigy.yaml``'s
+    ``complex.pdb`` — would otherwise resolve against that empty directory
+    and fail with a bare "No such file or directory", with no hint that the
+    path was resolved somewhere else than the caller intended.
+
+    Done centrally, once, on every schema entry marked ``format: path``,
+    rather than in each adapter's ``build_args``: ~28 more adapters are
+    planned on this seam and would otherwise each have to rediscover this.
+    Resolution happens here, in the main server process, before the
+    dispatcher ever changes into the scratch directory, so it is always
+    relative to the server's own working directory (or already absolute).
+    """
+    resolved = dict(params)
+    for key, spec in manifest.schema.items():
+        if spec.get("format") == "path" and isinstance(resolved.get(key), str):
+            resolved[key] = str(Path(resolved[key]).resolve())
+    return resolved
 
 
 def _error(message: str) -> CallToolResult:
@@ -167,6 +192,7 @@ class ServerApp:
             params = validate_and_fill(manifest, arguments)
         except ToolInputError as exc:
             return _error(str(exc))
+        params = _resolve_path_params(manifest, params)
 
         adapter = ADAPTERS.get(manifest.name)
         if adapter is None:

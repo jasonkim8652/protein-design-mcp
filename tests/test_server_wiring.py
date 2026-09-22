@@ -127,6 +127,61 @@ def test_real_manifests_all_load():
 
 
 @pytest.mark.asyncio
+async def test_a_relative_path_the_caller_supplied_is_resolved_before_dispatch():
+    """Regression for FIX 4: the engine subprocess's cwd is a freshly
+    created, empty scratch directory, so a relative path like run_prodigy's
+    own ``example: complex.pdb`` must be made absolute (relative to the
+    SERVER's cwd) before it reaches argv, or it silently resolves against
+    that empty scratch directory instead."""
+    registry = ToolRegistry([m for m in _load_real() if m.name == "run_prodigy"])
+    dispatcher = _FakeDispatcher()
+    app = ServerApp(registry, dispatcher=dispatcher)
+
+    await app.call_tool(
+        "run_prodigy",
+        {"complex_pdb": "complex.pdb", "chain_a": "A", "chain_b": "B"},
+    )
+
+    argv = dispatcher.calls[0][1]
+    complex_arg = argv[0]
+    assert complex_arg != "complex.pdb"
+    assert Path(complex_arg).is_absolute()
+    assert complex_arg.endswith("complex.pdb")
+
+
+@pytest.mark.asyncio
+async def test_an_already_absolute_path_is_left_alone():
+    registry = ToolRegistry([m for m in _load_real() if m.name == "run_prodigy"])
+    dispatcher = _FakeDispatcher()
+    app = ServerApp(registry, dispatcher=dispatcher)
+
+    await app.call_tool(
+        "run_prodigy",
+        {"complex_pdb": "/tmp/complex.pdb", "chain_a": "A", "chain_b": "B"},
+    )
+
+    assert dispatcher.calls[0][1][0] == "/tmp/complex.pdb"
+
+
+@pytest.mark.asyncio
+async def test_a_non_path_parameter_is_never_touched():
+    """chain_a/chain_b are plain strings, not paths — resolving them would
+    silently corrupt a bare chain identifier like "A" into an absolute,
+    nonexistent path."""
+    registry = ToolRegistry([m for m in _load_real() if m.name == "run_prodigy"])
+    dispatcher = _FakeDispatcher()
+    app = ServerApp(registry, dispatcher=dispatcher)
+
+    await app.call_tool(
+        "run_prodigy",
+        {"complex_pdb": "/tmp/complex.pdb", "chain_a": "A", "chain_b": "B"},
+    )
+
+    argv = dispatcher.calls[0][1]
+    assert "A" in argv and "B" in argv
+
+
+@pytest.mark.asyncio
 async def test_describe_tool_is_routed_through_validate_and_fill():
     """Regression for FIX 3: describe_tool used to be dispatched before any
     validation. With SDK schema validation disabled, this manifest's own

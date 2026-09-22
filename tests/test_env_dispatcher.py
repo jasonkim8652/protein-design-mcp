@@ -57,7 +57,43 @@ async def test_each_run_gets_its_own_scratch_directory(tmp_path):
     a = await d.run(engine, ["-c", "pass"], timeout=30)
     b = await d.run(engine, ["-c", "pass"], timeout=30)
     assert a.workdir != b.workdir
-    assert a.workdir.is_dir() and b.workdir.is_dir()
+
+
+@pytest.mark.asyncio
+async def test_successful_run_removes_its_scratch_directory(tmp_path):
+    """Regression: workdirs were never cleaned up after a successful run
+    (verified live: pdmcp-321bf67fcbcd left behind after a run)."""
+    d = EnvDispatcher(runner=None, scratch_root=tmp_path)
+    engine = EngineSpec(repo="py", env="unused", entry=(sys.executable,))
+    result = await d.run(engine, ["-c", "pass"], timeout=30)
+    assert not result.workdir.exists()
+
+
+@pytest.mark.asyncio
+async def test_failed_run_preserves_its_scratch_directory_for_diagnosis(tmp_path):
+    d = EnvDispatcher(runner=None, scratch_root=tmp_path)
+    engine = EngineSpec(repo="py", env="unused", entry=(sys.executable,))
+    with pytest.raises(EngineError) as exc:
+        await d.run(
+            engine,
+            ["-c", "import sys; sys.stderr.write('boom'); sys.exit(3)"],
+            timeout=30,
+        )
+    assert "preserved for diagnosis" in str(exc.value)
+    workdirs = list(tmp_path.glob("pdmcp-*"))
+    assert len(workdirs) == 1
+    assert workdirs[0].is_dir()
+
+
+@pytest.mark.asyncio
+async def test_timed_out_run_preserves_its_scratch_directory_for_diagnosis(tmp_path):
+    d = EnvDispatcher(runner=None, scratch_root=tmp_path)
+    engine = EngineSpec(repo="py", env="unused", entry=(sys.executable,))
+    with pytest.raises(EngineError, match="preserved for diagnosis"):
+        await d.run(engine, ["-c", "import time; time.sleep(10)"], timeout=1)
+    workdirs = list(tmp_path.glob("pdmcp-*"))
+    assert len(workdirs) == 1
+    assert workdirs[0].is_dir()
 
 
 @pytest.mark.asyncio
