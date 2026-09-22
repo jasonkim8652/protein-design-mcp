@@ -82,3 +82,35 @@ def test_malformed_yaml_names_the_file(tmp_path):
     _write(tmp_path, "broken.yaml", "name: designBinder\n")
     with pytest.raises(ManifestError, match="broken.yaml"):
         load_manifests(tmp_path)
+
+
+def test_doc_naming_an_unknown_tool_is_rejected(tmp_path):
+    body = SOLO.replace(
+        "      PRODIGY.\n",
+        "      PRODIGY. See run_does_not_exist for the alternative.\n",
+    )
+    _write(tmp_path, "run_prodigy.yaml", body)
+    with pytest.raises(ManifestError, match="run_does_not_exist"):
+        load_manifests(tmp_path)
+
+
+def test_doc_naming_a_known_sibling_is_accepted(tmp_path):
+    heading = SIBLING_DOC_HEADING
+    a = SOLO.replace(
+        "      PRODIGY.\n",
+        f"      PRODIGY.\n\n      {heading}\n      Use run_ipsae to rank designs.\n",
+    )
+    b = a.replace("run_prodigy", "run_ipsae")
+    _write(tmp_path, "a.yaml", a)
+    _write(tmp_path, "b.yaml", b)
+    assert len(load_manifests(tmp_path)) == 2
+
+
+def test_doc_may_name_a_tool_marked_not_yet_implemented(tmp_path):
+    body = SOLO.replace(
+        "      PRODIGY.\n",
+        "      PRODIGY. run_rosetta_interface (not yet implemented) will "
+        "give the physics breakdown.\n",
+    )
+    _write(tmp_path, "run_prodigy.yaml", body)
+    assert len(load_manifests(tmp_path)) == 1

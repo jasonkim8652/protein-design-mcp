@@ -19,7 +19,7 @@ from protein_design_mcp.adapters import ipsae, mpnn, openmm_minimize, prodigy
 from protein_design_mcp.dispatch.env import EngineError, EnvDispatcher
 from protein_design_mcp.dispatch.serialize import to_jsonable
 from protein_design_mcp.manifest.loader import load_manifests
-from protein_design_mcp.manifest.registry import ToolNotAvailable, ToolRegistry
+from protein_design_mcp.manifest.registry import ToolNotAvailable, ToolRegistry, json_schema_for
 from protein_design_mcp.manifest.schema import Manifest, ManifestError
 from protein_design_mcp.meta_tools import DESCRIBE_TOOL_MANIFEST, describe_tool
 from protein_design_mcp.staging import stage_inputs
@@ -172,19 +172,7 @@ class ServerApp:
             Tool(
                 name=DESCRIBE_TOOL_MANIFEST.name,
                 description=DESCRIBE_TOOL_MANIFEST.summary,
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        key: {
-                            k: v
-                            for k, v in spec.items()
-                            if k not in ("required", "example")
-                        }
-                        for key, spec in DESCRIBE_TOOL_MANIFEST.schema.items()
-                    },
-                    "required": [],
-                    "additionalProperties": False,
-                },
+                inputSchema=json_schema_for(DESCRIBE_TOOL_MANIFEST),
             )
         )
         return tools
