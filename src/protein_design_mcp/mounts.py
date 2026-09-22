@@ -23,6 +23,7 @@ engine can generate the list instead of guessing it::
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -102,7 +103,9 @@ def _is_within(path: Path, root: Path) -> bool:
     return True
 
 
-def discover_mounts(prefix: str, module: str) -> list[str]:
+def discover_mounts(
+    prefix: str, module: str, env: dict[str, str] | None = None
+) -> list[str]:
     """Return the read-only host paths ``module`` needs mounted beyond ``prefix``.
 
     Runs ``<prefix>/bin/python`` — not this process's interpreter — because
@@ -125,16 +128,29 @@ def discover_mounts(prefix: str, module: str) -> list[str]:
     mounted separately (§2.2), and repeating it would be redundant, not
     additive.
 
+    ``env``, if given, is merged over a COPY of this process's own
+    environment before the probe subprocess runs (never replacing it
+    outright — same rule ``dispatch.env.EnvDispatcher.run`` follows for
+    ``engine.env_vars``). Needed for an engine like ``esmfold2`` whose
+    correct import depends on a variable such as ``PYTHONNOUSERSITE=1``
+    (see ``run_esmfold2.yaml``): probing WITHOUT that variable set
+    reproduces the very shadowing bug it exists to prevent and reports the
+    WRONG package's mounts. Omitted (the default), this probes with only
+    this process's own environment, exactly as before this parameter
+    existed.
+
     Raises ``MountDiscoveryError`` if ``prefix`` has no usable
     ``bin/python``, or if importing ``module`` under it fails.
     """
     python = str(Path(prefix) / "bin" / "python")
+    subprocess_env = {**os.environ, **env} if env else None
     try:
         proc = subprocess.run(
             [python, "-c", _PROBE_SCRIPT, module],
             capture_output=True,
             text=True,
             timeout=120,
+            env=subprocess_env,
         )
     except FileNotFoundError as exc:
         raise MountDiscoveryError(
