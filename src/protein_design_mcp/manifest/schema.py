@@ -63,6 +63,27 @@ class OutputSpec:
 class EngineSpec:
     """How to invoke one engine.
 
+    A manifest names exactly one of ``env`` (a name resolved under the
+    image's root prefix, as the four CPU tools do today) or ``prefix`` (an
+    absolute path to a conda environment mounted from the host, for the GPU
+    engines — see docs/superpowers/specs/2026-09-22-gpu-engine-substrate-design.md
+    §2.4: ``micromamba run -n`` cannot reach a mounted environment even with
+    ``MAMBA_ENVS_DIRS`` set, only ``run -p <absolute prefix>`` can).
+    Declaring both, or neither, is a load error (see
+    manifest.schema._parse_engine).
+
+    ``mounts`` lists read-only host paths this engine needs beyond its
+    prefix — an editable install's source checkout, or a user-site
+    directory a module leaks out to (see design §2.3). It should be
+    generated with ``protein_design_mcp.mounts.discover_mounts``, not
+    hand-written, or an engine can ship with a silently incomplete set.
+
+    ``env_vars`` is merged over a COPY of the dispatcher's own environment
+    (never replacing it — that would strip ``PATH`` and the subprocess
+    would not start). Used for things like ``PYTHONNOUSERSITE=1`` and
+    cache-directory redirection; deliberately NOT used for GPU selection,
+    which is pinned at the container boundary instead (design §2.1, §7).
+
     ``stage`` names schema parameters (each must be ``format: path``) whose
     files the dispatcher must COPY into the engine's scratch working
     directory before running, rewriting that parameter's value to the
@@ -78,9 +99,12 @@ class EngineSpec:
     """
 
     repo: str
-    env: str
     entry: tuple[str, ...]
+    env: str | None = None
+    prefix: str | None = None
     stage: tuple[str, ...] = ()
+    mounts: tuple[str, ...] = ()
+    env_vars: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -117,6 +141,107 @@ def _require(data: dict, key: str) -> Any:
     return data[key]
 
 
+def _parse_env_or_prefix(data: dict, name: str) -> tuple[str | None, str | None]:
+    """Exactly one of ``env``/``prefix`` must be declared — see EngineSpec's
+    docstring for why a manifest cannot use both or neither.
+    """
+    env = data.get("env")
+    prefix = data.get("prefix")
+    has_env = env not in (None, "")
+    has_prefix = prefix not in (None, "")
+
+    if has_env and has_prefix:
+        raise ManifestError(
+            f"{name}: engine declares both 'env' and 'prefix' — a manifest "
+            "must name exactly one. 'env' resolves under the image's root "
+            "prefix; 'prefix' is an absolute path to a mounted host "
+            "environment. Declaring both leaves it ambiguous which one to "
+            "dispatch through."
+        )
+    if not has_env and not has_prefix:
+        raise ManifestError(
+            f"{name}: engine declares neither 'env' nor 'prefix' — exactly "
+            "one is required so the dispatcher knows which environment to "
+            "run this engine in."
+        )
+
+    if has_env:
+        if not isinstance(env, str):
+            raise ManifestError(f"{name}: engine.env must be a string")
+        return env, None
+
+    if not isinstance(prefix, str):
+        raise ManifestError(f"{name}: engine.prefix must be a string")
+    if not prefix.startswith("/"):
+        raise ManifestError(
+            f"{name}: engine.prefix must be an absolute path, got {prefix!r}"
+        )
+    if ".." in Path(prefix).parts:
+        raise ManifestError(
+            f"{name}: engine.prefix must not contain '..', got {prefix!r}"
+        )
+    return None, prefix
+
+
+def _parse_mounts(data: Any, name: str) -> tuple[str, ...]:
+    """Read-only host paths this engine needs mounted beyond its prefix.
+
+    Validated at load, per design §3.2: absolute, no ``..``, and must exist
+    on this host — a mount naming a path that isn't there is a manifest
+    error, not something the dispatcher should discover at call time.
+    """
+    if data is None:
+        return ()
+    if not isinstance(data, list) or not all(isinstance(x, str) for x in data):
+        raise ManifestError(f"{name}: engine.mounts must be a list of strings")
+
+    mounts: list[str] = []
+    for entry in data:
+        if not entry.startswith("/"):
+            raise ManifestError(
+                f"{name}: engine.mounts entry {entry!r} must be an absolute path"
+            )
+        if ".." in Path(entry).parts:
+            raise ManifestError(
+                f"{name}: engine.mounts entry {entry!r} must not contain '..'"
+            )
+        if not Path(entry).exists():
+            raise ManifestError(
+                f"{name}: engine.mounts entry {entry!r} does not exist on "
+                "this host"
+            )
+        mounts.append(entry)
+    return tuple(mounts)
+
+
+def _parse_env_vars(data: Any, name: str) -> dict[str, str]:
+    """Extra environment variables for the engine's subprocess.
+
+    Merged over a COPY of the dispatcher's own environment by
+    ``dispatch.env.EnvDispatcher.run`` — never replacing it outright. Values
+    are required to be strings so an explicit ``""`` survives instead of
+    being coerced from, or confused with, something falsy-but-absent.
+    """
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise ManifestError(f"{name}: engine.env_vars must be a mapping")
+
+    env_vars: dict[str, str] = {}
+    for key, value in data.items():
+        if not isinstance(key, str):
+            raise ManifestError(
+                f"{name}: engine.env_vars has a non-string key {key!r}"
+            )
+        if not isinstance(value, str):
+            raise ManifestError(
+                f"{name}: engine.env_vars[{key!r}] must be a string, got "
+                f"{type(value).__name__}"
+            )
+        env_vars[key] = value
+    return env_vars
+
+
 def _parse_engine(data: Any, name: str) -> EngineSpec:
     if not isinstance(data, dict):
         raise ManifestError(f"{name}: engine must be a mapping")
@@ -130,11 +255,19 @@ def _parse_engine(data: Any, name: str) -> EngineSpec:
         raise ManifestError(f"{name}: engine.stage must be a list of strings")
     if len(set(stage)) != len(stage):
         raise ManifestError(f"{name}: engine.stage lists a parameter more than once")
+
+    env, prefix = _parse_env_or_prefix(data, name)
+    mounts = _parse_mounts(data.get("mounts"), name)
+    env_vars = _parse_env_vars(data.get("env_vars"), name)
+
     return EngineSpec(
         repo=str(_require(data, "repo")),
-        env=str(_require(data, "env")),
         entry=tuple(entry),
+        env=env,
+        prefix=prefix,
         stage=tuple(stage),
+        mounts=mounts,
+        env_vars=env_vars,
     )
 
 

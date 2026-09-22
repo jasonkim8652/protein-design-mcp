@@ -309,6 +309,48 @@ async def test_call_tool_for_a_post_parse_failure_does_not_say_unknown_tool(
     assert "run_ghost_tool" in text
 
 
+# --- Task 2: a bad mounts/prefix engine key excludes only its own manifest -
+
+
+def test_bad_mounts_entry_excludes_only_its_own_manifest(tmp_path, monkeypatch):
+    """Task 2 adds new engine-level load errors (bad mounts, bad
+    env/prefix). They must flow through the same per-file isolation Task 1
+    built, not reintroduce an all-or-nothing failure."""
+    _lenient(monkeypatch)
+    _write(tmp_path, "run_prodigy.yaml", VALID)
+    _write(
+        tmp_path,
+        "run_boltz.yaml",
+        """\
+        name: run_boltz
+        category: cofolding
+        engine:
+          repo: boltz
+          prefix: /home/jk661/.conda/envs/boltz
+          entry: [boltz]
+          mounts: [/does/not/exist/anywhere]
+        summary: Cofold a structure.
+        doc: |
+          ## What this is
+          Boltz.
+        schema: {}
+        """,
+    )
+
+    result = load_manifests_resilient(tmp_path)
+
+    assert [m.name for m in result.manifests] == ["run_prodigy"]
+    assert "run_boltz" in result.reasons
+    reason = result.reasons["run_boltz"]
+    assert "/does/not/exist/anywhere" in reason
+    assert "does not exist" in reason
+
+    registry = ToolRegistry(result.manifests, load_failures=result.reasons)
+    assert registry.resolve("run_prodigy").name == "run_prodigy"
+    with pytest.raises(ToolNotAvailable, match="does not exist"):
+        registry.resolve("run_boltz")
+
+
 async def test_call_tool_for_an_unparseable_file_does_not_say_unknown_tool(
     tmp_path, monkeypatch
 ):

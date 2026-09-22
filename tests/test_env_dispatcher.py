@@ -37,6 +37,20 @@ def test_runner_can_be_overridden_for_local_execution():
     assert d.build_command(ENGINE, ["-x"]) == ["prodigy", "-x"]
 
 
+def test_prefix_engine_is_wrapped_in_micromamba_run_dash_p():
+    engine = EngineSpec(repo="boltz", prefix="/home/jk661/.conda/envs/boltz", entry=("boltz",))
+    d = EnvDispatcher()
+    cmd = d.build_command(engine, ["predict"])
+    assert cmd == [
+        "micromamba",
+        "run",
+        "-p",
+        "/home/jk661/.conda/envs/boltz",
+        "boltz",
+        "predict",
+    ]
+
+
 def test_arguments_are_stringified():
     cmd = EnvDispatcher(runner=None).build_command(ENGINE, ["--n", 4, "--t", 0.1])
     assert cmd == ["prodigy", "--n", "4", "--t", "0.1"]
@@ -314,3 +328,113 @@ async def test_a_pre_made_workdir_is_still_removed_on_success(tmp_path):
 
     assert result.workdir == workdir
     assert not workdir.exists()
+
+
+# --- Task 2: EngineSpec.env_vars reaching the child process ------------------
+
+
+@pytest.mark.asyncio
+async def test_env_vars_reach_the_child_process(tmp_path):
+    """Assert on the child's OWN observed environment, not on the dict
+    passed in — a test that only checked the dict would pass even if
+    ``env=`` were never forwarded to create_subprocess_exec."""
+    d = EnvDispatcher(runner=None, scratch_root=tmp_path)
+    engine = EngineSpec(
+        repo="py",
+        env="unused",
+        entry=(sys.executable,),
+        env_vars={"PDMCP_TEST_VAR": "hello-from-manifest"},
+    )
+    result = await d.run(
+        engine,
+        ["-c", "import os; print(os.environ.get('PDMCP_TEST_VAR', '<absent>'))"],
+        timeout=30,
+    )
+    assert result.stdout.strip() == "hello-from-manifest"
+
+
+@pytest.mark.asyncio
+async def test_env_vars_merge_over_a_copy_of_os_environ(tmp_path, monkeypatch):
+    """A variable present in the parent process and absent from env_vars
+    must still be visible to the child — env_vars augments os.environ, it
+    does not replace it (replacing it wholesale strips PATH and the
+    subprocess never starts)."""
+    monkeypatch.setenv("PDMCP_PARENT_ONLY_VAR", "set-by-parent")
+    d = EnvDispatcher(runner=None, scratch_root=tmp_path)
+    engine = EngineSpec(repo="py", env="unused", entry=(sys.executable,))
+    result = await d.run(
+        engine,
+        ["-c", "import os; print(os.environ.get('PDMCP_PARENT_ONLY_VAR', '<absent>'))"],
+        timeout=30,
+    )
+    assert result.stdout.strip() == "set-by-parent"
+
+
+@pytest.mark.asyncio
+async def test_env_vars_empty_string_value_is_forwarded_not_dropped(tmp_path):
+    """'' is falsy in Python; env_vars merging must not treat an explicit
+    '' as though the key were never set."""
+    d = EnvDispatcher(runner=None, scratch_root=tmp_path)
+    engine = EngineSpec(
+        repo="py", env="unused", entry=(sys.executable,), env_vars={"PDMCP_EMPTY": ""}
+    )
+    result = await d.run(
+        engine,
+        [
+            "-c",
+            "import os; v = os.environ.get('PDMCP_EMPTY', '<absent>'); "
+            "print(repr(v))",
+        ],
+        timeout=30,
+    )
+    assert result.stdout.strip() == "''"
+
+
+@pytest.mark.asyncio
+async def test_empty_env_vars_is_valid_and_still_inherits_parent_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("PDMCP_PARENT_ONLY_VAR2", "still-here")
+    d = EnvDispatcher(runner=None, scratch_root=tmp_path)
+    engine = EngineSpec(repo="py", env="unused", entry=(sys.executable,), env_vars={})
+    result = await d.run(
+        engine,
+        ["-c", "import os; print(os.environ.get('PDMCP_PARENT_ONLY_VAR2', '<absent>'))"],
+        timeout=30,
+    )
+    assert result.stdout.strip() == "still-here"
+
+
+@pytest.mark.asyncio
+async def test_default_caches_point_into_the_scratch_workdir(tmp_path):
+    """§3.3: HF_HOME, TORCH_HOME and XDG_CACHE_HOME default into the
+    engine's scratch workdir unless the manifest overrides them, so engines
+    do not write into a read-only mount or collide in a shared ~/.cache."""
+    d = EnvDispatcher(runner=None, scratch_root=tmp_path)
+    engine = EngineSpec(repo="py", env="unused", entry=(sys.executable,))
+    script = (
+        "import os; "
+        "print(os.environ['HF_HOME']); "
+        "print(os.environ['TORCH_HOME']); "
+        "print(os.environ['XDG_CACHE_HOME'])"
+    )
+    result = await d.run(engine, ["-c", script], timeout=30)
+    hf_home, torch_home, xdg_cache = result.stdout.strip().splitlines()
+    # The workdir is removed by the time we can inspect it here, but its
+    # *name* (pdmcp-<hex>) must be the parent of all three cache paths.
+    assert Path(hf_home).is_relative_to(tmp_path)
+    assert Path(torch_home).is_relative_to(tmp_path)
+    assert Path(xdg_cache).is_relative_to(tmp_path)
+
+
+@pytest.mark.asyncio
+async def test_manifest_env_vars_override_the_default_cache_dirs(tmp_path):
+    d = EnvDispatcher(runner=None, scratch_root=tmp_path)
+    engine = EngineSpec(
+        repo="py",
+        env="unused",
+        entry=(sys.executable,),
+        env_vars={"HF_HOME": "/tmp/custom-hf-home"},
+    )
+    result = await d.run(
+        engine, ["-c", "import os; print(os.environ['HF_HOME'])"], timeout=30
+    )
+    assert result.stdout.strip() == "/tmp/custom-hf-home"

@@ -312,3 +312,164 @@ def test_engine_stage_must_be_a_list_of_strings():
 def test_integer_timeout_still_accepted():
     m = parse_manifest({**MINIMAL, "timeout_s": 120})
     assert m.timeout_s == 120
+
+
+# --- Task 2: EngineSpec.prefix -----------------------------------------------
+
+
+def test_env_only_engine_has_no_prefix():
+    m = parse_manifest(MINIMAL)
+    assert m.engine.env == "scoring"
+    assert m.engine.prefix is None
+
+
+def test_prefix_only_engine_is_parsed(tmp_path):
+    data = {
+        **MINIMAL,
+        "engine": {"repo": "boltz", "prefix": str(tmp_path), "entry": ["boltz"]},
+    }
+    m = parse_manifest(data)
+    assert m.engine.prefix == str(tmp_path)
+    assert m.engine.env is None
+
+
+def test_declaring_both_env_and_prefix_is_a_load_error(tmp_path):
+    data = {
+        **MINIMAL,
+        "engine": {
+            "repo": "boltz",
+            "env": "scoring",
+            "prefix": str(tmp_path),
+            "entry": ["boltz"],
+        },
+    }
+    with pytest.raises(ManifestError, match=r"run_prodigy.*both") as exc:
+        parse_manifest(data)
+    assert "prefix" in str(exc.value)
+
+
+def test_declaring_neither_env_nor_prefix_is_a_load_error():
+    data = {**MINIMAL, "engine": {"repo": "boltz", "entry": ["boltz"]}}
+    with pytest.raises(ManifestError, match=r"run_prodigy.*neither"):
+        parse_manifest(data)
+
+
+def test_prefix_must_be_an_absolute_path():
+    data = {
+        **MINIMAL,
+        "engine": {"repo": "boltz", "prefix": "relative/path", "entry": ["boltz"]},
+    }
+    with pytest.raises(ManifestError, match="absolute"):
+        parse_manifest(data)
+
+
+def test_prefix_must_not_contain_dotdot(tmp_path):
+    data = {
+        **MINIMAL,
+        "engine": {
+            "repo": "boltz",
+            "prefix": str(tmp_path / ".." / "boltz"),
+            "entry": ["boltz"],
+        },
+    }
+    with pytest.raises(ManifestError, match=r"\.\."):
+        parse_manifest(data)
+
+
+# --- Task 2: EngineSpec.mounts ------------------------------------------------
+
+
+def test_mounts_defaults_to_empty():
+    assert parse_manifest(MINIMAL).engine.mounts == ()
+
+
+def test_mounts_empty_list_is_valid_not_an_error():
+    data = {**MINIMAL, "engine": {**MINIMAL["engine"], "mounts": []}}
+    assert parse_manifest(data).engine.mounts == ()
+
+
+def test_mounts_accepts_existing_absolute_paths(tmp_path):
+    mount_dir = tmp_path / "src"
+    mount_dir.mkdir()
+    data = {**MINIMAL, "engine": {**MINIMAL["engine"], "mounts": [str(mount_dir)]}}
+    m = parse_manifest(data)
+    assert m.engine.mounts == (str(mount_dir),)
+
+
+def test_mounts_rejects_a_relative_path():
+    data = {**MINIMAL, "engine": {**MINIMAL["engine"], "mounts": ["relative/path"]}}
+    with pytest.raises(ManifestError, match="absolute"):
+        parse_manifest(data)
+
+
+def test_mounts_rejects_a_dotdot_path(tmp_path):
+    mount_dir = tmp_path / "src"
+    mount_dir.mkdir()
+    data = {
+        **MINIMAL,
+        "engine": {
+            **MINIMAL["engine"],
+            "mounts": [str(mount_dir / ".." / "src")],
+        },
+    }
+    with pytest.raises(ManifestError, match=r"\.\."):
+        parse_manifest(data)
+
+
+def test_mounts_rejects_a_nonexistent_path(tmp_path):
+    missing = tmp_path / "does_not_exist"
+    data = {**MINIMAL, "engine": {**MINIMAL["engine"], "mounts": [str(missing)]}}
+    with pytest.raises(ManifestError, match="does not exist"):
+        parse_manifest(data)
+
+
+def test_mounts_must_be_a_list_of_strings():
+    data = {**MINIMAL, "engine": {**MINIMAL["engine"], "mounts": "not-a-list"}}
+    with pytest.raises(ManifestError, match="mounts"):
+        parse_manifest(data)
+
+
+# --- Task 2: EngineSpec.env_vars ----------------------------------------------
+
+
+def test_env_vars_defaults_to_empty():
+    assert parse_manifest(MINIMAL).engine.env_vars == {}
+
+
+def test_env_vars_empty_mapping_is_valid():
+    data = {**MINIMAL, "engine": {**MINIMAL["engine"], "env_vars": {}}}
+    assert parse_manifest(data).engine.env_vars == {}
+
+
+def test_env_vars_are_read():
+    data = {
+        **MINIMAL,
+        "engine": {
+            **MINIMAL["engine"],
+            "env_vars": {"PYTHONNOUSERSITE": "1", "HF_HOME": "/scratch/hf"},
+        },
+    }
+    m = parse_manifest(data)
+    assert m.engine.env_vars == {"PYTHONNOUSERSITE": "1", "HF_HOME": "/scratch/hf"}
+
+
+def test_env_vars_empty_string_value_is_kept_not_dropped():
+    """'' is falsy in Python — this codebase has been bitten by
+    falsy-versus-absent before, so an explicit '' value must survive
+    parsing rather than being treated as if the key were never set."""
+    data = {**MINIMAL, "engine": {**MINIMAL["engine"], "env_vars": {"FOO": ""}}}
+    m = parse_manifest(data)
+    assert m.engine.env_vars == {"FOO": ""}
+    assert "FOO" in m.engine.env_vars
+
+
+def test_env_vars_must_be_a_mapping():
+    data = {**MINIMAL, "engine": {**MINIMAL["engine"], "env_vars": ["FOO=1"]}}
+    with pytest.raises(ManifestError, match="env_vars"):
+        parse_manifest(data)
+
+
+def test_env_vars_rejects_a_non_string_value():
+    data = {**MINIMAL, "engine": {**MINIMAL["engine"], "env_vars": {"FOO": 1}}}
+    with pytest.raises(ManifestError, match="env_vars"):
+        parse_manifest(data)
