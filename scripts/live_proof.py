@@ -33,8 +33,11 @@ Each case names a tool, the arguments to call it with, and the keys expected
 in the parsed JSON payload on success. A case whose ``expect_keys`` is
 ``["error"]`` is an EXPECTED-FAILURE case: the driver asserts ``isError`` is
 True and that the payload carries an ``error`` message, rather than asserting
-success. ``run_ipsae`` is exactly such a case — see the comment on it below
-for why its success path is not proven here.
+success. No case currently uses this — every registered tool now has a
+proven success path — but the mechanism stays, since a genuinely unproven
+success path (as ``run_ipsae``'s was, until the staging fix below) is a real
+state a future engine can land in, and it must be reported honestly rather
+than silently omitted or faked.
 """
 
 from __future__ import annotations
@@ -91,29 +94,30 @@ CASES: list[dict] = [
         "expect_keys": ["designs", "num_designs"],
     },
     {
-        # SETTLED LIVE (Task 7): a synthetic-but-structurally-valid PAE JSON
-        # fixture (tests/fixtures/pae/example_pae.json, a 5x5 matrix matching
-        # two_chain_complex.pdb's 5 residues) is NOT rejected by the pinned
-        # ipsae==1.0.1 engine — confirmed by running it directly with this
-        # exact fixture outside the MCP handler: it exits 0 and computes real
-        # scores. The reason this case still fails is different from, and
-        # more fundamental than, "we lack a real co-folding PAE": ipsae
-        # 1.0.1's CLI (ipsae.cli:main, its only console_scripts entry point)
-        # never prints the results table to stdout — it writes three files
-        # (`{stem}_{pae}_{dist}.txt`, `_byres.txt`, `.pml`) next to the
-        # structure file and prints only save-confirmation lines. The
-        # adapter shipped in Task 6 (src/protein_design_mcp/adapters/ipsae.py)
-        # parses run.stdout for that table, so it cannot succeed against the
-        # real pinned engine regardless of how good the PAE fixture is.
-        # Fixing that is an adapter/manifest change outside Task 7's scope
-        # (see task-7-report.md), so this case is honestly reduced to its
-        # failure path rather than fabricating a passing result.
+        # SETTLED LIVE (Task 7 fix round 1): originally reduced to a
+        # failure-path case because the Task 6 adapter parsed run.stdout,
+        # but ipsae==1.0.1's only entry point (ipsae.cli:main) never prints
+        # its results table to stdout at all — it WRITES three files next
+        # to the structure file. Fixed with a declarative staging
+        # mechanism: the manifest's `engine.stage: ["structure"]` makes the
+        # dispatcher copy the structure file into the scratch working
+        # directory BEFORE the engine runs (see
+        # protein_design_mcp.staging.stage_inputs), so "beside the input"
+        # becomes "inside the scratch directory", where the manifest's new
+        # `results_txt` output (multiple: true, since a by-residue detail
+        # file lands next to it too) can collect it. The adapter now reads
+        # that file instead of stdout, using the exact same header-name
+        # column lookup as before. tests/fixtures/pae/example_pae.json is a
+        # synthetic-but-structurally-valid PAE JSON (a 5x5 matrix matching
+        # two_chain_complex.pdb's 5 residues) that ipsae==1.0.1 accepts
+        # without complaint — confirmed live, this is now a genuine SUCCESS
+        # case, not a reduced one.
         "tool": "run_ipsae",
         "arguments": {
             "pae_json": "tests/fixtures/pae/example_pae.json",
             "structure": "tests/fixtures/test_pdbs/two_chain_complex.pdb",
         },
-        "expect_keys": ["error"],
+        "expect_keys": ["ipsae", "chain_pair"],
     },
     {
         "tool": "describe_tool",

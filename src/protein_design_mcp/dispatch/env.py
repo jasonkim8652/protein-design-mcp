@@ -63,6 +63,20 @@ class EnvDispatcher:
         workdir.mkdir(parents=True, exist_ok=False)
         return workdir
 
+    def new_workdir(self) -> Path:
+        """Create a fresh scratch directory ahead of a run.
+
+        For a caller that must stage input files (see
+        ``protein_design_mcp.staging.stage_inputs``) into the SAME
+        directory ``run()`` will use as the subprocess's cwd. Staging has to
+        happen before the engine's argv is built (a staged path replaces the
+        original in that argv), which is itself before ``run()`` is called —
+        so the workdir has to exist earlier than ``run()`` normally creates
+        one. Pass the returned path back in as ``run(..., workdir=...)`` to
+        make ``run()`` use this one instead of making its own.
+        """
+        return self._make_workdir()
+
     async def run(
         self,
         engine: EngineSpec,
@@ -70,10 +84,18 @@ class EnvDispatcher:
         *,
         timeout: float,
         outputs: Sequence[OutputSpec] = (),
+        workdir: Path | None = None,
     ) -> CompletedRun:
-        """Execute the engine. Raises EngineError on any failure."""
+        """Execute the engine. Raises EngineError on any failure.
+
+        ``workdir``, if given, must come from ``new_workdir()`` (typically
+        after staging files into it) and is used as-is instead of a fresh
+        directory being created here. Its lifecycle — preserved on failure,
+        removed on success — is identical either way.
+        """
         command = self.build_command(engine, args)
-        workdir = self._make_workdir()
+        if workdir is None:
+            workdir = self._make_workdir()
 
         try:
             process = await asyncio.create_subprocess_exec(

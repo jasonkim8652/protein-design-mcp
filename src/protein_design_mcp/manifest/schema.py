@@ -61,9 +61,26 @@ class OutputSpec:
 
 @dataclass(frozen=True)
 class EngineSpec:
+    """How to invoke one engine.
+
+    ``stage`` names schema parameters (each must be ``format: path``) whose
+    files the dispatcher must COPY into the engine's scratch working
+    directory before running, rewriting that parameter's value to the
+    staged copy's path. This exists for engines that write their results
+    next to one of their INPUT files rather than into the process's cwd
+    (ipSAE is the first: it always writes beside the structure file it was
+    given) — without staging, that input resolves to an absolute path
+    outside the scratch directory (see app._resolve_path_params), so the
+    engine's outputs would land outside it too, where a relative
+    ``outputs:`` pattern can never see them and the containment check in
+    results.collect_outputs would refuse them even if it could. Most
+    engines need no staging at all, hence the empty default.
+    """
+
     repo: str
     env: str
     entry: tuple[str, ...]
+    stage: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -106,11 +123,40 @@ def _parse_engine(data: Any, name: str) -> EngineSpec:
     entry = _require(data, "entry")
     if not isinstance(entry, list) or not all(isinstance(x, str) for x in entry):
         raise ManifestError(f"{name}: engine.entry must be a list of strings")
+    stage = data.get("stage")
+    if stage is None:
+        stage = []
+    if not isinstance(stage, list) or not all(isinstance(x, str) for x in stage):
+        raise ManifestError(f"{name}: engine.stage must be a list of strings")
+    if len(set(stage)) != len(stage):
+        raise ManifestError(f"{name}: engine.stage lists a parameter more than once")
     return EngineSpec(
         repo=str(_require(data, "repo")),
         env=str(_require(data, "env")),
         entry=tuple(entry),
+        stage=tuple(stage),
     )
+
+
+def _validate_stage(engine: EngineSpec, schema: dict, name: str) -> None:
+    """Every ``engine.stage`` entry must name a real, path-typed parameter.
+
+    Checked here (after both ``engine`` and ``schema`` are parsed) rather
+    than inside ``_parse_engine``, which only ever sees the ``engine:``
+    sub-mapping and has no visibility into ``schema:``.
+    """
+    for param_name in engine.stage:
+        spec = schema.get(param_name)
+        if spec is None:
+            raise ManifestError(
+                f"{name}: engine.stage names {param_name!r}, which is not a "
+                "schema parameter"
+            )
+        if spec.get("format") != "path":
+            raise ManifestError(
+                f"{name}: engine.stage names {param_name!r}, which is not "
+                "format: path — only a path parameter's file can be staged"
+            )
 
 
 def _parse_requires(data: Any, name: str) -> Requirements:
@@ -256,11 +302,14 @@ def parse_manifest(data: dict) -> Manifest:
         raise ManifestError(f"{name}: schema must be a mapping")
     _validate_schema_entries(schema, name)
 
+    engine = _parse_engine(_require(data, "engine"), name)
+    _validate_stage(engine, schema, name)
+
     max_residues = data.get("max_residues")
     return Manifest(
         name=name,
         category=category,
-        engine=_parse_engine(_require(data, "engine"), name),
+        engine=engine,
         summary=summary,
         doc=str(_require(data, "doc")),
         schema=schema,
