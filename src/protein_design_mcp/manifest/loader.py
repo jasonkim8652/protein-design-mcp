@@ -101,6 +101,16 @@ def _check_doc_references(manifests: list[Manifest]) -> None:
                 for mentioned in _TOOL_MENTION_RE.findall(paragraph):
                     if mentioned in known or mentioned == manifest.name:
                         continue
+                    # A manifest's OWN parameter is not a tool reference.
+                    # `run_*` is a natural parameter name -- BoltzGen has
+                    # `run_clustering`, AlphaFold 3 has `run_data_pipeline` and
+                    # `run_inference` -- and flagging those forced two waves to
+                    # rephrase correct prose around a checker bug. Only the
+                    # manifest's own schema keys are exempt: a sibling tool's
+                    # parameter name mentioned here would still be ambiguous to
+                    # a reader and is left flagged deliberately.
+                    if mentioned in manifest.schema:
+                        continue
                     if _has_marker_for_mention(paragraph, mentioned):
                         continue
                     raise ManifestError(
@@ -278,6 +288,16 @@ def _doc_reference_exclusions(manifests: list[Manifest]) -> dict[str, str]:
                     continue
                 for mentioned in _TOOL_MENTION_RE.findall(paragraph):
                     if mentioned in known or mentioned == manifest.name:
+                        continue
+                    # A manifest's OWN parameter is not a tool reference.
+                    # `run_*` is a natural parameter name -- BoltzGen has
+                    # `run_clustering`, AlphaFold 3 has `run_data_pipeline` and
+                    # `run_inference` -- and flagging those forced two waves to
+                    # rephrase correct prose around a checker bug. Only the
+                    # manifest's own schema keys are exempt: a sibling tool's
+                    # parameter name mentioned here would still be ambiguous to
+                    # a reader and is left flagged deliberately.
+                    if mentioned in manifest.schema:
                         continue
                     if _has_marker_for_mention(paragraph, mentioned):
                         continue
