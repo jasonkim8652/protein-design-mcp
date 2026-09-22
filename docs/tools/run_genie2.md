@@ -1,7 +1,7 @@
 # run_genie2
 
 **Category:** monomer_generation  
-**Engine:** `genie2`  
+**Engine:** `genie`  
 **Environment:** `/home/jk661/.conda/envs/genie2`  
 **GPU required:** yes
 

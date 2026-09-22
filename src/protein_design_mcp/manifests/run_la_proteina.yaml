@@ -4,20 +4,28 @@ composite: false
 timeout_s: 7200
 
 engine:
-  repo: la_proteina
+  # `repo` is the actual importable top-level module name (this project's
+  # convention -- see run_rf3.yaml). La-Proteina is not pip-installed at
+  # all -- `proteinfoundation/generate.py` does `sys.path.insert(0,
+  # os.path.abspath("."))`, i.e. it only imports when run WITH THE REPO
+  # ROOT AS cwd, which is why the wrapper script explicitly re-points the
+  # actual generate.py subprocess's cwd there itself (see the wrapper's own
+  # module docstring) rather than relying on this engine spec at runtime.
+  # PYTHONPATH below exists ONLY so `discover_mounts` can resolve
+  # `proteinfoundation` at all (confirmed live) -- the wrapper's own cwd
+  # trick makes it unnecessary for the actual generation subprocess, kept
+  # here as a harmless, doubly-correct belt-and-suspenders import path.
+  repo: proteinfoundation
   prefix: /home/jk661/.conda/envs/laproteina_env
   entry: ["python", "/app/scripts/engines/la_proteina.py"]
-  # La-Proteina is not an installed package -- `proteinfoundation/generate.py`
-  # does `sys.path.insert(0, os.path.abspath("."))`, i.e. it only imports
-  # when run WITH THE REPO ROOT AS cwd, which is why the wrapper script
-  # explicitly re-points the actual generate.py subprocess's cwd there
-  # itself (see the wrapper's own module docstring) rather than relying on
-  # this engine spec. `discover_mounts` has no module to probe (nothing
-  # here is pip-installed, editable or otherwise), so this is hand-set to
-  # the whole repo root, which is exactly what the wrapper needs read (and,
-  # transiently, write) access to.
+  env_vars:
+    PYTHONPATH: /home/jk661/projects/la-proteina
+  # discover_mounts(prefix, "proteinfoundation", env=...) resolves only to
+  # that subdirectory -- listed explicitly below alongside the repo root,
+  # which the wrapper needs read (and, transiently, write) access to.
   mounts:
     - /home/jk661/projects/la-proteina
+    - /home/jk661/projects/la-proteina/proteinfoundation
 
 requires:
   gpu: true

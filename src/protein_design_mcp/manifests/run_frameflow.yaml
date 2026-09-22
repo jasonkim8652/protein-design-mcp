@@ -4,7 +4,17 @@ composite: false
 timeout_s: 7200
 
 engine:
-  repo: frameflow
+  # `repo` is the actual importable module name `discover_mounts` probes
+  # (this project's convention -- see run_rf3.yaml). The pip package name
+  # here is `se3_flow_matching`, but its editable-install finder
+  # (`__editable___se3_flow_matching_0_0_0_finder.py`, read from source)
+  # maps ONLY `openfold` as a top-level importable name -- `experiments`
+  # (where the actual entry point lives) is a plain scripts directory with
+  # no `__init__.py`, reachable only as a Python 3 namespace package once
+  # PYTHONPATH includes the repo root (see env_vars below). Confirmed live:
+  # `discover_mounts(prefix, "experiments", env={"PYTHONPATH": ...})`
+  # resolves cleanly to the repo root, exactly matching `mounts:` below.
+  repo: experiments
   prefix: /home/jk661/.conda/envs/frameflow
   entry:
     ["python", "-W", "ignore", "/home/jk661/projects/frameflow/experiments/inference_se3_flows.py"]
@@ -16,16 +26,6 @@ engine:
     # docs/superpowers/reviews/2026-09-22-gpu-engine-survey.md #7).
     # PYTHONPATH is the fix the survey verified.
     PYTHONPATH: /home/jk661/projects/frameflow
-  # `python -m protein_design_mcp.mounts <prefix> se3_flow_matching` cannot
-  # be used here: the editable install's own finder
-  # (__editable___se3_flow_matching_0_0_0_finder.py, read from source) maps
-  # ONLY `openfold` -> frameflow/openfold as an importable top-level name;
-  # `experiments` is not a package at all, just a scripts directory this
-  # engine runs via PYTHONPATH (see env_vars above), which discover_mounts
-  # has no way to discover since there is no module named "experiments" to
-  # probe. Hand-set to the whole repo root instead, which is exactly what
-  # PYTHONPATH above also points to, so nothing beyond what the engine
-  # actually reads is being granted.
   mounts:
     - /home/jk661/projects/frameflow
 

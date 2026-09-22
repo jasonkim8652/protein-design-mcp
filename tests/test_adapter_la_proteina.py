@@ -41,7 +41,8 @@ def test_manifest_loads_and_requires_gpu():
 
 
 def test_manifest_hand_sets_mounts_to_repo_root():
-    assert _manifest().engine.mounts == ("/home/jk661/projects/la-proteina",)
+    mounts = _manifest().engine.mounts
+    assert "/home/jk661/projects/la-proteina" in mounts
 
 
 def test_build_args_serializes_lengths_as_json():

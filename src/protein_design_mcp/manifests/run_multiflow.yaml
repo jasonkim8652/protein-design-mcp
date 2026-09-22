@@ -14,13 +14,14 @@ engine:
     # repo root itself on sys.path, same class of requirement as FrameFlow
     # (see run_frameflow.yaml).
     PYTHONPATH: /home/jk661/projects/multiflow
-  # Same reasoning as run_frameflow.yaml's mounts comment: discover_mounts
-  # on the literal importable package name ("multiflow") only resolves to
-  # the repo's multiflow/ subdirectory, not the repo root that PYTHONPATH
-  # above needs mounted for the bundled `openfold` import to work. Hand-set
-  # to the whole repo root, matching PYTHONPATH exactly.
+  # discover_mounts(prefix, "multiflow") resolves only to the repo's
+  # multiflow/ subdirectory (the editable install's own finder maps
+  # exactly that) -- listed explicitly below alongside the repo root,
+  # which PYTHONPATH above also needs mounted for the bundled `openfold`
+  # import (`import openfold`, not `multiflow.openfold`) to work.
   mounts:
     - /home/jk661/projects/multiflow
+    - /home/jk661/projects/multiflow/multiflow
 
 requires:
   gpu: true

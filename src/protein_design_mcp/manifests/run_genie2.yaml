@@ -4,7 +4,12 @@ composite: false
 timeout_s: 7200
 
 engine:
-  repo: genie2
+  # `repo` is the actual importable top-level module name (matches this
+  # project's own convention -- see run_rf3.yaml -- and is what
+  # discover_mounts / test_mounts.py's cross-check probes). The pip/editable
+  # package is named `genie` (0.0.1), not `genie2` -- `genie2` is only the
+  # checkout directory and conda env name.
+  repo: genie
   # Editable install `genie==0.0.1` at /home/jk661/projects/genie2 (namespace
   # package, no __init__.py -- `python -m genie.sample_unconditional` is the
   # verified working invocation, see

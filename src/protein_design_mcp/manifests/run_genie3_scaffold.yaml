@@ -15,15 +15,15 @@ engine:
   entry: ["python", "/app/scripts/engines/genie3_scaffold.py"]
   env_vars:
     PYTHONPATH: /home/jk661/projects/genie3/.deps:/home/jk661/projects/genie3/src
-  # discover_mounts has no single importable module name to probe that
-  # covers both PYTHONPATH components above (`.deps` is a manually
-  # vendored dependency bundle, not a registered editable install target,
-  # and `src` holds the `genie3` package itself but discover_mounts probing
-  # `genie3` under the genie2 env's OWN site-packages would report nothing
-  # useful -- genie3 is not installed there at all, only reachable via this
-  # PYTHONPATH). Hand-set to the whole repo, which covers both.
+  # `discover_mounts(prefix, "genie3", env=env_vars)` (confirmed live, with
+  # the PYTHONPATH above passed through) resolves only to
+  # genie3/src/genie3 -- the package's own directory, not `.deps` (a
+  # manually vendored dependency bundle discover_mounts has no module to
+  # probe for) nor the repo root. Both the derived path and the whole repo
+  # root (which covers `.deps` too) are listed.
   mounts:
     - /home/jk661/projects/genie3
+    - /home/jk661/projects/genie3/src/genie3
 
 requires:
   gpu: true
