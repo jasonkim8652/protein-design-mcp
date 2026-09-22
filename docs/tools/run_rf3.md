@@ -2,7 +2,7 @@
 
 **Category:** structure_prediction  
 **Engine:** `rf3`  
-**Environment:** `None`  
+**Environment:** `/home/jk661/.conda/envs/foundry`  
 **GPU required:** yes
 
 > This file is generated from `src/protein_design_mcp/manifests/run_rf3.yaml`. Edit the manifest, then run `python scripts/generate_tool_docs.py`.

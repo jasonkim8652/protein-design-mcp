@@ -2,7 +2,7 @@
 
 **Category:** structure_prediction  
 **Engine:** `esm`  
-**Environment:** `None`  
+**Environment:** `/home/jk661/.conda/envs/esmfold2`  
 **GPU required:** yes
 
 > This file is generated from `src/protein_design_mcp/manifests/run_esmfold2.yaml`. Edit the manifest, then run `python scripts/generate_tool_docs.py`.

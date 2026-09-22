@@ -10,17 +10,12 @@ engine:
   # Promera is an editable install (`pip install -e .` from a git clone of
   # github.com/bjing2016/promera) -- `python -m protein_design_mcp.mounts
   # /home/jk661/.conda/envs/promera promera` (run live, 2026-09-22) resolves
-  # its module to a checkout under this SESSION'S scratchpad
-  # (`.../scratchpad/promera`), because that is where it was actually
-  # cloned during installation. This mount is therefore only as durable as
-  # that scratchpad. KNOWN OPEN RISK, carried over verbatim from the
-  # install report's own caveat (install-promera-rf3-colabfold.md §2.9):
-  # before this manifest is relied on past the current session, re-clone
-  # (or move) the checkout to a durable path under ~/projects and update
-  # this mount to match -- do not assume the scratchpad path below
-  # survives.
+    # its module to /home/jk661/projects/promera, a durable checkout.
+    # (Originally installed into this session's scratchpad; re-cloned and
+    # re-installed editable at the durable path on 2026-09-22, and
+    # `python -m promera --help` verified from an unrelated cwd.)
   mounts:
-    - /tmp/claude-1577615/-home-jk661-projects-biodesignbench/e3114a40-03e0-4843-aabe-9a51bb667b6e/scratchpad/promera
+    - /home/jk661/projects/promera
     # Present on every python3.12 env's sys.path on this host regardless of
     # which module is imported (confirmed live via `python -m
     # protein_design_mcp.mounts <prefix> <module>` against promera, rf3 AND

@@ -2,7 +2,7 @@
 
 **Category:** structure_prediction  
 **Engine:** `boltz`  
-**Environment:** `None`  
+**Environment:** `/home/jk661/.conda/envs/boltz`  
 **GPU required:** yes
 
 > This file is generated from `src/protein_design_mcp/manifests/run_boltz.yaml`. Edit the manifest, then run `python scripts/generate_tool_docs.py`.
