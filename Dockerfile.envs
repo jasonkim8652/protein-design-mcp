@@ -1,0 +1,84 @@
+# syntax=docker/dockerfile:1
+#
+# Dockerfile.envs — proves the manifest-driven dispatch contract (spec §5.1)
+# for exactly ONE engine: PRODIGY, behind the run_prodigy tool.
+#
+# This is NOT a replacement for Dockerfile / Dockerfile.full / Dockerfile.lite
+# / Dockerfile.colabfold / Dockerfile.patch, which pip-install everything into
+# one system Python and predate this design. This file realises the target
+# shape instead: one micromamba base image, one micromamba environment PER
+# ENGINE, and a thin outer environment for the MCP server itself that shares
+# no dependencies with any engine. ~28 more engines are expected to follow
+# this exact pattern — one more `micromamba create -n <env>` block, one more
+# adapter module, no changes to the server environment.
+#
+# Two environments live in this image:
+#   - "scoring": prodigy-prot and nothing else. Pure Python + Biopython +
+#     freesasa, CPU-only, installs in seconds. This is what
+#     `engine.env: scoring` in run_prodigy.yaml names.
+#   - "server":  the protein-design-mcp package itself (mcp, pyyaml,
+#     biopython, etc. per pyproject.toml's base [project.dependencies]).
+#     It does NOT contain prodigy-prot. The whole point of the design is
+#     that the server never shares a dependency tree with an engine it
+#     dispatches to — so future engines with conflicting torch/numpy pins
+#     can't collide with each other or with the server.
+#
+# EnvDispatcher's default runner is the literal string "micromamba" (see
+# dispatch/env.py), resolved via PATH at subprocess-exec time in whichever
+# process runs the server. mambaorg/micromamba puts the micromamba binary at
+# /usr/local/bin/micromamba, on PATH unconditionally for every user — that is
+# why this base image was chosen over a plain "install miniconda" Dockerfile.
+#
+# Build (from repo root):
+#   docker build -f Dockerfile.envs -t protein-design-mcp:envs-proto .
+#
+# Run the acceptance proof:
+#   docker run --rm protein-design-mcp:envs-proto \
+#       micromamba run -n server python scripts/live_proof_prodigy.py
+#
+# Interactive shell:
+#   docker run --rm -it protein-design-mcp:envs-proto bash
+
+FROM mambaorg/micromamba:2.9.0-ubuntu22.04
+
+USER root
+# freesasa (a prodigy-prot dependency) ships no manylinux wheel on PyPI, so
+# pip builds it from source on Linux; a C/C++ toolchain must be present for
+# that one build step. Nothing else here needs it.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+USER $MAMBA_USER
+WORKDIR /app
+
+# --- "scoring" environment: prodigy-prot ONLY, nothing else --------------
+RUN micromamba create -y -n scoring -c conda-forge python=3.11 pip \
+    && micromamba run -n scoring pip install --no-cache-dir prodigy-prot \
+    && micromamba run -n scoring prodigy --help \
+    && micromamba clean --all --yes
+
+# --- "server" environment: the MCP server package, no engine deps --------
+RUN micromamba create -y -n server -c conda-forge python=3.11 pip \
+    && micromamba clean --all --yes
+
+COPY --chown=$MAMBA_USER:$MAMBA_USER pyproject.toml README.md ./
+COPY --chown=$MAMBA_USER:$MAMBA_USER src/ ./src/
+COPY --chown=$MAMBA_USER:$MAMBA_USER tests/ ./tests/
+COPY --chown=$MAMBA_USER:$MAMBA_USER scripts/live_proof_prodigy.py ./scripts/live_proof_prodigy.py
+
+# Deliberately a normal (non-editable) install: this is what actually
+# exercises [tool.setuptools.package-data] and proves manifests/*.yaml ship
+# inside the built distribution, rather than merely being reachable because
+# an editable install symlinks straight back into the checkout.
+RUN micromamba run -n server pip install --no-cache-dir . \
+    && micromamba run -n server python -c \
+        "from protein_design_mcp.app import manifest_dir; \
+         d = manifest_dir(); \
+         files = sorted(p.name for p in d.iterdir()); \
+         print('manifest_dir:', d); \
+         print('manifests found:', files); \
+         assert 'run_prodigy.yaml' in files, 'run_prodigy.yaml missing from installed package data'"
+
+CMD ["micromamba", "run", "-n", "server", "python", "scripts/live_proof_prodigy.py"]
