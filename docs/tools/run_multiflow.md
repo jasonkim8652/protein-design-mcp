@@ -2,14 +2,14 @@
 
 **Category:** monomer_generation  
 **Engine:** `multiflow`  
-**Environment:** `/home/jk661/.conda/envs/multiflow`  
+**Environment:** `/home/jk661/.conda/envs/multiflow_fixed`  
 **GPU required:** yes
 
 > This file is generated from `src/protein_design_mcp/manifests/run_multiflow.yaml`. Edit the manifest, then run `python scripts/generate_tool_docs.py`.
 
 ## Summary
 
-Generate an unconditional monomer backbone AND a ProteinMPNN-codesigned sequence for it in one call with MultiFlow, a discrete + continuous flow model (structure via SE(3) flow-matching, sequence via a discrete diffusion head over amino acid identities, jointly). MultiFlow's own built-in ESMFold self-consistency check is BLOCKED on this host (env is missing deepspeed) -- this tool exposes only the generation half, which still completes and writes normally; see the doc for what that means in practice.
+Generate an unconditional monomer backbone AND a ProteinMPNN-codesigned sequence for it in one call with MultiFlow, a discrete + continuous flow model (structure via SE(3) flow-matching, sequence via a discrete diffusion head over amino acid identities, jointly). MultiFlow's own built-in ESMFold self-consistency refold now runs to completion on this host and its bb_rmsd/mean_plddt are included in the reply -- confirmed live (bb_rmsd=0.637, mean_plddt=81.96 for a real sample). See the doc for the environment fix that unlocked this.
 
 ## What this is
 MultiFlow's `multiflow/experiments/inference_se3_flows.py -cn
@@ -20,20 +20,24 @@ while a sequence is sampled JOINTLY by a discrete diffusion head over the
 afterward on the finished backbone to produce a second candidate sequence
 for the SAME backbone -- both are returned (see "What you get back").
 
-## The ESMFold self-consistency step is blocked, and why this still works
+## The ESMFold self-consistency step -- now unlocked (wave-I)
 Immediately after writing `sample.pdb`, MultiFlow's own script
 unconditionally attempts to refold the codesigned sequence with ESMFold to
-score self-consistency. On this host that refold crashes with
-`ModuleNotFoundError: No module named 'deepspeed'` (the `multiflow` env's
-bundled `openfold` imports it, and it was never installed here) --
-confirmed live, and NOT fixed by `inference.also_fold_pmpnn_seq`, which
-only gates a second, separate, optional fold. This tool's wrapper detects
-that specific failure (subprocess exits non-zero, `sample.pdb` was
-nonetheless written, stderr mentions `deepspeed`) and reports SUCCESS
-anyway, since this tool exposes generation only -- the refold's own
-self-consistency SCORE was never part of this tool's output. Score a
-result yourself afterward with `run_esmfold2` + `run_ipsae` if you need
-that number.
+score self-consistency. This USED TO crash with `ModuleNotFoundError: No
+module named 'deepspeed'` (the bundled `openfold` imports it) in the
+original `multiflow` env, which never had it installed -- confirmed live,
+and NOT fixed by `inference.also_fold_pmpnn_seq`, which only gates a
+second, separate, optional fold. This tool now runs under
+`multiflow_fixed`, a clone with `deepspeed` installed (see `engine.prefix`
+above), where the refold genuinely completes -- confirmed live:
+`sc_results.csv` written with real `bb_rmsd`/`mean_plddt`, and an actual
+ESMFold-refolded PDB on disk. `self_consistency` in each sample's reply
+entry (and the `self_consistency_summary` output) carries this score;
+`null` only in the defensive fallback documented in the wrapper's own
+docstring (this tool's env missing deepspeed again), which should not
+occur in normal operation on this host. You can still independently
+re-score a result with `run_esmfold2` + `run_ipsae` if you want a second
+opinion or a different predictor's number.
 
 ## `aatypes_temp`/`aatypes_noise` -- the sequence-codesign knobs
 These control the discrete diffusion head's own sampling, independent of
@@ -45,9 +49,8 @@ is injected during decoding. Both are MultiFlow's own defaults (0.1 and
 
 ## When to use this instead of the alternatives
 - `run_genie2`, `run_frameflow` and `run_genie3_scaffold` generate
-  backbones only; this tool additionally gives you a designed sequence
-  for free, at the cost of MultiFlow's own (currently unscoreable on this
-  host) refold step being skipped.
+  backbones only; this tool additionally gives you a designed sequence AND
+  an ESMFold self-consistency score for it, in one call.
 - `run_la_proteina` also produces a full atomic model with sequence, via
   a materially different (latent, autoencoder-mediated) architecture
   rather than joint discrete/continuous flow-matching.
@@ -56,9 +59,11 @@ is injected during decoding. Both are MultiFlow's own defaults (0.1 and
   `run_ipsae`.
 
 ## What is NOT exposed, and why
-- **`also_fold_pmpnn_seq`** is fixed to `false` -- it only gates the
-  SECOND, entirely optional fold (not the one that crashes); leaving it on
-  would spend GPU time on a step that still cannot complete here.
+- **`also_fold_pmpnn_seq`** is fixed to `false` -- it only gates a SECOND,
+  entirely optional fold (the ProteinMPNN-designed sequence refolded
+  separately, distinct from the codesigned-sequence refold this tool
+  already reports via `self_consistency`); leaving it on would spend GPU
+  time on a score this tool does not surface.
 - **`write_sample_trajectories`** is fixed to `false` -- intermediate
   diffusion states, not part of this tool's declared output.
 - **The checkpoint** is fixed to `weights/last_gpu0.ckpt`. MultiFlow's own
@@ -81,11 +86,14 @@ Nothing beyond the length range -- this is unconditional generation.
 
 ## What you get back
 `samples`: one entry per generated backbone, each `{"id", "length",
-"codesign_sequence"}` (`codesign_sequence` is `null` if that sample's
-FASTA was not found, which should not happen on a genuinely successful
-run but is handled rather than assumed). `num_samples`, and under
-`outputs` the paths to every `backbones` PDB and `codesign_sequences`
-FASTA.
+"codesign_sequence", "self_consistency"}` (`codesign_sequence` is `null`
+if that sample's FASTA was not found, which should not happen on a
+genuinely successful run but is handled rather than assumed;
+`self_consistency` is `{"bb_rmsd", "mean_plddt"}` from MultiFlow's own
+ESMFold refold, or `null` only in the defensive fallback described above).
+`num_samples`, and under `outputs` the paths to every `backbones` PDB,
+`codesign_sequences` FASTA, and `self_consistency_summary` (the same
+scores, keyed by sample, as a file).
 
 ## Parameters
 

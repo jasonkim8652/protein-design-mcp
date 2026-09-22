@@ -2,14 +2,14 @@
 
 **Category:** binder_generation  
 **Engine:** `genie3`  
-**Environment:** `/home/jk661/.conda/envs/genie2`  
+**Environment:** `/home/jk661/.conda/envs/genie2_fixed`  
 **GPU required:** yes
 
 > This file is generated from `src/protein_design_mcp/manifests/run_genie3_binder.yaml`. Edit the manifest, then run `python scripts/generate_tool_docs.py`.
 
 ## Summary
 
-Generate a binder against a target with Genie 3's all-atom SE(3)-equivariant diffusion model, conditioned on a target structure and hotspot residues you supply directly (MSA-free by construction -- Genie 3 never reads an alignment during generation, only during evaluation/reward steps this tool does not expose). Only hotspot conditioning is available on this host (see the doc); the "extended interface" mode needs Biopython, which is not installed in the environment Genie 3 runs under here.
+Generate a binder against a target with Genie 3's all-atom SE(3)-equivariant diffusion model, conditioned on a target structure and hotspot residues you supply directly (MSA-free by construction -- Genie 3 never reads an alignment during generation, only during evaluation/reward steps this tool does not expose). Conditions on exactly the hotspot residues you supply by default; set expand_interface: true to instead condition on Genie 3's own SASA-based "extended interface" (surface residues near your hotspots), now available on this host.
 
 ## What this is
 Genie 3's target-conditioned binder-design generation path
@@ -31,19 +31,30 @@ interface/extended.py`, read from source) -- a malformed tag like `"19"`
 before it ever reaches the engine, rather than failing deep inside a
 subprocess.
 
-## Only hotspot conditioning is available here -- confirmed, not assumed
+## `expand_interface` -- exact hotspots (default) vs. Genie 3's own extended interface
+By default (`expand_interface: false`) this tool conditions on EXACTLY the
+hotspot residues you supply (`cond_strategy: "hotspot"`, Genie 3's own
+literal, unexpanded interface definition) -- not a larger neighborhood.
 Genie 3's own binder-design pipeline (`scripts/problem/binder_design/
 prepare.py`) normally also computes an "extended interface" -- surface
 residues near each hotspot, via a Shrake-Rupley solvent-accessible-surface
-calculation (`compute_extended_interface`, which imports `Bio.PDB`).
-Confirmed live: the `genie2` environment Genie 3 runs under on this host
-does not have Biopython installed (`ModuleNotFoundError: No module named
-'Bio'`). Rather than reimplementing an SASA algorithm outside what this
-tool has verified, this tool conditions on EXACTLY the hotspot residues
-you supply (`cond_strategy: "hotspot"`, Genie 3's own literal, unexpanded
-interface definition) -- not a larger neighborhood. If your target has a
-known broader interface, supply every residue in it directly as
-`hotspot_residues`.
+calculation (`genie3.generation.utils.interface.extended
+.compute_extended_interface`, which needs `Bio.PDB`). That is now
+available here too: set `expand_interface: true` to run the exact same
+computation `prepare.py` runs (`version_num=1`, so your literal hotspots
+are always folded into the expanded set too) and condition on the result
+instead (`cond_strategy: "extended"`). Confirmed live against a real
+target (108-residue barnase, 3 real interface hotspots): expanded to 16
+surface residues within `interface_cutoff_angstrom` of any hotspot atom.
+`interface_cutoff_angstrom`, `interface_rsa_threshold` and
+`interface_abs_sasa_threshold` are `compute_extended_interface`'s own
+tunable knobs, exposed here rather than hardcoded; all three are ignored
+when `expand_interface` is false. The reply's `cond_strategy` and
+`extended_interface_residues` (also written to the `interface_conditioning`
+output on every call) report exactly what was used, so this is never
+silent about which mode ran. If your target has a known broader interface
+you want conditioned on exactly, supply every residue in it directly as
+`hotspot_residues` instead of using `expand_interface`.
 
 ## MSA -- never built, confirmed from source
 `target_msa_filepath` (which Genie 3's own `prepare.py` builds via
@@ -96,8 +107,12 @@ always writes it as the file's first chain, since
 `create_np_features_from_target_config` concatenates the binder's
 features before the target's, read from source); `chain_lengths` gives
 every chain's own length, target included, so you can verify what stayed
-fixed yourself rather than trust this description. `num_binders`, and
-under `outputs` the path to every generated PDB.
+fixed yourself rather than trust this description. `num_binders`,
+`cond_strategy` (`"hotspot"` or `"extended"` -- which one actually ran),
+`extended_interface_residues` (null unless `expand_interface` was true,
+else the expanded tag list actually conditioned on), and under `outputs`
+the path to every generated PDB plus `interface_conditioning` (the same
+conditioning data as a file).
 
 ## Parameters
 
@@ -115,3 +130,7 @@ under `outputs` the path to every generated PDB.
 | `noise_scale` | number | no | `1.0` | minimum: `0.0`<br>maximum: `2.0` | Scales injected noise at each denoising step. Applies to both samplers. Genie 3's own default is 1.0 for both. |
 | `predict_sidechain` | boolean | no | `False` | — | DDIM sampler only (ignored for model_variant=legacy). Whether the model also predicts side-chain atoms for the binder chain (all-atom output) rather than backbone frames only. Genie 3's own default is false. |
 | `seed` | integer | no | `0` | minimum: `0` | Random seed. |
+| `expand_interface` | boolean | no | `False` | — | false (the default) conditions on EXACTLY hotspot_residues, unchanged from this tool's original behavior. true runs Genie 3's own SASA-based "extended interface" expansion (compute_extended_interface, confirmed live -- see the doc) and conditions on that larger surface patch instead; your literal hotspots are always included in it too. Use this when you have a few known hotspots but want the binder to also engage the surrounding surface, rather than only the exact residues you named. |
+| `interface_cutoff_angstrom` | number | no | `6.0` | minimum: `1.0`<br>maximum: `20.0` | Ignored unless expand_interface is true. A surface residue is included in the expanded interface if any of its heavy atoms is within this distance of any heavy atom of a hotspot residue. compute_extended_interface's own default is 6.0. |
+| `interface_rsa_threshold` | number | no | `0.25` | minimum: `0.0`<br>maximum: `1.0` | Ignored unless expand_interface is true. Relative solvent accessibility above which a residue counts as "surface" and is eligible for the expanded interface at all (a buried residue within interface_cutoff_angstrom is still excluded). compute_extended_interface's own default is 0.25. |
+| `interface_abs_sasa_threshold` | number | no | `10.0` | minimum: `0.0`<br>maximum: `300.0` | Ignored unless expand_interface is true. Absolute SASA (Angstroms^2) floor used alongside interface_rsa_threshold in the same surface classification. compute_extended_interface's own default is 10.0. |

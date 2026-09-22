@@ -4,7 +4,9 @@ Almost all translation work happens in the wrapper script
 (``scripts/engines/genie3_binder.py``), which builds the minimal problem
 JSON Genie 3's target-conditioned dataset actually reads plus its own
 experiment YAML. This adapter serializes parameters into the wrapper's argv
-and reads the collected binder PDBs back.
+and reads the collected binder PDBs back, plus the always-written
+``interface_conditioning.json`` (see the wrapper), which reports whether
+``extended`` interface expansion ran and what it expanded to.
 """
 
 from __future__ import annotations
@@ -49,6 +51,14 @@ def build_args(manifest: Manifest, params: dict[str, Any]) -> list[str]:
         _bool_str(params["predict_sidechain"]),
         "--seed",
         str(params["seed"]),
+        "--expand-interface",
+        _bool_str(params["expand_interface"]),
+        "--interface-cutoff-angstrom",
+        str(params["interface_cutoff_angstrom"]),
+        "--interface-rsa-threshold",
+        str(params["interface_rsa_threshold"]),
+        "--interface-abs-sasa-threshold",
+        str(params["interface_abs_sasa_threshold"]),
     ]
 
 
@@ -103,4 +113,12 @@ def parse_output(manifest: Manifest, run: CompletedRun) -> dict[str, Any]:
             }
         )
 
-    return {"binders": binders, "num_binders": len(binders)}
+    result: dict[str, Any] = {"binders": binders, "num_binders": len(binders)}
+
+    conditioning_path = run.outputs.get("interface_conditioning")
+    if conditioning_path:
+        conditioning = json.loads(Path(conditioning_path).read_text())
+        result["cond_strategy"] = conditioning["cond_strategy"]
+        result["extended_interface_residues"] = conditioning["extended_interface_residues"]
+
+    return result

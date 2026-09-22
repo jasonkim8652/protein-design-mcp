@@ -1,12 +1,14 @@
 """Adapter for MultiFlow's unconditional + codesign sampler (`run_multiflow`).
 
 Builds Hydra command-line overrides directly, forwarded as-is by
-``scripts/engines/multiflow.py`` (which also handles the documented
-deepspeed-refold crash-tolerance behaviour -- see that script's docstring).
+``scripts/engines/multiflow.py`` (which also handles the self-consistency
+score collection and its crash-tolerance fallback -- see that script's
+docstring).
 """
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -117,16 +119,27 @@ def parse_output(manifest: Manifest, run: CompletedRun) -> dict[str, Any]:
         _sample_key(Path(p), parent_calls_to_sample_dir=3): p for p in fasta_paths
     }
 
+    # Always present (see scripts/engines/multiflow.py: written on every
+    # successful call, {} in the defensive fallback) -- keyed by
+    # "length_dir/sample_dir", the same string _sample_key's two-tuple
+    # joins into for each sample's own "id" below.
+    self_consistency_path = run.outputs.get("self_consistency_summary")
+    self_consistency_by_id: dict[str, dict] = {}
+    if self_consistency_path:
+        self_consistency_by_id = json.loads(Path(self_consistency_path).read_text())
+
     samples = []
     for pdb_path in sorted(backbone_paths):
         key = _sample_key(Path(pdb_path), parent_calls_to_sample_dir=1)
+        sample_id = f"{key[0]}/{key[1]}"
         fasta_path = fasta_by_key.get(key)
         sequence = _read_fasta_sequence(fasta_path) if fasta_path else None
         samples.append(
             {
-                "id": f"{key[0]}/{key[1]}",
+                "id": sample_id,
                 "length": _length_from_pdb(pdb_path),
                 "codesign_sequence": sequence,
+                "self_consistency": self_consistency_by_id.get(sample_id),
             }
         )
 
