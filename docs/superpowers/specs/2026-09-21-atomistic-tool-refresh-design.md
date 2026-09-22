@@ -103,7 +103,7 @@ subcommand: **open every pipeline step before admitting it.** A step qualifies o
 if it is one model's own inference, or a pure transformation over that model's own
 output that runs no other model.
 
-### 3.2 The tool list (31 tools + 2 meta-tools)
+### 3.2 The tool list (34 tools + 2 meta-tools)
 
 > **Amended 2026-09-22.** The original list held 29 tools and was written before the
 > engine version sweep. Two engines were missed for the same reason — both postdate it —
@@ -153,7 +153,7 @@ output that runs no other model.
 | `run_boltzgen_filter` | ″ | ″ | **Runs no model, and is not Boltz-2.** Pure dataframe ranking over columns BoltzGen's own predict/score steps produced (`design_iptm`, `min_interaction_pae`, `bb_rmsd`, `delta_sasa_refolded`, `structure_confidence`). The installed distribution has no `boltz` package and imports none. Distinct from `run_boltz`, which runs Boltz-2 inference on a GPU. |
 | `run_rfdiffusion_binder` | RFdiffusion | BSD-3 (weights status ambiguous — see §7) | Backbone only; legacy baseline for comparison. |
 | `run_rfdiffusion2` | RFdiffusion2 | BSD-3 | All-atom motif/interface. |
-| `run_rfdiffusion3` | RFdiffusion3 (RFD3) | BSD-3 | All-atom diffusion under complex constraints. Via foundry: `pip install rc-foundry` then `foundry install rfd3`. **Python 3.12 only.** Added 2026-09-22. |
+| `run_rfdiffusion3_binder` | RFdiffusion3 (RFD3) | BSD-3 | Target-conditioned binder design (`contig` + `select_hotspots`). Via foundry: `foundry install rfd3`, entry `rfd3 design`. **Python 3.12 only.** |
 | `run_genie3_binder` | Genie 3 | permissive | Target-conditioned binder design (`scripts/problem/binder_design/`). Added 2026-09-22 — Genie 3 is not merely a newer Genie 2. |
 | `run_protpardelle` | Protpardelle-1c | CC-BY-4.0 | All-atom multichain with hotspot conditioning. |
 
@@ -161,6 +161,7 @@ output that runs no other model.
 
 | Tool | Engine | License |
 |---|---|---|
+| `run_rfdiffusion3_scaffold` | RFdiffusion3 (RFD3) | BSD-3 |
 | `run_genie3_scaffold` | Genie 3 | permissive |
 | `run_genie2` | Genie2 | permissive |
 | `run_frameflow` | FrameFlow | permissive |
@@ -208,12 +209,66 @@ Retire `run_genie2` once Genie 3's weights are in place and exercised.
 | `run_openmm_minimize` | OpenMM 8.6 | MIT/LGPL | Relaxation before scoring. |
 | `run_esm_score` | ESM2-650M / ESM-C 300M | MIT | Pseudo-likelihood as a developability proxy, not a binding predictor. |
 
+#### G. Multiple sequence alignment
+
+| Tool | Engine | Notes |
+|---|---|---|
+| `run_mmseqs_search` | MMseqs2 (`/usr/local/bin/mmseqs`) | Builds an a3m from a sequence against the local databases. |
+| `run_colabfold_search` | `colabfold_search` | ColabFold's own search pipeline, for the consumers that expect its a3m. |
+
+**Added 2026-09-22 — this was a hole, not an omission of convenience.** The list carried
+33 tools of which three (`run_rf3`, `run_alphafold3`, `run_alphafold2_multimer`) either
+require an MSA or, in RF3's case, explicitly say "bring your own a3m" — and **nothing in
+the list could produce one**. A caller following the documentation reached a dead end.
+
+Two tools rather than one because **their outputs are not interchangeable**. MMseqs2
+against AlphaFold 3's database set and `colabfold_search` against UniRef30/envDB produce
+different alignments over different sequence universes, and a consumer built for one may
+silently accept the other and give worse results rather than failing. Each tool's
+documentation must state which consumers its a3m is valid for, and each co-folding tool's
+`msa` parameter must state which producer it expects.
+
+Local search only, by default. ColabFold's remote MSA server would transmit the caller's
+sequences to a third party, and on this server those sequences are frequently novel
+designs. If a remote mode is ever added it must be opt-in, and its documentation must say
+plainly that the sequence leaves the machine.
+
+Assets already present: `/opt/alphafold3_data/mmseqs_db` (1.3 TB, protein and RNA) and
+`/opt/alphafold3_data/fasta_databases` (395 GB).
+
 #### F. Meta (2)
 
 | Tool | Purpose |
 |---|---|
 | `describe_tool` | Returns the full document for a tool, or lists a category with selection guidance. See §4.3. |
 | `get_job_status` | Polls a long-running job. Renamed from `get_design_status`; generation calls run for minutes to hours. |
+
+### 3.2.1 Parameter exposure policy
+
+Added 2026-09-22 at the user's direction: **the caller decides, and the schema says how.**
+
+1. **Every knob the engine exposes is exposed here**, unless it selects between a step
+   this server registers separately or it would let the caller escape the workdir. A
+   hyperparameter that only changes the engine's behaviour is never hidden because a
+   default "usually works" — Proteina-Complexa's sampling settings, diffusion step counts,
+   temperatures, seeds, sample counts and beam widths all appear in the schema.
+2. **MSA use is an explicit parameter on every co-folding tool**, never an implicit
+   default. The parameter states whether an MSA is used, where it comes from, and which
+   producer's a3m is expected (§G). A tool that can run MSA-free says so and says what it
+   costs in accuracy.
+3. **Chain composition is an explicit parameter.** Whether a prediction runs as a multimer
+   with the target present, or as the binder alone, is the caller's decision and one of the
+   most consequential it makes — a binder predicted alone and a binder predicted in complex
+   are different experiments. No tool may infer this from the shape of its input.
+4. **Every parameter's description states what it does, what changes when it moves, and
+   what a sensible range is** — not merely its type. "Which trained variant to use" is not
+   a description; it names no variant and implies no consequence. A caller that has only
+   the schema must be able to choose correctly from it.
+5. **Defaults are documented as choices, not as facts.** Where a default exists, its
+   description says why that value and when to move off it.
+
+The cost of getting this wrong is asymmetric: a hidden parameter cannot be discovered by a
+caller, while an exposed one with a good default costs a line of documentation.
 
 ### 3.3 Explicitly excluded, and why
 
