@@ -147,3 +147,22 @@ verifying that composite tools are unreachable, the controller's first probe use
 reported `describe_tool` leaking composite names; it was matching the error message
 echoing the caller's own input. Require the *right* failure for the *right* reason, and
 put a known-good case in the same probe so a broken probe cannot masquerade as a pass.
+
+## M4 — licence information must not reach the model (user directive, 2026-09-22)
+
+The user's instruction: do not put per-engine licence information in anything the model
+sees. Licences are a deployment decision for whoever runs the server, not a criterion a
+model should weigh when choosing a tool — a model that reasons about licensing will
+either avoid a tool it was given, or assert a licence claim it has no standing to make.
+
+Audited and fixed: exactly one leak existed. `run_prodigy.yaml` described
+`run_rosetta_interface` as depending on "a license-gated PyRosetta install", which
+`describe_tool` served verbatim. Reworded to availability — "not available in every
+deployment of this server. When it is not listed, use PRODIGY." — which is what the
+model can actually act on. Manifest `summary`/`description` fields were otherwise clean.
+
+**Still to do:** a loader rule rejecting licence vocabulary in model-facing fields
+(`summary`, `description`, `docs/tools/*.md`), in the same shape as the existing
+cross-reference marker rule. Without it nothing stops a new manifest reintroducing it,
+and 29 more manifests are coming. Licence data stays in this spec family and in
+`docs/TOOL_LIST.md`, which are operator-facing.

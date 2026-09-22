@@ -25,8 +25,9 @@ candidate before spending GPU time on anything else.
 - `run_rosetta_interface` (not yet implemented) gives a physics-based
   decomposition (dG_separated, buried surface area, shape complementarity,
   hydrogen bond counts) and will be the better choice when you need to know
-  *why* an interface scores as it does. It is slower and depends on a
-  license-gated PyRosetta install. Until then, use PRODIGY.
+  *why* an interface scores as it does. It is slower, and it is
+  not available in every deployment of this server. When it is not
+  listed, use PRODIGY.
 - `run_ipsae` and ipTM fields from co-folding tools measure model
   *confidence* in the interface, not its energy. Those discriminate binders
   from non-binders better than PRODIGY does and are preferred for ranking

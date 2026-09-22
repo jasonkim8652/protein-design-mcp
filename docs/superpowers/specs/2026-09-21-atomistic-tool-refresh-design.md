@@ -87,7 +87,23 @@ BoltzGen's own weights rather than third-party tools.
 So the rule is: **expose the steps, block the orchestrator.** `complexa design`
 and `boltzgen run` are not registered; their steps are.
 
-### 3.2 The tool list (32 tools + 2 meta-tools)
+**An author's CLI boundary is not evidence that a step is atomic.** Added
+2026-09-22, after this spec used exactly that reasoning to admit a composite. The
+paragraph above defended Proteina-Complexa on the grounds that "its CLI already
+decomposes into generate, filter, evaluate and analyze". That is a statement about
+the authors' workflow convenience, not about our rule. Opening `evaluate` showed it
+bundles refolding, interface analysis and force-field metrics — three capabilities
+this server already exposes individually — behind a single call, and carries the
+hidden convention `binder is last chain` (`evaluate.py:6`). That is the same shape
+of buried chain-order assumption that made `design_binder` return the target as its
+own design (§1), which is the bug that motivated this whole rewrite.
+
+So the test is applied to what a step *does*, not to where its authors drew a
+subcommand: **open every pipeline step before admitting it.** A step qualifies only
+if it is one model's own inference, or a pure transformation over that model's own
+output that runs no other model.
+
+### 3.2 The tool list (31 tools + 2 meta-tools)
 
 > **Amended 2026-09-22.** The original list held 29 tools and was written before the
 > engine version sweep. Two engines were missed for the same reason — both postdate it —
@@ -106,6 +122,21 @@ and `boltzgen run` are not registered; their steps are.
 >   "No matching distribution found", which is indistinguishable from the package not
 >   existing. That false negative nearly removed RFD3 from this plan.
 >
+> **Removed 2026-09-22: `run_proteina_complexa_evaluate`.** It is a composite by
+> §3.1 — it bundles refolding, interface analysis and force-field metrics, all of
+> which this server exposes individually, and it hides a `binder is last chain`
+> convention. Replace it by composing `run_esm_score` (it loads
+> `facebook/esm2_t33_650M_UR50D`, the same weights as `run_esm_score`, via
+> `AutoModelForMaskedLM` — it is **not** ESMFold, despite a misleading comment at
+> `evaluate.py:49`) with `run_ipsae` / `run_prodigy` / `run_rosetta_interface`, and
+> `run_openmm_minimize` where relaxation is wanted. The caller then states the chain
+> roles explicitly instead of inheriting an assumption.
+>
+> `run_proteina_complexa_filter` and `run_proteina_complexa_analyze` were checked
+> against the same rule and kept: `filter` runs no model at all (it re-ranks the
+> `rewards_*.csv` that `generate` wrote), and `analyze`'s foldseek/mmseqs diversity
+> is a capability nothing else here provides.
+>
 > The lesson for whoever amends this next: a list assembled from a point-in-time sweep
 > goes stale silently, and "engine X is unavailable" must be checked with the right
 > interpreter and the right distribution channel before it is believed.
@@ -116,7 +147,6 @@ and `boltzgen run` are not registered; their steps are.
 |---|---|---|---|
 | `run_proteina_complexa_generate` | Proteina-Complexa 160M | Apache-2.0 code, NVIDIA Open Model License weights | Partially latent flow matching; sequence and all atoms generated jointly. ICLR 2026 oral. **This is where test-time compute is spent** — rewards are computed inline during generation (`generate.py:316`) and `utils/mcts_utils.py` does the search. Corrected 2026-09-22; this note previously credited `filter`. |
 | `run_proteina_complexa_filter` | ″ | ″ | **Tabular re-ranking — runs no model.** Reads the `rewards_*.csv` that `generate` wrote, dedups sequences, applies `reward_threshold`, keeps top-N. Cheap, CPU, re-runnable with different thresholds without regenerating. |
-| `run_proteina_complexa_evaluate` | ″ | ″ | **The expensive one.** Refolds designed sequences with ESMFold and computes self-consistency, interface and force-field metrics. GPU. |
 | `run_proteina_complexa_analyze` | ″ | ″ | Aggregation plus **diversity**: `compute_foldseek_diversity` / `compute_mmseqs_diversity` over the run. Runs foldseek/mmseqs, not a neural model. `complexa analysis` = evaluate → analyze. |
 | `run_boltzgen_design` | BoltzGen 0.3.2 | **MIT — code, weights, training data** | All-atom diffusion, target from PDB/CIF directly, MSA-free. Confirmed working on this machine's L40S. |
 | `run_boltzgen_inverse_fold` | ″ | ″ | BoltzGen's own IF head (12.6 MB), not ProteinMPNN. |
@@ -161,7 +191,7 @@ Retire `run_genie2` once Genie 3's weights are in place and exercised.
 | `run_esmfold2` | ESMFold2 / -Fast | **MIT, ungated** | optional | ESMC-6B backbone. Reports `iptm`, `pair_chains_iptm`, `complex_iplddt`. |
 | `run_chai1` | Chai-1 0.6.1 | Apache-2.0 code+weights | off by default | L40S is an explicitly supported SKU. Lowest integration risk. |
 | `run_boltz` | Boltz-2 2.2.1 | MIT | server/precomputed | Confidence only. Affinity head **not exposed** (§1). |
-| `run_protenix` | Protenix v1 | Apache-2.0 | optional | Richest confidence output: `chain_iptm`, `chain_pair_iptm`. |
+| `run_protenix` | Protenix v1 | Apache-2.0 | optional | Richest confidence output: `chain_iptm`, `chain_pair_iptm`. **`pip install protenix` now resolves to 2.0.0, not the 0.5.5 this spec first recorded.** 2.0.0's default `model_name` is already `protenix_base_default_v1.0.0` (368.48M params; the proprietary v2 is 464M and opt-in only) — verified live, but **always pass `-n protenix_base_default_v1.0.0` explicitly** rather than relying on a silent default that a future release can change. |
 | `run_openfold3` | OpenFold3 / OpenBind-0 | Apache-2.0 code+weights+data | server default | `num_diffusion_samples` capped at 5 (§5.3). |
 | `run_rf3` | RoseTTAFold3 | BSD-3 | **none — bring your own a3m** | Output schema unstable (§7). |
 | `run_alphafold3` | AF3 (RomeroLab MMseqs2-GPU fork) | weights non-commercial, no redistribution | required | Bring-your-own weights (§5.4). |
