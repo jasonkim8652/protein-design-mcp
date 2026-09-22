@@ -30,6 +30,7 @@ CATEGORIES = frozenset(
         "scoring",
         "run_analysis",
         "preparation",
+        "target_analysis",
         "meta",
     }
 )
