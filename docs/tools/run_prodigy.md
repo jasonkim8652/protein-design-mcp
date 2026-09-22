@@ -9,7 +9,7 @@
 
 ## Summary
 
-Estimate the binding free energy of an existing protein-protein complex from its interfacial contacts (PRODIGY). Runs on CPU in milliseconds and needs no model weights, so it is the cheapest first look at an interface. It scores a complex you already have; it does not predict structure and does not design. Fold a candidate with run_chai1 or run_esmfold2 first.
+Estimate the binding free energy of an existing protein-protein complex from its interfacial contacts (PRODIGY). Runs on CPU in milliseconds and needs no model weights, so it is the cheapest first look at an interface. It scores a complex you already have; it does not predict structure and does not design. Fold a candidate with run_chai1 (not yet implemented) or run_esmfold2 (not yet implemented) first.
 
 ## What this is
 PRODIGY predicts the binding affinity of a protein-protein complex with a
