@@ -1,0 +1,215 @@
+# run_proteina_complexa_generate
+
+**Category:** binder_generation  
+**Engine:** `proteinfoundation`  
+**Environment:** `/home/jk661/.conda/envs/proteina`  
+**GPU required:** yes
+
+> This file is generated from `src/protein_design_mcp/manifests/run_proteina_complexa_generate.yaml`. Edit the manifest, then run `python scripts/generate_tool_docs.py`.
+
+## Summary
+
+Generate a binder against a Proteina-Complexa catalog target with the partially-latent flow-matching model (160M), with test-time search over the diffusion trajectory (best-of-n / beam search / FK-steering / MCTS) scored inline by an AlphaFold2-based reward model. This is where all of this engine's compute goes -- every sampling and search knob lives on this tool. It is MSA-free: Proteina-Complexa conditions on the target's raw structure directly and never builds or accepts an alignment. Chain the output into run_proteina_complexa_filter (cheap, re-runnable re-ranking) and run_proteina_complexa_analyze (diversity) rather than regenerating.
+
+## What this is
+Proteina-Complexa's `generate` pipeline step (`complexa generate`, which
+wraps `proteinfoundation.generate`), run against a fixed internal config
+(`configs/search_binder_local_pipeline.yaml`) with every one of its
+search/reward/sampling knobs exposed as parameters here. A partially
+latent flow-matching model samples backbone + local-latent coordinates
+for the binder chain over `nsteps` denoising steps, conditioned on the
+target's structure; a batched AF2-based reward model scores samples
+inline (`generate.py:316`, `batch_pred.get("rewards")`) and, unless
+`search_algorithm` is `single-pass`, a search procedure
+(`utils/mcts_utils.py` and `search/*.py`) uses those in-flight scores to
+steer which trajectories continue.
+
+## No caller-supplied config file, and no raw override passthrough
+Unlike BoltzGen's `design_spec`, this tool does not take a config path
+parameter. Proteina-Complexa's config format uses Hydra `_target_:`
+class instantiation pervasively (the reward model, the dataloader, every
+conditional feature) -- accepting an arbitrary caller-supplied YAML here,
+or a raw list of `++` overrides, would let a caller point `_target_` at
+any importable class in this environment. That is exactly the
+code-execution shape this project's tools must not offer (WAVE-COMMON,
+"No code-execution escape hatch"). Every parameter below is a single
+scalar/array/object field that this tool's adapter translates into ONE
+specific, fixed override path -- nothing here is or can become a raw
+Hydra override string.
+
+## What you must supply
+`task_name`: one of the 44 targets in this engine's own
+`configs/targets/targets_dict.yaml` catalog (target structure, hotspot
+residues and default binder-length range are all defined there, not
+inferred). There is no "supply your own target PDB" path on this tool --
+every target this engine can generate against is catalog-registered.
+
+## When to use this instead of the alternatives
+- `run_boltzgen_design` is the direct sibling in this category: a
+  different diffusion model (BoltzGen, all-atom, MSA-free) with its own
+  reward-free `design` step and a separate `run_boltzgen_inverse_fold`
+  sequence step, rather than this tool's inline, in-the-loop reward
+  scoring and search. Use this tool when you specifically want
+  Proteina-Complexa's own 160M model and its test-time search (best-of-n
+  through MCTS); use BoltzGen when you want its own diffusion model or
+  its diverse/adherence checkpoint split.
+- This tool computes its own AF2-based reward inline and needs no
+  separate scoring step to rank its own output by that reward (see
+  `rewards_csv`) -- but that reward is a search/ranking signal, not a
+  substitute for a dedicated interface-confidence tool. Score the
+  resulting structures with `run_ipsae` (works on any predictor's PAE) or
+  `run_prodigy` (absolute-scale sanity floor) before trusting a ranking
+  across a full campaign.
+- `run_proteina_complexa_filter` and `run_proteina_complexa_analyze` are
+  this tool's own downstream steps (re-ranking, then diversity) -- not
+  alternatives to it.
+
+## Search algorithm and its knobs
+`search_algorithm` selects one of `single-pass` (one denoising pass, no
+search -- cheapest, and the right choice for a smoke test), `best-of-n`
+(this engine's own default: `best_of_n_replicas` independent full passes,
+keep the reward-scoring pass results), `beam-search` (branch
+`beam_search_n_branch` ways at each of `step_checkpoints`, keep the top
+`beam_search_beam_width` by reward), `fk-steering` (same branching shape
+as beam search, but resamples branches by a softmax over reward at
+temperature `fk_steering_temperature` instead of hard top-k), and `mcts`
+(`mcts_n_simulations` simulated rollouts per step, UCB-style exploration
+balanced by `mcts_exploration_constant` and `mcts_exploration_prob`).
+`step_checkpoints` (shared across beam-search/fk-steering/mcts) sets which
+denoising steps are search decision points; `max_batch_size` caps how many
+candidate trajectories run through one forward pass at once, a
+memory/speed knob that does not change what is generated.
+`search_reward_threshold`, when set, drops lookahead candidates below it
+DURING search -- a separate, earlier filter from
+run_proteina_complexa_filter's own post-hoc `reward_threshold`.
+
+Only the parameters for the algorithm you actually select have any
+effect; the others are accepted (so switching `search_algorithm` between
+calls needs no other parameter changes) but ignored by
+`search/search_factory.py`.
+
+## Reward model (AlphaFold2-based) -- always runs
+`single_pass_generation.py`'s own docstring is explicit that reward
+computation happens in `proteina.predict_step` regardless of the search
+algorithm -- even `single-pass` pays the reward model's cost once, on the
+final sample. This tool exposes the one reward model this engine's own
+config wires by default (`AF2RewardModel`, `protocol: binder`,
+`use_multimer: True`, reading weights from this checkout's
+`community_models/ckpts/AF2`). `reward_weights` is one value per named
+component from `AF2RewardModel.reward_options["binder"]`; a component's
+sign matters -- `i_pae` (interface predicted aligned error) is naturally
+lower-is-better, so the shipped default weight is -1.0 (more negative
+PAE-with-negative-weight -> higher reward), while pTM/ipTM-style
+components are higher-is-better and get a positive or zero weight.
+Components other than `i_pae` default to 0.0 (this engine's own default:
+interface PAE alone drives search and ranking) -- raise any of them off
+zero to bring that structural signal into the reward. Two other reward
+models exist in this engine's own config (a TMOL force-field reward and a
+bioinformatics/interface reward using `foldseek`/`sc`) but are commented
+out by default and are NOT exposed here: the bioinformatics one needs
+`SC_EXEC`, which this checkout's own `complexa validate` reports missing
+on this host, and the TMOL one is the same non-reproducible force field
+run_proteina_complexa_analyze's optional `interface_hbonds_tmol` input
+documents -- exposing a reward knob this host cannot actually run would
+be worse than not exposing it.
+
+## Sampling / diffusion knobs
+`nsteps` (denoising steps, default 400, this engine's own default) is the
+single biggest cost lever independent of search -- lowering it trades
+quality for wall-clock roughly linearly; there is no other parameter that
+makes a "minimal" run as directly as this one. `self_cond` (self
+conditioning, on by default) and `guidance_w`/`ag_ratio` (classifier-free
+/ autoguidance weight; `guidance_w=1.0`, this engine's own default, means
+guidance is OFF -- `check_cfg_validity` in `generate.py` requires
+`ag_ratio in [0,1]` and, when guidance is on, either `ag_ratio==1.0` or an
+`ag_ckpt_path`) round out the sampler itself.
+
+`fold_cond` (CathCodes-based fold conditioning) is NOT exposed: this
+tool's fixed config's own `conditional_features` list contains only
+`TargetFeatures` for binder generation, never `CathCodes`, so the flag
+would have no observable effect here -- the same "no knob with no effect"
+rule as BoltzGen's `--protocol` on `run_boltzgen_design`.
+
+## Refinement (optional, off by default)
+`refinement_algorithm` is `none` (this tool's default -- the search
+result is used as-is) or `sequence_hallucination`, a post-hoc ColabDesign
+AF2-loss optimization pass over the sequence. Its own knobs
+(`refine_targets`, `save_pre_refinement`, the soft/greedy-optimization
+toggles and iteration counts, `refinement_loss_weights`) only have any
+effect when `refinement_algorithm` is `sequence_hallucination`.
+
+## Number and length of samples
+`num_lengths` (`dataloader.dataset.nres.nsamples`) draws that many binder
+lengths, uniformly, from `[binder_length_min, binder_length_max]` --
+left unset, both bounds come from the target's own catalog entry in
+`targets_dict.yaml`. `nrepeat_per_sample` multiplies designs per length.
+`batch_size` is a memory/speed knob (how many candidates run through one
+forward pass), not a quality one.
+
+## What you get back
+`rewards`: one entry per generated sample (`pdb_path`, `pdb_index`,
+`total_reward`, and every reward component the config computed), read
+straight from the rewards CSV. `num_samples`, and under `outputs` the
+paths to every generated PDB and to the rewards CSV itself -- hand the
+latter straight to run_proteina_complexa_filter.
+
+## GPU job splitting is intentionally not exposed
+This engine's own `gen_njobs`/`--job-id` mechanism splits one generation
+across N parallel processes, and — verified by reading
+`cli_runner.py:719` — assigns each one `CUDA_VISIBLE_DEVICES=str(job_id)`
+(0, 1, 2, ...), which on this shared 8-GPU host would silently dispatch
+onto OTHER users' GPUs instead of the index-7 slot this deployment is
+confined to. This tool therefore always runs a single job
+(`++gen_njobs=1`) and never exposes `job_id`/`gen_njobs` as parameters --
+there is no safe value of `gen_njobs > 1` to offer on this host.
+
+## Parameters
+
+| Parameter | Type | Required | Default | Constraints | Description |
+|---|---|---|---|---|---|
+| `task_name` | string | yes | `—` | enum: `['01_PD1', '02_PDL1', '03_PDL1_AAV', '04_IFNAR2', '05_CD45', '06_CD45', '07_CD45', '08_CD45', '09_CD45', '10_CD45', '11_CD45', '12_Claudin1', '13_BBF14', '14_CrSAS6', '15_DerF7', '16_DerF7', '17_DerF7', '18_DerF21', '19_DerF21', '20_DerF21', '21_DerF21', '22_DerF21', '23_BetV1', '24_SpCas9', '25_CbAgo', '26_CbAgo', '27_HER2_AAV', '28_HER2_AAV', '29_BHRF1', '30_SC2RBD', '31_IL7RA', '31_IL7RA_FIX', '31_IL7RA_REPACK', '32_PDL1_ALPHA', '32_PDL1_ALPHA_FIX', '32_PDL1_ALPHA_REPACK', '33_TrkA', '34_Insulin', '35_H1', '36_VEGFA', '37_IL17A', '38_TNFalpha', '38_TNFalpha_FIX', '38_TNFalpha_REPACK']` | Which catalog target to generate a binder against (this checkout's configs/targets/targets_dict.yaml -- read live, 2026-09-22, exactly these 44 entries). Selects the target structure, hotspot residues and default binder-length range all at once; there is no way to supply an arbitrary target PDB on this tool. |
+| `search_algorithm` | string | no | `best-of-n` | enum: `['single-pass', 'best-of-n', 'beam-search', 'fk-steering', 'mcts']` | Test-time search strategy. "single-pass" is one denoising pass with no search -- cheapest, and the right choice for a quick smoke test. "best-of-n" (this engine's own config default) runs best_of_n_replicas independent full passes and keeps every one, scored by reward. "beam-search"/"fk-steering" branch at each of step_checkpoints and keep the top beam_search_beam_width/fk_steering_beam_width by hard top-k (beam-search) or a reward-temperature softmax resample (fk-steering). "mcts" runs mcts_n_simulations UCB-guided rollouts per step. Only the parameters for the algorithm you pick have any effect. |
+| `best_of_n_replicas` | integer | no | `2` | minimum: `1`<br>maximum: `64` | best-of-n only: independent full generation passes per requested sample, each scored by the reward model; every replica is returned. 2 is this engine's own config default. Cost scales linearly. |
+| `beam_search_n_branch` | integer | no | `4` | minimum: `1`<br>maximum: `32` | beam-search only: branches explored per surviving beam at each of step_checkpoints, before the top beam_search_beam_width are kept. Total forward-pass work per step scales as beam_search_beam_width x beam_search_n_branch. 4 is this engine's own config default. |
+| `beam_search_beam_width` | integer | no | `4` | minimum: `1`<br>maximum: `32` | beam-search only: how many beams survive each step_checkpoints selection (hard top-k by reward). 4 is this engine's own config default. |
+| `beam_search_keep_lookahead_samples` | boolean | no | `True` | — | beam-search only: whether every intermediate branch considered at each step (not just the surviving beams) is also saved as a PDB, not only the final survivors. true is this engine's own config default; set false to only keep the final generated samples and reduce output volume. |
+| `beam_search_save_intermediate_states` | boolean | no | `False` | — | beam-search only: decode and save a PDB at every intermediate diffusion state within each step, not just at step_checkpoints boundaries -- expensive, and off by default in this engine's own config. Enable only if you need the full intra-step trajectory. |
+| `fk_steering_n_branch` | integer | no | `4` | minimum: `1`<br>maximum: `32` | fk-steering only: branches explored per beam at each step_checkpoints decision point, before resampling. 4 is this engine's own config default. |
+| `fk_steering_beam_width` | integer | no | `4` | minimum: `1`<br>maximum: `32` | fk-steering only: number of beams carried forward after each resampling step. 4 is this engine's own config default. |
+| `fk_steering_temperature` | number | no | `0.1` | minimum: `0.0`<br>maximum: `10.0` | fk-steering only: softmax temperature over reward used to RESAMPLE branches (Feynman-Kac steering), rather than beam-search's hard top-k. Lower is closer to greedy top-k; higher resamples more uniformly, favouring diversity over reward. 0.1 is this engine's own config default. |
+| `fk_steering_keep_lookahead_samples` | boolean | no | `True` | — | fk-steering only: whether every branch considered (not just resampled survivors) is also saved as a PDB. true is this engine's own config default. |
+| `mcts_n_simulations` | integer | no | `20` | minimum: `1`<br>maximum: `200` | mcts only: simulated rollouts per search step before committing to a move. 20 is this engine's own config default; raising it costs roughly linearly more compute for a better-explored tree. |
+| `mcts_exploration_prob` | number | no | `0.5` | minimum: `0.0`<br>maximum: `1.0` | mcts only: probability of taking a random exploratory move instead of the UCB-preferred one during simulation. 0.5 is this engine's own config default. |
+| `mcts_exploration_constant` | number | no | `1.0` | minimum: `0.0`<br>maximum: `10.0` | mcts only: UCB exploration-vs-exploitation constant (higher favours trying under-visited moves over the current best). 1.0 is this engine's own config default. |
+| `mcts_keep_lookahead_samples` | boolean | no | `True` | — | mcts only: whether every simulated rollout (not just the final chosen path) is also saved as a PDB. true is this engine's own config default. |
+| `step_checkpoints` | array | no | `[0, 100, 200, 300, 400]` | minItems: `1` | Denoising steps (out of nsteps) at which beam-search/fk-steering/mcts make a search decision; ignored by single-pass and best-of-n. [0, 100, 200, 300, 400] is this engine's own config default (a decision at the start, three intermediate points, and the end of a 400-step schedule) -- rescale if you change nsteps, or the last checkpoint will not land at the final step. |
+| `max_batch_size` | integer | no | `16` | minimum: `1`<br>maximum: `256` | Maximum candidate trajectories run through one forward pass at once, across every search algorithm -- a GPU-memory/speed knob, not a quality one. This engine's own config ties it to the dataloader batch size (16 by default); lower it if a run runs out of GPU memory. |
+| `search_reward_threshold` | number | no | `—` | — | When set, lookahead candidates scoring below this reward are dropped DURING search (before the final result), for beam-search/fk-steering/ mcts. This is a separate, earlier filter from run_proteina_complexa_filter's own post-hoc reward_threshold, which operates after generation is done. Unset (this engine's own default) keeps every candidate through search. |
+| `num_lengths` | integer | no | `4` | minimum: `1`<br>maximum: `64` | How many different binder lengths to sample, drawn uniformly from [binder_length_min, binder_length_max]. 4 is this engine's own config default. Each length gets nrepeat_per_sample independent draws, so total designs before search expansion = num_lengths x nrepeat_per_sample. |
+| `binder_length_min` | integer | no | `—` | minimum: `1`<br>maximum: `1000` | Lower bound (residues) of the binder-length sampling range. Left unset, the selected task_name's own catalog range in targets_dict.yaml is used -- this is this engine's own default and the recommended choice unless you have a specific reason to depart from the target's own catalog entry. |
+| `binder_length_max` | integer | no | `—` | minimum: `1`<br>maximum: `1000` | Upper bound (residues) of the binder-length sampling range. Left unset, the selected task_name's own catalog range in targets_dict.yaml is used. |
+| `nrepeat_per_sample` | integer | no | `1` | minimum: `1`<br>maximum: `50` | Independent draws generated per sampled length. 1 is this engine's own config default; raising it multiplies total designs (and cost) linearly without changing which lengths are sampled. |
+| `batch_size` | integer | no | `16` | minimum: `1`<br>maximum: `128` | Dataloader batch size -- how many samples are prepared per forward pass before search expansion. A memory/speed knob, not a quality one. 16 is this engine's own config default. |
+| `nsteps` | integer | no | `400` | minimum: `2`<br>maximum: `1000` | Denoising (diffusion) steps for the flow-matching sampler. 400 is this engine's own config default. This is the single biggest lever for a cheap smoke run -- lowering it trades sample quality for wall-clock roughly linearly; combine with search_algorithm=single-pass and num_lengths=1 for the smallest possible run. |
+| `self_cond` | boolean | no | `True` | — | Self-conditioning during denoising (condition each step's prediction on the previous step's own prediction). true is this engine's own config default and improves sample quality at negligible extra cost; disable only to reproduce an ablation. |
+| `guidance_w` | number | no | `1.0` | minimum: `0.0`<br>maximum: `20.0` | Classifier-free guidance weight. 1.0 (this engine's own default) means guidance is OFF (verified: generate.py's check_cfg_validity logs "Guidance is turned off" exactly when this equals 1.0). Any other value turns guidance on and requires ag_ratio in [0, 1]; when guidance is on, either ag_ratio must be 1.0 or ag_ckpt_path must be set (generate.py's own assertion). |
+| `ag_ratio` | number | no | `0.0` | minimum: `0.0`<br>maximum: `1.0` | Autoguidance mixing ratio, only meaningful when guidance_w != 1.0. 0.0 (this engine's own default) means no autoguidance contribution. 1.0 uses a "bad" checkpoint (ag_ckpt_path) exclusively for the guidance signal instead of the main model. |
+| `ag_ckpt_path` | string | no | `—` | — | Path to an autoguidance ("bad") model checkpoint. Required when ag_ratio > 0 and guidance_w != 1.0 (generate.py's own assertion); unset otherwise, this engine's own default. |
+| `save_trajectory_every` | integer | no | `0` | minimum: `0`<br>maximum: `400` | Save an intermediate structure every N denoising steps as part of the trajectory (0 = off, this engine's own default). Expensive in output volume; enable only if you need to inspect the denoising path itself. |
+| `refinement_algorithm` | string | no | `none` | enum: `['none', 'sequence_hallucination']` | Post-search refinement. "none" (this engine's own default) uses the search result as-is. "sequence_hallucination" runs a ColabDesign AF2-loss optimization pass over the sequence afterward; its own knobs (refine_targets, save_pre_refinement, the optimization toggles, iteration counts and refinement_loss_weights below) only take effect when this is "sequence_hallucination". |
+| `refine_targets` | string | no | `final` | enum: `['final', 'all']` | sequence_hallucination only: refine only the FINAL samples ("final", this engine's own default) or every sample including lookaheads ("all"). Ignored when refinement_algorithm is "none". |
+| `save_pre_refinement` | string | no | `none` | enum: `['none', 'final', 'all']` | sequence_hallucination only: also save the UNREFINED versions alongside the refined ones -- "none" (this engine's own default, refined output only), "final" (also save unrefined finals), or "all" (also save unrefined finals and lookaheads). Ignored when refinement_algorithm is "none". |
+| `enable_soft_optimization` | boolean | no | `False` | — | sequence_hallucination only: run the softmax + one-hot relaxation stages before the greedy stage. false is this engine's own config default (greedy-only refinement). Ignored when refinement_algorithm is "none". |
+| `enable_greedy_optimization` | boolean | no | `True` | — | sequence_hallucination only: run the PSSM semi-greedy refinement stage. true is this engine's own config default. Ignored when refinement_algorithm is "none". |
+| `n_temp_iters` | integer | no | `45` | minimum: `1`<br>maximum: `500` | sequence_hallucination only: softmax-temperature-annealing iterations (only run when enable_soft_optimization is true). 45 is this engine's own config default. Ignored when refinement_algorithm is "none". |
+| `n_hard_iters` | integer | no | `5` | minimum: `1`<br>maximum: `100` | sequence_hallucination only: one-hot-relaxation iterations (only run when enable_soft_optimization is true). 5 is this engine's own config default. Ignored when refinement_algorithm is "none". |
+| `n_recycles` | integer | no | `3` | minimum: `0`<br>maximum: `20` | sequence_hallucination only: AF2 recycles used inside the refinement loss evaluation at each iteration -- distinct from the reward model's own reward_num_recycles below. 3 is this engine's own config default. Ignored when refinement_algorithm is "none". |
+| `n_greedy_iters` | integer | no | `15` | minimum: `1`<br>maximum: `100` | sequence_hallucination only: PSSM semi-greedy refinement iterations (only run when enable_greedy_optimization is true). 15 is this engine's own config default. Ignored when refinement_algorithm is "none". |
+| `greedy_percentage` | number | no | `1.0` | minimum: `0.0`<br>maximum: `1.0` | sequence_hallucination only: fraction of positions considered for mutation at each greedy iteration. 1.0 (this engine's own default) considers every position each iteration. Ignored when refinement_algorithm is "none". |
+| `refinement_loss_weights` | object | no | `—` | — | sequence_hallucination only: per-term ColabDesign AF2 loss weights, as {"<term>": <weight>}. This engine's own config default is {"pae": 0.4, "plddt": 0.1, "i_pae": 0.1, "con": 1.0, "i_con": 1.0, "dgram_cce": 0.0, "rg": 0.3, "i_ptm": 0.05, "helix_binder": -0.3} -- "helix_binder" is negative because that term itself is defined so a MORE negative value encourages helical binders. Omitted keys keep this engine's own default for that term; set a term to 0.0 to disable it entirely. Ignored when refinement_algorithm is "none". |
+| `reward_num_recycles` | integer | no | `3` | minimum: `0`<br>maximum: `20` | AlphaFold2 recycles the reward model runs per scored sample. 3 is this engine's own config default; more recycles costs roughly linearly more time per reward evaluation for a (usually) more accurate score. |
+| `reward_use_initial_guess` | boolean | no | `True` | — | Whether the reward model's AF2 pass is seeded with the generated structure's own coordinates as an initial guess (faster convergence, and keeps the reward tied to the actually-generated fold rather than AF2's own independent prediction). true is this engine's own config default. |
+| `reward_use_initial_atom_pos` | boolean | no | `False` | — | Whether the reward model's AF2 pass also seeds initial ATOM positions (not just the coarse initial guess) from the generated structure. false is this engine's own config default. |
+| `reward_model_nums` | array | no | `—` | — | Which AlphaFold2-multimer parameter set number(s) the reward model evaluates with. Unset (this engine's own default) uses AF2RewardModel's own default model selection for the "binder" protocol. Supplying more than one number scores with an ensemble. |
+| `reward_weights` | object | no | `{'con': 0.0, 'i_pae': -1.0, 'plddt': 0.0, 'dgram_cce': 0.0, 'min_ipae': 0.0, 'min_ipsae': 0.0, 'avg_ipsae': 0.0, 'max_ipsae': 0.0, 'min_ipsae_10': 0.0, 'max_ipsae_10': 0.0, 'avg_ipsae_10': 0.0, 'i_ptm': 0.0, 'i_ptm_energy': 0.0, 'rg': 0.0, 'nc_termini': 0.0, 'helix_binder': 0.0, 'alignment_bb_ca_binder': 0.0}` | — | Per-component weight for the AF2-based reward's "binder" protocol, as {"<component>": <weight>}, summed into total_reward. The component set is fixed to AF2RewardModel.reward_options["binder"]'s 17 named terms. This engine's own config default weights everything at 0.0 except i_pae at -1.0 (interface PAE alone drives search and ranking; i_pae is naturally lower-is-better, hence the negative sign -- keep that sign convention for any other lower-is-better term you raise off zero). con/i_con are intra-binder/inter-chain contact counts, plddt is mean per-residue confidence, dgram_cce is the raw distogram cross-entropy training loss (rarely useful as a reward term), the min/avg/max_ipsae* terms are ipSAE-style interface confidence at two distance cutoffs (plain and "_10"), i_ptm/i_ptm_energy are interface-pTM and its energy-scaled variant, rg is radius of gyration (binder compactness), nc_termini penalizes distant N/C termini, and helix_binder/alignment_bb_ca_binder reward helical content / alignment to a reference backbone respectively. |
+| `seed` | integer | no | `5` | minimum: `0` | Top-level random seed for this run (model sampling and search stochasticity). 5 is this engine's own config default. |
