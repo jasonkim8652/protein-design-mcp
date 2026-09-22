@@ -50,7 +50,7 @@ def render_doc(manifest: Manifest) -> str:
         "",
         f"**Category:** {manifest.category}  ",
         f"**Engine:** `{manifest.engine.repo}`  ",
-        f"**Environment:** `{manifest.engine.env}`  ",
+        f"**Environment:** `{manifest.engine.env or manifest.engine.prefix}`  ",
         f"**GPU required:** {'yes' if manifest.requires.gpu else 'no'}",
         "",
         "> This file is generated from "
