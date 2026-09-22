@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 TOOL_NAME_RE = re.compile(r"^(run_[a-z0-9_]+|describe_tool|get_job_status)$")
@@ -25,9 +26,25 @@ CATEGORIES = frozenset(
 
 MAX_SUMMARY_CHARS = 1024
 
+DEFAULT_TIMEOUT_S = 3600
+
 
 class ManifestError(ValueError):
     """A manifest is malformed."""
+
+
+@dataclass(frozen=True)
+class OutputSpec:
+    """A file an engine writes into its scratch directory.
+
+    ``pattern`` is a path relative to the scratch directory. Declaring outputs
+    is what lets the dispatcher collect results and then remove the workdir;
+    an engine whose results are only on stdout declares none.
+    """
+
+    name: str
+    pattern: str
+    description: str = ""
 
 
 @dataclass(frozen=True)
@@ -61,6 +78,8 @@ class Manifest:
     composite: bool = False
     requires: Requirements = field(default_factory=Requirements)
     max_residues: int | None = None
+    outputs: tuple[OutputSpec, ...] = ()
+    timeout_s: int = DEFAULT_TIMEOUT_S
 
 
 def _require(data: dict, key: str) -> Any:
@@ -125,6 +144,58 @@ def _validate_schema_entries(schema: dict, name: str) -> None:
             )
 
 
+def _parse_outputs(data: Any, name: str) -> tuple[OutputSpec, ...]:
+    if data is None:
+        return ()
+    if not isinstance(data, list):
+        raise ManifestError(f"{name}: outputs must be a list")
+
+    specs: list[OutputSpec] = []
+    seen: set[str] = set()
+    for index, entry in enumerate(data):
+        label = f"{name}: outputs[{index}]"
+        if not isinstance(entry, dict):
+            raise ManifestError(f"{label} must be a mapping")
+
+        out_name = entry.get("name")
+        if not out_name:
+            raise ManifestError(f"{label} is missing required key 'name'")
+        if out_name in seen:
+            raise ManifestError(f"{name}: duplicate output name {out_name!r}")
+        seen.add(str(out_name))
+
+        pattern = entry.get("pattern")
+        if not pattern:
+            raise ManifestError(f"{label} is missing required key 'pattern'")
+        pattern = str(pattern)
+        if pattern.startswith("/") or ".." in Path(pattern).parts:
+            raise ManifestError(
+                f"{label}: pattern {pattern!r} must be relative to the scratch "
+                "directory and must not escape it"
+            )
+
+        specs.append(
+            OutputSpec(
+                name=str(out_name),
+                pattern=pattern,
+                description=str(entry.get("description", "")),
+            )
+        )
+    return tuple(specs)
+
+
+def _parse_timeout(data: Any, name: str) -> int:
+    if data is None:
+        return DEFAULT_TIMEOUT_S
+    try:
+        value = int(data)
+    except (TypeError, ValueError) as exc:
+        raise ManifestError(f"{name}: timeout_s must be an integer") from exc
+    if value <= 0:
+        raise ManifestError(f"{name}: timeout_s must be positive, got {value}")
+    return value
+
+
 def parse_manifest(data: dict) -> Manifest:
     """Parse one manifest mapping. Raises ManifestError if malformed."""
     if not isinstance(data, dict):
@@ -169,4 +240,6 @@ def parse_manifest(data: dict) -> Manifest:
         composite=bool(data.get("composite", False)),
         requires=_parse_requires(data.get("requires"), name),
         max_residues=int(max_residues) if max_residues is not None else None,
+        outputs=_parse_outputs(data.get("outputs"), name),
+        timeout_s=_parse_timeout(data.get("timeout_s"), name),
     )

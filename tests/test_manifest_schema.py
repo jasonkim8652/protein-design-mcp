@@ -120,3 +120,68 @@ def test_accepts_minimum_with_a_type():
     data = {**MINIMAL, "schema": {"n": {"type": "integer", "minimum": 0}}}
     m = parse_manifest(data)
     assert m.schema["n"]["minimum"] == 0
+
+
+def test_outputs_default_to_empty():
+    assert parse_manifest(MINIMAL).outputs == ()
+
+
+def test_outputs_are_parsed():
+    data = {
+        **MINIMAL,
+        "outputs": [
+            {"name": "minimized_pdb", "pattern": "minimized.pdb",
+             "description": "The relaxed structure."},
+        ],
+    }
+    (out,) = parse_manifest(data).outputs
+    assert out.name == "minimized_pdb"
+    assert out.pattern == "minimized.pdb"
+    assert out.description == "The relaxed structure."
+
+
+def test_output_without_name_is_rejected():
+    data = {**MINIMAL, "outputs": [{"pattern": "x.pdb"}]}
+    with pytest.raises(ManifestError, match="name"):
+        parse_manifest(data)
+
+
+def test_output_without_pattern_is_rejected():
+    data = {**MINIMAL, "outputs": [{"name": "x"}]}
+    with pytest.raises(ManifestError, match="pattern"):
+        parse_manifest(data)
+
+
+def test_absolute_output_pattern_is_rejected():
+    data = {**MINIMAL, "outputs": [{"name": "x", "pattern": "/etc/passwd"}]}
+    with pytest.raises(ManifestError, match="relative"):
+        parse_manifest(data)
+
+
+def test_output_pattern_escaping_the_workdir_is_rejected():
+    data = {**MINIMAL, "outputs": [{"name": "x", "pattern": "../escape.pdb"}]}
+    with pytest.raises(ManifestError, match="relative"):
+        parse_manifest(data)
+
+
+def test_duplicate_output_names_are_rejected():
+    data = {
+        **MINIMAL,
+        "outputs": [{"name": "x", "pattern": "a.pdb"},
+                    {"name": "x", "pattern": "b.pdb"}],
+    }
+    with pytest.raises(ManifestError, match="duplicate"):
+        parse_manifest(data)
+
+
+def test_timeout_defaults_to_one_hour():
+    assert parse_manifest(MINIMAL).timeout_s == 3600
+
+
+def test_timeout_is_parsed():
+    assert parse_manifest({**MINIMAL, "timeout_s": 120}).timeout_s == 120
+
+
+def test_nonpositive_timeout_is_rejected():
+    with pytest.raises(ManifestError, match="timeout_s"):
+        parse_manifest({**MINIMAL, "timeout_s": 0})
