@@ -223,12 +223,12 @@ class TestGetDesignStatus:
     @pytest.mark.asyncio
     async def test_get_status_returns_dict(self, tmp_path):
         """get_design_status should return status dictionary."""
-        from protein_design_mcp.tools.status import get_design_status
+        from protein_design_mcp.job_status import get_design_status
 
         queue = JobQueue(storage_dir=tmp_path)
         job_id = queue.create_job()
 
-        with patch("protein_design_mcp.tools.status.get_job_queue", return_value=queue):
+        with patch("protein_design_mcp.job_status.get_job_queue", return_value=queue):
             result = await get_design_status(job_id=job_id)
 
         assert isinstance(result, dict)
@@ -237,12 +237,12 @@ class TestGetDesignStatus:
     @pytest.mark.asyncio
     async def test_get_status_queued(self, tmp_path):
         """Should return queued status for new job."""
-        from protein_design_mcp.tools.status import get_design_status
+        from protein_design_mcp.job_status import get_design_status
 
         queue = JobQueue(storage_dir=tmp_path)
         job_id = queue.create_job()
 
-        with patch("protein_design_mcp.tools.status.get_job_queue", return_value=queue):
+        with patch("protein_design_mcp.job_status.get_job_queue", return_value=queue):
             result = await get_design_status(job_id=job_id)
 
         assert result["status"] == "queued"
@@ -250,7 +250,7 @@ class TestGetDesignStatus:
     @pytest.mark.asyncio
     async def test_get_status_running_with_progress(self, tmp_path):
         """Should return progress for running job."""
-        from protein_design_mcp.tools.status import get_design_status
+        from protein_design_mcp.job_status import get_design_status
 
         queue = JobQueue(storage_dir=tmp_path)
         job_id = queue.create_job()
@@ -261,7 +261,7 @@ class TestGetDesignStatus:
             total_designs=10,
         ))
 
-        with patch("protein_design_mcp.tools.status.get_job_queue", return_value=queue):
+        with patch("protein_design_mcp.job_status.get_job_queue", return_value=queue):
             result = await get_design_status(job_id=job_id)
 
         assert result["status"] == "running"
@@ -271,25 +271,25 @@ class TestGetDesignStatus:
     @pytest.mark.asyncio
     async def test_get_status_not_found(self, tmp_path):
         """Should raise error for nonexistent job."""
-        from protein_design_mcp.tools.status import get_design_status
+        from protein_design_mcp.job_status import get_design_status
 
         queue = JobQueue(storage_dir=tmp_path)
 
-        with patch("protein_design_mcp.tools.status.get_job_queue", return_value=queue):
+        with patch("protein_design_mcp.job_status.get_job_queue", return_value=queue):
             with pytest.raises(ValueError, match="[Jj]ob.*not found"):
                 await get_design_status(job_id="nonexistent")
 
     @pytest.mark.asyncio
     async def test_get_status_completed_with_result(self, tmp_path):
         """Should include result info for completed job."""
-        from protein_design_mcp.tools.status import get_design_status
+        from protein_design_mcp.job_status import get_design_status
 
         queue = JobQueue(storage_dir=tmp_path)
         job_id = queue.create_job()
         result_data = {"designs": [{"id": "d1"}], "summary": {"total": 1}}
         queue.complete_job(job_id, result_data)
 
-        with patch("protein_design_mcp.tools.status.get_job_queue", return_value=queue):
+        with patch("protein_design_mcp.job_status.get_job_queue", return_value=queue):
             result = await get_design_status(job_id=job_id)
 
         assert result["status"] == "completed"
@@ -298,13 +298,13 @@ class TestGetDesignStatus:
     @pytest.mark.asyncio
     async def test_get_status_failed_with_error(self, tmp_path):
         """Should include error for failed job."""
-        from protein_design_mcp.tools.status import get_design_status
+        from protein_design_mcp.job_status import get_design_status
 
         queue = JobQueue(storage_dir=tmp_path)
         job_id = queue.create_job()
         queue.fail_job(job_id, "GPU memory error")
 
-        with patch("protein_design_mcp.tools.status.get_job_queue", return_value=queue):
+        with patch("protein_design_mcp.job_status.get_job_queue", return_value=queue):
             result = await get_design_status(job_id=job_id)
 
         assert result["status"] == "failed"
