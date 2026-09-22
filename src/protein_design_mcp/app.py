@@ -25,7 +25,12 @@ from protein_design_mcp.dispatch.serialize import to_jsonable
 from protein_design_mcp.manifest.loader import ManifestLoadResult, load_manifests_resilient
 from protein_design_mcp.manifest.registry import ToolNotAvailable, ToolRegistry, json_schema_for
 from protein_design_mcp.manifest.schema import TOOL_NAME_RE, Manifest, ManifestError
-from protein_design_mcp.meta_tools import DESCRIBE_TOOL_MANIFEST, describe_tool
+from protein_design_mcp.meta_tools import (
+    DESCRIBE_TOOL_MANIFEST,
+    GET_JOB_STATUS_MANIFEST,
+    describe_tool,
+    get_job_status,
+)
 from protein_design_mcp.staging import stage_inputs
 from protein_design_mcp.validation import ToolInputError, validate_and_fill
 
@@ -289,6 +294,13 @@ class ServerApp:
                 inputSchema=json_schema_for(DESCRIBE_TOOL_MANIFEST),
             )
         )
+        tools.append(
+            Tool(
+                name=GET_JOB_STATUS_MANIFEST.name,
+                description=GET_JOB_STATUS_MANIFEST.summary,
+                inputSchema=json_schema_for(GET_JOB_STATUS_MANIFEST),
+            )
+        )
         return tools
 
     async def call_tool(
@@ -318,6 +330,21 @@ class ServerApp:
             # refusal -- not silently wrapped as a success by _ok, which is
             # what let a model see isError=False on a call that returned
             # {"error": ...}.
+            if "error" in result:
+                return _error_payload(result)
+            return _ok(result)
+
+        if name == GET_JOB_STATUS_MANIFEST.name:
+            # Same reasoning as describe_tool just above: has no engine at
+            # all (see job_status.py / the wave report for why it does not
+            # fit the manifest+adapter+wrapper three-file pattern), so it is
+            # special-cased here rather than resolved through the registry
+            # and dispatched to a subprocess.
+            try:
+                params = validate_and_fill(GET_JOB_STATUS_MANIFEST, arguments)
+            except ToolInputError as exc:
+                return _error(str(exc))
+            result = await get_job_status(job_id=params["job_id"])
             if "error" in result:
                 return _error_payload(result)
             return _ok(result)

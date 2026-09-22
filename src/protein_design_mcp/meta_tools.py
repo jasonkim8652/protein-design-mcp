@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from protein_design_mcp.job_status import get_design_status
 from protein_design_mcp.manifest.loader import SIBLING_DOC_HEADING
 from protein_design_mcp.manifest.registry import ToolNotAvailable, ToolRegistry
 from protein_design_mcp.manifest.schema import parse_manifest
@@ -64,6 +65,79 @@ DESCRIBE_TOOL_MANIFEST = parse_manifest(
         },
     }
 )
+
+
+GET_JOB_STATUS_MANIFEST = parse_manifest(
+    {
+        "name": "get_job_status",
+        "category": "meta",
+        # `get_job_status` has no engine at all -- see job_status.py and the
+        # wave report for why. Same placeholder EngineSpec DESCRIBE_TOOL_MANIFEST
+        # above uses: it is never passed to a dispatcher (call_tool special-cases
+        # both meta-tools before manifest.resolve()/ADAPTERS are ever consulted),
+        # so "repo"/"env"/"entry" here are inert labels, not a real invocation.
+        "engine": {"repo": "builtin", "env": "server", "entry": ["builtin"]},
+        "summary": (
+            "Check the status of a long-running design job by the job_id it "
+            "was started with. This server's generative and structure-"
+            "prediction tools can run for minutes to hours; call this "
+            "instead of blocking on the original tool call to see whether a "
+            "job is queued, running, completed or failed, its progress so "
+            "far, and (once at least one design has finished) an estimate "
+            "of the time remaining."
+        ),
+        "doc": (
+            "## What this is\n"
+            "A lookup over one design job's status, tracked by job_id.\n\n"
+            "## When to use it\n"
+            "After starting a long-running generative or structure-"
+            "prediction tool, to check whether it has finished without "
+            "blocking on the original call.\n\n"
+            "## What you must supply\n"
+            "`job_id`, the identifier returned when the job was started.\n\n"
+            "## What you get back\n"
+            "`status` (`queued`, `running`, `completed`, or `failed`), "
+            "`job_id`, `created_at`, and depending on status: `progress` "
+            "(current step, designs completed/total, percent complete) and "
+            "`estimated_time_remaining` for a running job; `result` for a "
+            "completed job; `error` for a failed job.\n\n"
+            "## How the time estimate works\n"
+            "`estimated_time_remaining` is derived from THIS job's own "
+            "observed progress rate (elapsed time since it started, divided "
+            "by designs completed so far, projected across what remains) -- "
+            "not a fixed per-engine timing table. It is omitted whenever "
+            "that rate cannot be computed honestly yet, most commonly "
+            "because no design has completed so far.\n"
+        ),
+        "schema": {
+            "job_id": {
+                "type": "string",
+                "required": True,
+                "description": (
+                    "The job identifier returned when the long-running job "
+                    "was started."
+                ),
+                "example": "a1b2c3d4",
+            },
+        },
+    }
+)
+
+
+async def get_job_status(*, job_id: str) -> dict[str, Any]:
+    """Look up one job's status by id.
+
+    Thin wrapper over ``job_status.get_design_status`` that translates its
+    "job not found" ``ValueError`` into the same {"error": ...} dict shape
+    ``describe_tool`` already uses for every one of ITS failure modes, so
+    ``app.call_tool`` can route both meta-tools' failures through the exact
+    same ``_error_payload`` branch instead of one being a raised exception
+    and the other a plain return value.
+    """
+    try:
+        return await get_design_status(job_id=job_id)
+    except ValueError as exc:
+        return {"error": str(exc)}
 
 
 def _describe_one(registry: ToolRegistry, name: str) -> dict[str, Any]:
