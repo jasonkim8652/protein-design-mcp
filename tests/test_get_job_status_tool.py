@@ -107,6 +107,22 @@ async def test_get_job_status_rejects_unexpected_parameters():
     assert "bogus" in payload["error"] or "unexpected" in payload["error"]
 
 
+@pytest.mark.asyncio
+async def test_describe_tool_can_describe_get_job_status():
+    """Regression: describe_tool(name="get_job_status") used to fail with
+    "unknown tool" because get_job_status, like describe_tool itself, is
+    never loaded into the registry's own manifest set -- caught by driving
+    this live through the real describe_tool path, not just unit-testing
+    get_job_status in isolation."""
+    app = ServerApp(ToolRegistry([]))
+    result = await app.call_tool("describe_tool", {"name": "get_job_status"})
+
+    payload = json.loads(_text(result))
+    assert "error" not in payload
+    assert payload["name"] == "get_job_status"
+    assert "job_id" in payload["parameters"]
+
+
 def test_the_meta_tool_manifest_is_itself_valid():
     assert GET_JOB_STATUS_MANIFEST.name == "get_job_status"
     assert GET_JOB_STATUS_MANIFEST.category == "meta"
