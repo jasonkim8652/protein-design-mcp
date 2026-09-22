@@ -2,7 +2,9 @@
 
 Date: 2026-09-21
 Branch: `dev`
-Status: awaiting review
+Status: **FROZEN 2026-09-22** — the tool list in §3.2 is the implementation baseline.
+`docs/TOOLS.md` is its classification view and the two must agree; a change to either
+is a change to both. Further tools are a new spec, not an amendment to this one.
 
 ## 1. Problem
 
