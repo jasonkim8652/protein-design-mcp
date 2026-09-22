@@ -9,44 +9,68 @@
 
 ## Summary
 
-Generate de novo binder backbones against a target with RFdiffusion2, the open-source all-atom successor to RFdiffusion 1.1.0. Runs the official container image (converted from upstream's Apptainer .sif, since Apptainer itself cannot run on this host) as a sibling Docker container. Backbone only (pair with run_mpnn). CONFIRMED LIVE end to end on GPU 7. Cannot condition on hotspot residues -- the only checkpoints available on this host were never trained with hotspot conditioning; use run_rfdiffusion3_binder when hotspot-directed interface targeting matters more than RFdiffusion2's all-atom architecture.
+Generate de novo binder backbones against a target with RFdiffusion2, the open-source all-atom successor to RFdiffusion 1.1.0. Dispatches through its conda prefix by default, like every other engine here -- NOT VERIFIED LIVE in that mode: this host's rfd2_src environment is missing a dependency (pydantic, transitively required by dgl) that a real generation needs, confirmed by a live ModuleNotFoundError past the point a bare import check would catch. `backend: "docker"` runs the official container image instead, CONFIRMED LIVE working end to end, but requires this server's deployment to have explicitly granted Docker socket access -- read the doc's "backend" section before enabling it. Cannot condition on hotspot residues either way -- the only checkpoints available on this host were never trained with hotspot conditioning; use run_rfdiffusion3_binder when that matters more than this architecture.
 
 ## What this is
 RFdiffusion2 (Krishna et al.; Baker lab / IPD), the all-atom successor to
-RFdiffusion 1.1.0, run through the official container image rather than
-a source workaround (see the manifest's `engine` comment and
-`scripts/engines/rfdiffusion2.py`'s module docstring for the full
-reasoning: Apptainer cannot run on this host at all -- a kernel policy
-issue, confirmed, not a missing package -- so the same `.sif` was
-converted to a Docker image instead; every live confirmation below was
-run through that image).
+RFdiffusion 1.1.0.
 
-## A sibling container, launched from inside this server
-This is the only tool in this project whose wrapper shells out to
-`docker run` rather than running its engine as a plain subprocess in a
-mounted host conda environment. That has one real consequence for
-deployment: wherever this wrapper itself executes needs a working
-`docker` client with access to a Docker daemon that can see GPU 7 (the
-Docker-outside-of-Docker pattern, if this MCP server is itself deployed
-inside a container). That is an infrastructure prerequisite this wave's
-file scope cannot provision -- it is stated here rather than silently
-assumed. Every "CONFIRMED LIVE" claim in this doc was run directly on
-the host, the same way the wrapper itself invokes `docker`; whether the
-currently-deployed server container has the matching socket/CLI access
-was not possible to verify from within this wave.
+## `backend` -- read this before choosing "docker"
+This tool can run two ways, chosen by the `backend` parameter:
+- `"conda"` (the default, and this tool's default `engine:` dispatch):
+  runs directly in this host's `rfd2_src` conda environment, the exact
+  same mechanism every other GPU tool in this server uses -- no extra
+  host capability beyond what every other tool already needs. **NOT the
+  upstream-supported invocation path** (RFdiffusion2's own README only
+  documents the Apptainer route) but the one that does not require
+  handing this server root-equivalent access to the host. **NOT VERIFIED
+  LIVE to complete a generation on this host**: `import rf_diffusion`
+  itself succeeds, but a real run needs
+  `rf_diffusion.inference.model_runners`, which transitively imports
+  `dgl`, which imports `pydantic` -- NOT installed in `rfd2_src`
+  (`ModuleNotFoundError: No module named 'pydantic'`, confirmed live by
+  running exactly that import chain, 2026-09-22). Until that dependency
+  gap is closed in the `rfd2_src` environment, calling this tool with
+  `backend: "conda"` fails immediately with that error rather than
+  hanging -- a clear, fast failure, not a silent one.
+- `"docker"`: launches the OFFICIAL upstream container image
+  (`rfdiffusion2-sif:converted`, converted via `unsquashfs` + `docker
+  import` from RFdiffusion2's own Apptainer `.sif` -- Apptainer itself
+  cannot run on this host, a kernel `apparmor` policy, confirmed, not a
+  misconfiguration) as a SIBLING Docker container over the host's Docker
+  socket. CONFIRMED LIVE working end to end on GPU 7, including through
+  this server's own real dispatch path. **This requires wherever this
+  server's dispatcher actually runs to have `/var/run/docker.sock`
+  bind-mounted in and the `docker` CLI installed** (the
+  "Docker-outside-of-Docker" pattern) -- granting that is granting
+  root-equivalent control of the host to anything that reaches it, which
+  is every tool in this server plus anyone who reaches the HTTP
+  transport (unauthenticated as of this writing). That is NOT part of
+  this server's default container recipe and should be enabled only by
+  an operator who has explicitly decided to accept that trade-off for a
+  specific host-side deployment, not assumed. If your deployment has not
+  made that choice, `backend: "docker"` will fail to find a working
+  `docker` client/socket -- that failure is the capability boundary
+  working as intended, not a bug.
 
 ## When to use this instead of the alternatives -- three generations, one lineage
 - `run_rfdiffusion_binder` (RFdiffusion 1.1.0): the legacy baseline, a
-  different (space-separated) contig grammar.
+  different (space-separated) contig grammar, CONFIRMED working end to
+  end through its own (plain conda-prefix) dispatch.
 - **This tool**: all-atom architecture (ligand/nucleic-acid awareness
   exists upstream but is not exposed here yet -- see "Not exposed"), a
   third contig grammar (underscore-separated chains, comma-separated
-  sub-ranges within a chain -- see "`contig`" below), and CANNOT use
-  hotspot conditioning on this host (see "Hotspots are not available").
+  sub-ranges within a chain -- see "`contig`" below), CANNOT use hotspot
+  conditioning on this host (see "Hotspots are not available"), and its
+  default dispatch mode is not confirmed to complete a run here (see
+  "`backend`" above).
 - `run_rfdiffusion3_binder`: RosettaCommons' current production model, a
   completely different JSON conditioning schema, with WORKING hotspot
-  conditioning. Prefer it when directing the binder to a specific
-  interface patch matters more than RFdiffusion2's all-atom lineage.
+  conditioning, CONFIRMED working end to end through its own plain
+  conda-prefix dispatch (no Docker, no capability trade-off). Prefer it
+  for binder-design work right now unless RFdiffusion2's all-atom
+  lineage specifically matters and your deployment has opted into
+  `backend: "docker"`.
 
 ## `contig` -- RFdiffusion2's own grammar (neither of the other two generations')
 Underscores separate CHAINS; commas separate sub-ranges WITHIN one chain
@@ -70,13 +94,14 @@ it separately would only invite the two going out of sync.
 RFdiffusion2's PPI-specialised checkpoint (`aa_ppi.yaml`'s own default,
 trained with `FindHotspotsTrainingTransform`) is **not present on this
 host** -- only the two general-purpose checkpoints below are. CONFIRMED
-LIVE: passing `ppi.hotspot_res` through either of those checkpoints
-raises `AssertionError: Model not set up for hotspots` from
-`rf_diffusion/ppi.py` (the checkpoint's OWN saved training-transform list
-is what is checked, not anything this tool's invocation controls) --
-this is why this tool's schema has no hotspot parameter at all, rather
-than one that always fails. Centering instead uses
-`transforms.configs.CenterPostTransform.center_type=is_not_diffused`
+LIVE (through `backend: "docker"`, the only mode that has completed a
+run to reach this code path): passing `ppi.hotspot_res` through either
+of those checkpoints raises `AssertionError: Model not set up for
+hotspots` from `rf_diffusion/ppi.py` (the checkpoint's OWN saved
+training-transform list is what is checked, not anything this tool's
+invocation controls) -- this is why this tool's schema has no hotspot
+parameter at all, rather than one that always fails. Centering instead
+uses `transforms.configs.CenterPostTransform.center_type=is_not_diffused`
 (center on the target's own center of mass) -- CONFIRMED LIVE to work
 without hotspots and without requiring an `ORI` HETATM record in
 `target_pdb`, which this tool has no way to supply.
@@ -90,10 +115,11 @@ conditioning (see above).
 
 ## Important caveats
 - **Backbone only.** Follow with `run_mpnn`.
-- The first call after this image starts a fresh container builds a
-  one-time SO(3) rotation-schedule cache (a few minutes, CONFIRMED LIVE:
-  ~2.5 of this tool's ~2.6-minute total smoke-test runtime) -- expect the
-  first call in any batch to be much slower than the rest.
+- Under `backend: "docker"`, the first call after the image starts a
+  fresh container builds a one-time SO(3) rotation-schedule cache (a few
+  minutes, CONFIRMED LIVE: ~2.5 of this tool's ~2.6-minute total
+  smoke-test runtime) -- expect the first call in any batch to be much
+  slower than the rest.
 - Ligand conditioning, nucleic-acid conditioning, partial diffusion, and
   symmetry are real RFdiffusion2 capabilities not exposed here -- none
   were exercised in this tool's verification.
@@ -108,6 +134,7 @@ PDB and its paired `metadata_trb`.
 |---|---|---|---|---|---|
 | `target_pdb` | string | yes | `—` | pattern: `\.pdb$` | Path to the target structure (PDB format). Crop it around the intended interface before diffusing against a large target. |
 | `contig` | string | yes | `—` | pattern: `^([A-Za-z]\d+(-\d+)?\|\d+(-\d+)?)(,([A-Za-z]\d+(-\d+)?\|\d+(-\d+)?))*(_([A-Za-z]\d+(-\d+)?\|\d+(-\d+)?)(,([A-Za-z]\d+(-\d+)?\|\d+(-\d+)?))*)*$` | RFdiffusion2's own contig grammar (see the doc's "contig" section for the full explanation) -- underscores separate chains, commas separate sub-ranges within one chain: a target segment like "A1-150" pulled from target_pdb, or a diffused-length range like "10-10". Do not wrap it in outer brackets or quotes -- this tool adds those itself. NOT the same grammar as run_rfdiffusion_binder's or run_rfdiffusion3_binder's contig. |
+| `backend` | string | no | `conda` | enum: `['conda', 'docker']` | "conda" (default) runs in this host's rfd2_src conda environment -- no extra capability needed, but NOT VERIFIED LIVE to complete a generation on this host (a missing pydantic dependency breaks it before any GPU work starts -- see the doc's "backend" section for the exact confirmed error). "docker" runs the official upstream container image as a sibling container, CONFIRMED LIVE working end to end, but requires this server's own deployment to have explicitly granted Docker socket access -- a root-equivalent capability, not part of the default container recipe. Read the doc's "backend" section in full before setting this to "docker". |
 | `num_designs` | integer | no | `10` | minimum: `1`<br>maximum: `1000` | Number of independent backbones to sample. Cost scales linearly. Drop it to 1 for a fast sanity check on a new contig before committing to a larger batch. |
 | `diffusion_steps` | integer | no | `100` | minimum: `1`<br>maximum: `200` | Number of denoising timesteps (diffuser.T). 100 is RFdiffusion2's own base-config default (unlike RFdiffusion 1.1.0's 50). 15 was the lowest value exercised in this tool's own verification (a fast sanity-check run); no assertion enforcing a hard floor the way RFdiffusion 1.1.0 does was observed here, but values well below 15 have not been tried. |
 | `noise_scale_ca` | number | no | `1.0` | minimum: `0.0`<br>maximum: `2.0` | Translational noise scale for the Cα denoiser. Same meaning as run_rfdiffusion_binder's parameter of the same name. |

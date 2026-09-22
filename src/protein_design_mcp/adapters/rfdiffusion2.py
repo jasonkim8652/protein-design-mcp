@@ -1,7 +1,9 @@
 """Adapter for RFdiffusion2 (`scripts/engines/rfdiffusion2.py`, env
-`rfd2_src` for its Python interpreter only -- the engine itself runs inside
-the official container image `rfdiffusion2-sif:converted`, launched by the
-wrapper as a sibling `docker run`; see that module's docstring).
+`rfd2_src`). Dispatches through the `rfd2_src` conda prefix by default
+(`params["backend"] == "conda"`, the manifest's default); the wrapper can
+also launch the official container image as a sibling `docker run` when
+the caller explicitly sets `backend: "docker"` -- see the wrapper's own
+module docstring for why that mode is opt-in, never a silent fallback.
 
 Serialises the validated parameters into one JSON argv token, mirroring
 `adapters.boltz`'s reasoning: the wrapper needs a writable scratch cwd and
@@ -28,6 +30,7 @@ def build_args(manifest: Manifest, params: dict[str, Any]) -> list[str]:
     job = {
         "target_pdb": params["target_pdb"],
         "contig": params["contig"],
+        "backend": params["backend"],
         "num_designs": params["num_designs"],
         "diffusion_steps": params["diffusion_steps"],
         "noise_scale_ca": params["noise_scale_ca"],
