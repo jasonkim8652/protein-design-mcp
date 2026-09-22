@@ -105,7 +105,7 @@ subcommand: **open every pipeline step before admitting it.** A step qualifies o
 if it is one model's own inference, or a pure transformation over that model's own
 output that runs no other model.
 
-### 3.2 The tool list (34 tools + 2 meta-tools)
+### 3.2 The tool list (37 tools + 2 meta-tools)
 
 > **Amended 2026-09-22.** The original list held 29 tools and was written before the
 > engine version sweep. Two engines were missed for the same reason — both postdate it —
@@ -139,6 +139,20 @@ output that runs no other model.
 > `rewards_*.csv` that `generate` wrote), and `analyze`'s foldseek/mmseqs diversity
 > is a capability nothing else here provides.
 >
+> **Added 2026-09-22 after the freeze: `run_boltzgen_fold`, `run_boltzgen_design_fold`,
+> `run_boltzgen_analyze`.** Not scope creep — the frozen list contained a **broken
+> chain**. BoltzGen's CLI has three task types: *Predict* (GPU; diffusion, inverse
+> folding, refolding, designfolding and affinity are all modes of it), *Analyze* (CPU;
+> computes CPU metrics and aggregates the GPU steps' metrics) and *Filter* (CPU;
+> ranking). The list exposed two Predict modes and Filter, but nothing that produces the
+> `aggregate_metrics_*.csv` Filter reads — so a caller could run `run_boltzgen_design`
+> and then had no way to reach `run_boltzgen_filter`.
+>
+> "Expose the steps, block the orchestrator" is only legitimate when **all** the steps
+> are exposed. Exposing steps 1, 2 and 6 while blocking the orchestrator leaves the
+> caller with no path at all, which is worse than either extreme. `affinity` stays
+> excluded for the same reason as Boltz-2's affinity head: protein-ligand only.
+>
 > The lesson for whoever amends this next: a list assembled from a point-in-time sweep
 > goes stale silently, and "engine X is unavailable" must be checked with the right
 > interpreter and the right distribution channel before it is believed.
@@ -152,6 +166,9 @@ output that runs no other model.
 | `run_proteina_complexa_analyze` | ″ | ″ | Aggregation plus **diversity**: `compute_foldseek_diversity` / `compute_mmseqs_diversity` over the run. Runs foldseek/mmseqs, not a neural model. `complexa analysis` = evaluate → analyze. |
 | `run_boltzgen_design` | BoltzGen 0.3.2 | **MIT — code, weights, training data** | All-atom diffusion, target from PDB/CIF directly, MSA-free. Confirmed working on this machine's L40S. |
 | `run_boltzgen_inverse_fold` | ″ | ″ | BoltzGen's own IF head (12.6 MB), not ProteinMPNN. |
+| `run_boltzgen_fold` | ″ | ″ | (§D) |
+| `run_boltzgen_design_fold` | ″ | ″ | (§D) |
+| `run_boltzgen_analyze` | ″ | ″ | (§E-run_analysis) |
 | `run_boltzgen_filter` | ″ | ″ | **Runs no model, and is not Boltz-2.** Pure dataframe ranking over columns BoltzGen's own predict/score steps produced (`design_iptm`, `min_interaction_pae`, `bb_rmsd`, `delta_sasa_refolded`, `structure_confidence`). The installed distribution has no `boltz` package and imports none. Distinct from `run_boltz`, which runs Boltz-2 inference on a GPU. |
 | `run_rfdiffusion_binder` | RFdiffusion | BSD-3 (weights status ambiguous — see §7) | Backbone only; legacy baseline for comparison. |
 | `run_rfdiffusion2` | RFdiffusion2 | BSD-3 | All-atom motif/interface. |
