@@ -1,12 +1,9 @@
-import sys
 from pathlib import Path
+
+from generate_tool_docs import main, render_doc
 
 from protein_design_mcp.app import manifest_dir
 from protein_design_mcp.manifest.loader import load_manifests
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-
-from generate_tool_docs import main, render_doc  # noqa: E402
 
 MANIFEST_DIR = manifest_dir()
 
