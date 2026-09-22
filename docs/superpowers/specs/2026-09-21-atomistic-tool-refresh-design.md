@@ -114,13 +114,13 @@ and `boltzgen run` are not registered; their steps are.
 
 | Tool | Engine | License | Notes |
 |---|---|---|---|
-| `run_proteina_complexa_generate` | Proteina-Complexa 160M | Apache-2.0 code, NVIDIA Open Model License weights | Partially latent flow matching; sequence and all atoms generated jointly. ICLR 2026 oral. |
-| `run_proteina_complexa_filter` | ″ | ″ | Reward-model ranking; this is where test-time compute is spent. |
-| `run_proteina_complexa_evaluate` | ″ | ″ | Refolding metrics. |
-| `run_proteina_complexa_analyze` | ″ | ″ | Aggregate analysis over a run. |
+| `run_proteina_complexa_generate` | Proteina-Complexa 160M | Apache-2.0 code, NVIDIA Open Model License weights | Partially latent flow matching; sequence and all atoms generated jointly. ICLR 2026 oral. **This is where test-time compute is spent** — rewards are computed inline during generation (`generate.py:316`) and `utils/mcts_utils.py` does the search. Corrected 2026-09-22; this note previously credited `filter`. |
+| `run_proteina_complexa_filter` | ″ | ″ | **Tabular re-ranking — runs no model.** Reads the `rewards_*.csv` that `generate` wrote, dedups sequences, applies `reward_threshold`, keeps top-N. Cheap, CPU, re-runnable with different thresholds without regenerating. |
+| `run_proteina_complexa_evaluate` | ″ | ″ | **The expensive one.** Refolds designed sequences with ESMFold and computes self-consistency, interface and force-field metrics. GPU. |
+| `run_proteina_complexa_analyze` | ″ | ″ | Aggregation plus **diversity**: `compute_foldseek_diversity` / `compute_mmseqs_diversity` over the run. Runs foldseek/mmseqs, not a neural model. `complexa analysis` = evaluate → analyze. |
 | `run_boltzgen_design` | BoltzGen 0.3.2 | **MIT — code, weights, training data** | All-atom diffusion, target from PDB/CIF directly, MSA-free. Confirmed working on this machine's L40S. |
 | `run_boltzgen_inverse_fold` | ″ | ″ | BoltzGen's own IF head (12.6 MB), not ProteinMPNN. |
-| `run_boltzgen_filter` | ″ | ″ | CPU-only, cheap; re-rankable without regenerating. |
+| `run_boltzgen_filter` | ″ | ″ | **Runs no model, and is not Boltz-2.** Pure dataframe ranking over columns BoltzGen's own predict/score steps produced (`design_iptm`, `min_interaction_pae`, `bb_rmsd`, `delta_sasa_refolded`, `structure_confidence`). The installed distribution has no `boltz` package and imports none. Distinct from `run_boltz`, which runs Boltz-2 inference on a GPU. |
 | `run_rfdiffusion_binder` | RFdiffusion | BSD-3 (weights status ambiguous — see §7) | Backbone only; legacy baseline for comparison. |
 | `run_rfdiffusion2` | RFdiffusion2 | BSD-3 | All-atom motif/interface. |
 | `run_rfdiffusion3` | RFdiffusion3 (RFD3) | BSD-3 | All-atom diffusion under complex constraints. Via foundry: `pip install rc-foundry` then `foundry install rfd3`. **Python 3.12 only.** Added 2026-09-22. |
