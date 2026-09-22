@@ -43,7 +43,7 @@ class _FakeDispatcher:
     def __init__(self):
         self.calls = []
 
-    async def run(self, engine, args, *, timeout, outputs=()):
+    async def run(self, engine, args, *, timeout, outputs=(), workdir=None):
         self.calls.append((engine, list(args)))
         return CompletedRun(returncode=0, stdout="ok", stderr="", workdir=Path("/tmp"))
 
@@ -258,7 +258,7 @@ class _RecordingDispatcher:
         self.timeout = None
         self.outputs = None
 
-    async def run(self, engine, args, *, timeout, outputs=()):
+    async def run(self, engine, args, *, timeout, outputs=(), workdir=None):
         self.timeout = timeout
         self.outputs = tuple(outputs)
         return CompletedRun(
@@ -365,7 +365,7 @@ async def test_adapter_output_merges_with_dispatcher_outputs(tmp_path, monkeypat
     )
 
     class _OutputDispatcher(_RecordingDispatcher):
-        async def run(self, engine, args, *, timeout, outputs=()):
+        async def run(self, engine, args, *, timeout, outputs=(), workdir=None):
             await super().run(engine, args, timeout=timeout, outputs=outputs)
             # Return some outputs from the dispatcher
             from protein_design_mcp.dispatch.env import CompletedRun
@@ -388,3 +388,117 @@ async def test_adapter_output_merges_with_dispatcher_outputs(tmp_path, monkeypat
     assert payload["affinity"] == "1.5"
     assert payload["kd"] == "1e-8"
     assert payload["outputs"] == {"o": "output_value.txt"}
+
+
+class _StagingRecordingDispatcher:
+    """A fake dispatcher supporting the staging protocol (new_workdir() +
+    run(..., workdir=...)), for testing ServerApp.call_tool's staging
+    wiring without a real subprocess or a real engine."""
+
+    def __init__(self, tmp_path):
+        self._tmp_path = tmp_path
+        self.workdir = None
+        self.run_args = None
+
+    def new_workdir(self):
+        self.workdir = self._tmp_path / "work"
+        self.workdir.mkdir()
+        return self.workdir
+
+    async def run(self, engine, args, *, timeout, outputs=(), workdir=None):
+        assert workdir is self.workdir, "run() must receive the SAME workdir new_workdir() made"
+        self.run_args = list(args)
+        return CompletedRun(
+            returncode=0, stdout="", stderr="", workdir=workdir, outputs={}
+        )
+
+
+def _staging_manifest():
+    return parse_manifest(
+        {
+            "name": "run_prodigy",
+            "category": "scoring",
+            "engine": {
+                "repo": "prodigy",
+                "env": "scoring",
+                "entry": ["prodigy"],
+                "stage": ["structure"],
+            },
+            "summary": "Staging probe.",
+            "doc": "## What this is\nProbe.\n",
+            "schema": {
+                "structure": {
+                    "type": "string",
+                    "format": "path",
+                    "required": True,
+                    "example": "s.pdb",
+                },
+            },
+        }
+    )
+
+
+@pytest.mark.asyncio
+async def test_engine_stage_copies_the_input_and_rewrites_the_argument(tmp_path, monkeypatch):
+    """A manifest declaring engine.stage must: (1) create a workdir BEFORE
+    build_args runs, (2) copy the named input into it, and (3) call
+    build_args with the STAGED path, not the caller's original one."""
+    source_dir = tmp_path / "caller_supplied"
+    source_dir.mkdir()
+    source = source_dir / "model.pdb"
+    source.write_text("ATOM original content\n")
+
+    seen_params = {}
+
+    def recording_build_args(manifest, params):
+        seen_params.update(params)
+        return [params["structure"]]
+
+    monkeypatch.setattr(
+        app_module,
+        "ADAPTERS",
+        {"run_prodigy": (recording_build_args, lambda m, r: {"ok": True})},
+    )
+
+    dispatcher = _StagingRecordingDispatcher(tmp_path)
+    app = ServerApp(ToolRegistry([_staging_manifest()]), dispatcher=dispatcher)
+
+    result = await app.call_tool("run_prodigy", {"structure": str(source)})
+
+    assert not (isinstance(result, object) and getattr(result, "isError", False))
+    staged_path = Path(seen_params["structure"])
+    assert staged_path != source, "build_args must see the STAGED copy, not the original"
+    assert staged_path == dispatcher.workdir / "structure" / "model.pdb"
+    assert staged_path.read_text() == "ATOM original content\n"
+    assert dispatcher.run_args == [str(staged_path)]
+    # The original, caller-supplied file must be untouched (a copy, not a move).
+    assert source.read_text() == "ATOM original content\n"
+
+
+@pytest.mark.asyncio
+async def test_a_manifest_without_engine_stage_never_touches_new_workdir(tmp_path, monkeypatch):
+    """The common case (no staging) must not call new_workdir() at all —
+    manifests that don't opt in must be byte-for-byte unaffected."""
+    manifest = _timeout_manifest()
+
+    def build_args(manifest, params):
+        return ["arg"]
+
+    monkeypatch.setattr(
+        app_module, "ADAPTERS", {"run_prodigy": (build_args, lambda m, r: {"ok": True})}
+    )
+
+    class _AssertNoStagingDispatcher(_RecordingDispatcher):
+        def new_workdir(self):
+            raise AssertionError("new_workdir() must not be called for a non-staging manifest")
+
+    dispatcher = _AssertNoStagingDispatcher()
+    app = ServerApp(ToolRegistry([manifest]), dispatcher=dispatcher)
+    pdb = tmp_path / "c.pdb"
+    pdb.write_text("ATOM\n")
+
+    result = await app.call_tool(
+        "run_prodigy", {"complex_pdb": str(pdb), "chain_a": "A", "chain_b": "B"}
+    )
+    payload = json.loads(_text(result))
+    assert payload["ok"] is True

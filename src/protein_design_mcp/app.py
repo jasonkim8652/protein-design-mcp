@@ -22,6 +22,7 @@ from protein_design_mcp.manifest.loader import load_manifests
 from protein_design_mcp.manifest.registry import ToolNotAvailable, ToolRegistry
 from protein_design_mcp.manifest.schema import Manifest, ManifestError
 from protein_design_mcp.meta_tools import DESCRIBE_TOOL_MANIFEST, describe_tool
+from protein_design_mcp.staging import stage_inputs
 from protein_design_mcp.validation import ToolInputError, validate_and_fill
 
 logger = logging.getLogger(__name__)
@@ -231,11 +232,24 @@ class ServerApp:
 
         build_args, parse_output = adapter
         try:
+            # Most engines write wherever their subprocess's cwd is, which
+            # the dispatcher already sets to a scratch workdir it creates
+            # itself. An engine declared in manifest.engine.stage instead
+            # writes beside one of its INPUT files — that input was just
+            # resolved to an absolute path outside any scratch directory
+            # (see _resolve_path_params), so its workdir has to be created
+            # early enough to copy that input into it FIRST, rewriting the
+            # parameter to the staged copy, before build_args ever sees it.
+            workdir = None
+            if manifest.engine.stage:
+                workdir = self._dispatcher.new_workdir()
+                params = stage_inputs(manifest.engine.stage, params, workdir)
             run = await self._dispatcher.run(
                 manifest.engine,
                 build_args(manifest, params),
                 timeout=manifest.timeout_s,
                 outputs=manifest.outputs,
+                workdir=workdir,
             )
             payload = parse_output(manifest, run)
             if "outputs" in payload:

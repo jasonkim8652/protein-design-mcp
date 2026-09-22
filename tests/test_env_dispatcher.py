@@ -257,3 +257,60 @@ async def test_run_without_outputs_still_removes_the_workdir(tmp_path):
     result = await d.run(engine, ["-c", "print('hi')"], timeout=30)
     assert result.outputs == {}
     assert not result.workdir.exists()
+
+
+def test_new_workdir_creates_a_real_directory_under_scratch_root(tmp_path):
+    d = EnvDispatcher(runner=None, scratch_root=tmp_path)
+    workdir = d.new_workdir()
+    assert workdir.is_dir()
+    assert workdir.parent == tmp_path
+
+
+@pytest.mark.asyncio
+async def test_run_uses_a_pre_made_workdir_instead_of_creating_its_own(tmp_path):
+    """The staging use case: a caller creates the workdir first (via
+    new_workdir()), copies input files into it, THEN calls run() — run()
+    must execute inside that exact directory, not a fresh one."""
+    d = EnvDispatcher(runner=None, scratch_root=tmp_path)
+    engine = EngineSpec(repo="py", env="unused", entry=(sys.executable,))
+    workdir = d.new_workdir()
+    (workdir / "staged_input.txt").write_text("pre-staged")
+
+    result = await d.run(
+        engine,
+        ["-c", "print(open('staged_input.txt').read())"],
+        timeout=30,
+        workdir=workdir,
+    )
+
+    assert result.workdir == workdir
+    assert result.stdout.strip() == "pre-staged"
+
+
+@pytest.mark.asyncio
+async def test_a_pre_made_workdir_is_still_preserved_on_failure(tmp_path):
+    d = EnvDispatcher(runner=None, scratch_root=tmp_path)
+    engine = EngineSpec(repo="py", env="unused", entry=(sys.executable,))
+    workdir = d.new_workdir()
+
+    with pytest.raises(EngineError, match="preserved for diagnosis"):
+        await d.run(
+            engine,
+            ["-c", "import sys; sys.exit(1)"],
+            timeout=30,
+            workdir=workdir,
+        )
+
+    assert workdir.exists()
+
+
+@pytest.mark.asyncio
+async def test_a_pre_made_workdir_is_still_removed_on_success(tmp_path):
+    d = EnvDispatcher(runner=None, scratch_root=tmp_path)
+    engine = EngineSpec(repo="py", env="unused", entry=(sys.executable,))
+    workdir = d.new_workdir()
+
+    result = await d.run(engine, ["-c", "pass"], timeout=30, workdir=workdir)
+
+    assert result.workdir == workdir
+    assert not workdir.exists()

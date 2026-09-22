@@ -252,6 +252,63 @@ def test_float_timeout_is_rejected():
         parse_manifest({**MINIMAL, "timeout_s": 1.9})
 
 
+def test_engine_stage_defaults_to_empty():
+    assert parse_manifest(MINIMAL).engine.stage == ()
+
+
+def _with_path_param():
+    """MINIMAL's own 'complex_pdb' param has no 'format', so staging tests
+    need a schema entry that actually declares 'format: path'."""
+    return {
+        **MINIMAL,
+        "schema": {
+            **MINIMAL["schema"],
+            "structure": {
+                "type": "string",
+                "format": "path",
+                "pattern": r"\.pdb$",
+                "required": True,
+                "description": "Structure file.",
+                "example": "s.pdb",
+            },
+        },
+    }
+
+
+def test_engine_stage_names_a_real_path_parameter():
+    data = _with_path_param()
+    data["engine"] = {**data["engine"], "stage": ["structure"]}
+    m = parse_manifest(data)
+    assert m.engine.stage == ("structure",)
+
+
+def test_engine_stage_rejects_an_unknown_parameter_name():
+    data = {**MINIMAL, "engine": {**MINIMAL["engine"], "stage": ["nonexistent_param"]}}
+    with pytest.raises(ManifestError, match="nonexistent_param"):
+        parse_manifest(data)
+
+
+def test_engine_stage_rejects_a_non_path_parameter():
+    """MINIMAL's 'complex_pdb' schema entry has no 'format: path' — staging
+    it must be refused rather than silently doing nothing useful."""
+    data = {**MINIMAL, "engine": {**MINIMAL["engine"], "stage": ["complex_pdb"]}}
+    with pytest.raises(ManifestError, match="format: path"):
+        parse_manifest(data)
+
+
+def test_engine_stage_rejects_a_duplicate_name():
+    data = _with_path_param()
+    data["engine"] = {**data["engine"], "stage": ["structure", "structure"]}
+    with pytest.raises(ManifestError, match="stage"):
+        parse_manifest(data)
+
+
+def test_engine_stage_must_be_a_list_of_strings():
+    data = {**MINIMAL, "engine": {**MINIMAL["engine"], "stage": "structure"}}
+    with pytest.raises(ManifestError, match="stage"):
+        parse_manifest(data)
+
+
 def test_integer_timeout_still_accepted():
     m = parse_manifest({**MINIMAL, "timeout_s": 120})
     assert m.timeout_s == 120

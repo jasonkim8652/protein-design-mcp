@@ -7,9 +7,34 @@ engine:
   repo: ipsae
   env: scoring
   entry: ["ipsae"]
+  # ipsae (PyPI ipsae==1.0.1, its only entry point is ipsae.cli:main) always
+  # writes its three output files next to the STRUCTURE file it was given —
+  # its CLI has no flag to redirect that. `structure` is `format: path`, so
+  # by the time this tool's argv is built it has already been resolved to
+  # an absolute path (see app._resolve_path_params), which is outside the
+  # dispatcher's scratch working directory — so without staging, ipSAE's
+  # outputs would land outside the scratch dir too, unreachable by the
+  # `outputs:` pattern below. Staging `structure` into the scratch dir
+  # first (see manifest.schema.EngineSpec.stage / protein_design_mcp.staging)
+  # makes "beside the input" mean "inside the scratch dir".
+  stage: ["structure"]
 
 requires:
   gpu: false
+
+outputs:
+  # ipsae's _save_outputs writes BOTH `{stem}_{pae}_{dist}.txt` (the table
+  # this adapter reads) and `{stem}_{pae}_{dist}_byres.txt` next to the
+  # (now-staged) structure file; pae_cutoff/dist_cutoff are caller-supplied
+  # so neither suffix can be pinned into a static glob, and no glob syntax
+  # distinguishes "ends in _byres.txt" from "does not". `multiple: true`
+  # collects both; the adapter picks the right one by its header row (the
+  # by-residue file's columns never satisfy the required-column check), not
+  # by filename.
+  - name: results_txt
+    pattern: "structure/*.txt"
+    description: ipSAE's per-chain-pair results table, plus its by-residue detail file.
+    multiple: true
 
 summary: >-
   Score how confident a structure predictor was about a protein-protein
