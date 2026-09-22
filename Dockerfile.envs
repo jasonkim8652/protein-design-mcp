@@ -147,6 +147,16 @@ RUN mkdir -p /opt/conda/envs/mpnn/etc/conda/activate.d \
     && micromamba run -n mpnn python -m ligandmpnn.run --help > /dev/null
 
 # --- "server" environment: the MCP server package, no engine deps --------
+# --- "mmseqs" environment, for run_mmseqs_search ---------------------------
+# Deliberately bare: the wrapper (scripts/engines/run_mmseqs_search.py) uses
+# only the standard library, and the two things it actually needs -- the
+# mmseqs binary and the 1.3TB database -- are MOUNTED from the host at
+# /usr/local/bin/mmseqs and /opt/alphafold3_data/mmseqs_db, never baked in.
+# Baking a 1.3TB database into an image layer is not an option; baking the
+# binary would pin a build that the host's databases may outgrow.
+RUN micromamba create -y -n mmseqs -c conda-forge python=3.11 \
+    && micromamba clean --all --yes
+
 RUN micromamba create -y -n server -c conda-forge python=3.11 pip \
     && micromamba clean --all --yes
 
