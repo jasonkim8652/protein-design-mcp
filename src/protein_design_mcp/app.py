@@ -215,8 +215,8 @@ def _resolve_path_params(manifest: Manifest, params: dict[str, Any]) -> dict[str
     return resolved
 
 
-def _error(message: str) -> CallToolResult:
-    """Build an error result.
+def _error_payload(payload: dict[str, Any]) -> CallToolResult:
+    """Build an error result from an already-assembled payload.
 
     Returns a ``CallToolResult`` with ``isError=True`` rather than a bare
     list of content, because with server-side JSON-schema validation
@@ -224,11 +224,23 @@ def _error(message: str) -> CallToolResult:
     distinguish a refusal from a normal result: the SDK passes a
     ``CallToolResult`` through unchanged (see ``mcp.server.Server.call_tool``),
     but a plain ``list[TextContent]`` is always wrapped as ``isError=False``.
+
+    ``payload`` must already carry whatever an error needs to explain
+    itself (at minimum an ``"error"`` key) -- this is the single place that
+    turns "a dict describing a failure" into a protocol-level failure, so
+    every caller that builds such a dict (``describe_tool``'s own
+    failure-mode dicts included) can route through here instead of
+    silently being wrapped as a success by ``_ok``.
     """
     return CallToolResult(
-        content=[TextContent(type="text", text=json.dumps({"error": message}, indent=2))],
+        content=[TextContent(type="text", text=json.dumps(to_jsonable(payload), indent=2))],
         isError=True,
     )
+
+
+def _error(message: str) -> CallToolResult:
+    """Build an error result from a plain message. See ``_error_payload``."""
+    return _error_payload({"error": message})
 
 
 def _ok(payload: Any) -> list[TextContent]:
@@ -274,13 +286,21 @@ class ServerApp:
                 params = validate_and_fill(DESCRIBE_TOOL_MANIFEST, arguments)
             except ToolInputError as exc:
                 return _error(str(exc))
-            return _ok(
-                describe_tool(
-                    self._registry,
-                    name=params.get("name"),
-                    category=params.get("category"),
-                )
+            result = describe_tool(
+                self._registry,
+                name=params.get("name"),
+                category=params.get("category"),
             )
+            # describe_tool never raises; it signals every failure mode
+            # (unknown name, empty category, neither/both of name and
+            # category) by returning a dict with an "error" key instead.
+            # That must be an isError=True protocol failure like any other
+            # refusal -- not silently wrapped as a success by _ok, which is
+            # what let a model see isError=False on a call that returned
+            # {"error": ...}.
+            if "error" in result:
+                return _error_payload(result)
+            return _ok(result)
 
         try:
             manifest = self._registry.resolve(name)
@@ -337,7 +357,24 @@ class ServerApp:
                 outputs=manifest.outputs,
                 workdir=workdir,
             )
-            payload = parse_output(manifest, run)
+            try:
+                payload = parse_output(manifest, run)
+            except Exception as exc:
+                # The dispatcher already collected run.outputs (the paths
+                # the engine actually wrote) BEFORE handing the run to the
+                # adapter's parser. If the parser raises -- a regex that
+                # doesn't match, a malformed results file, anything -- that
+                # collection must not be lost with it: on an hour-long GPU
+                # job, those paths are the only way to reach files that
+                # were genuinely produced. Only 2 of the 4 shipped adapters
+                # happen to name the paths in their own exception message,
+                # so this is handled centrally rather than per-adapter.
+                # The error must still clearly say parsing failed -- this
+                # is not swallowed into a success.
+                message = f"adapter for {name} failed to parse output: {exc}"
+                if run.outputs:
+                    return _error_payload({"error": message, "outputs": run.outputs})
+                return _error(message)
             if "outputs" in payload:
                 raise ValueError(
                     f"adapter for {name} returned 'outputs' key, which is "
