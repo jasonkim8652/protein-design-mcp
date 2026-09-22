@@ -15,7 +15,7 @@ from typing import Any
 
 from mcp.types import CallToolResult, TextContent, Tool
 
-from protein_design_mcp.adapters import prodigy
+from protein_design_mcp.adapters import ipsae, prodigy
 from protein_design_mcp.dispatch.env import EngineError, EnvDispatcher
 from protein_design_mcp.dispatch.serialize import to_jsonable
 from protein_design_mcp.manifest.loader import load_manifests
@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 # several tools sharing a repo by branching on manifest.name.
 ADAPTERS = {
     "run_prodigy": (prodigy.build_args, prodigy.parse_output),
+    "run_ipsae": (ipsae.build_args, ipsae.parse_output),
 }
 
 
