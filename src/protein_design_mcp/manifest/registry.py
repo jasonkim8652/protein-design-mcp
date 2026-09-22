@@ -56,12 +56,20 @@ class ToolRegistry:
         device: str = "cuda",
         available_weights: frozenset[str] = frozenset(),
         licensed: frozenset[str] = frozenset(),
+        load_failures: dict[str, str] | None = None,
     ) -> None:
+        """``load_failures`` seeds exclusion reasons for names that never
+        made it into ``manifests`` at all — e.g. a tool name claimed by two
+        manifest files, both excluded before construction (see
+        ``manifest.loader.load_manifests_resilient``). Without this,
+        ``resolve()`` would tell the model the tool was simply unknown
+        rather than why it is unavailable.
+        """
         self._all: dict[str, Manifest] = {m.name: m for m in manifests}
         self._device = device
         self._available_weights = available_weights
         self._licensed = licensed
-        self._reasons: dict[str, str] = {}
+        self._reasons: dict[str, str] = dict(load_failures or {})
         self._available: dict[str, Manifest] = {}
         for name, manifest in self._all.items():
             reason = self._exclusion_reason(manifest)

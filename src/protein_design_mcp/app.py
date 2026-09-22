@@ -18,7 +18,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 from protein_design_mcp.adapters import ipsae, mpnn, openmm_minimize, prodigy
 from protein_design_mcp.dispatch.env import EngineError, EnvDispatcher
 from protein_design_mcp.dispatch.serialize import to_jsonable
-from protein_design_mcp.manifest.loader import load_manifests
+from protein_design_mcp.manifest.loader import ManifestLoadResult, load_manifests_resilient
 from protein_design_mcp.manifest.registry import ToolNotAvailable, ToolRegistry, json_schema_for
 from protein_design_mcp.manifest.schema import Manifest, ManifestError
 from protein_design_mcp.meta_tools import DESCRIBE_TOOL_MANIFEST, describe_tool
@@ -61,13 +61,19 @@ def build_registry(device: str = "cuda") -> ToolRegistry:
     """Load manifests from disk into a registry.
 
     A manifest problem must degrade the server, not prevent import: if the
-    directory is missing or a manifest fails to parse, log a loud
-    diagnostic naming the directory and serve an empty registry (plus
-    ``describe_tool``, which is not manifest-backed) instead of raising.
+    directory is missing, log a loud diagnostic naming the directory and
+    serve an empty registry (plus ``describe_tool``, which is not
+    manifest-backed) instead of raising. Individual manifest failures
+    (unreadable file, invalid YAML, schema violation, duplicate tool name,
+    bad cross-reference) never reach this except block at all —
+    ``load_manifests_resilient`` already excluded each of them on its own,
+    with a reason, so the OTHER manifests always keep loading. Only a
+    missing/unreadable manifest DIRECTORY (or STRICT_MANIFESTS=1 in CI)
+    still raises.
     """
     directory = manifest_dir()
     try:
-        manifests = load_manifests(directory)
+        result = load_manifests_resilient(directory)
     except ManifestError as exc:
         logger.error(
             "Could not load tool manifests from %s: %s. Serving an EMPTY "
@@ -77,24 +83,33 @@ def build_registry(device: str = "cuda") -> ToolRegistry:
             directory,
             exc,
         )
-        manifests = []
-    registry = ToolRegistry(manifests, device=device)
-    _log_exclusions(registry, manifests)
+        result = ManifestLoadResult([], {})
+    registry = ToolRegistry(result.manifests, device=device, load_failures=result.reasons)
+    _log_exclusions(registry, result.manifests, result.reasons)
     return registry
 
 
-def _log_exclusions(registry: ToolRegistry, manifests: list[Manifest]) -> None:
+def _log_exclusions(
+    registry: ToolRegistry,
+    manifests: list[Manifest],
+    load_failures: dict[str, str] | None = None,
+) -> None:
     """Log the full exclusion table at startup.
 
-    ``build_registry`` never passes ``available_weights`` or ``licensed``,
-    so both default to empty, and ToolRegistry silently excludes ANY
-    manifest declaring ``requires.weights`` or ``requires.license_gated``
-    (as well as GPU-only and composite tools). ToolRegistry already stores
-    the reason per tool (``excluded()``); without this, a tool vanishing
-    from the listing looked mysterious rather than visible.
+    Two independent sources feed this table. First, ``ToolRegistry`` itself
+    excludes any manifest declaring ``requires.weights`` or
+    ``requires.license_gated`` (``build_registry`` never passes
+    ``available_weights``/``licensed``, so both default to empty), as well
+    as GPU-only and composite tools — that's ``registry.excluded()`` below.
+    Second, ``load_failures`` covers manifests that never made it into
+    ``manifests`` at all: a duplicate tool name, a bad cross-reference, or a
+    file that failed to parse (see ``load_manifests_resilient``). Without
+    logging both, a tool vanishing from the listing looked mysterious
+    rather than visible.
     """
     exclusions = {m.name: registry.excluded(m.name) for m in manifests}
     exclusions = {name: reason for name, reason in exclusions.items() if reason}
+    exclusions.update(load_failures or {})
     if not exclusions:
         return
     table = "\n".join(
@@ -103,7 +118,7 @@ def _log_exclusions(registry: ToolRegistry, manifests: list[Manifest]) -> None:
     logger.warning(
         "%d of %d tool manifest(s) excluded from the registry at startup:\n%s",
         len(exclusions),
-        len(manifests),
+        len(manifests) + len(load_failures or {}),
         table,
     )
 
