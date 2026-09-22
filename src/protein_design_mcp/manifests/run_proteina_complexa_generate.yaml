@@ -62,7 +62,6 @@ engine:
     # container visibility, not import resolution order), so it still has
     # to be listed even though PYTHONNOUSERSITE keeps it from being used.
     # Read-only; never written to. Same precedent as run_promera.yaml.
-    - /home/jk661/projects/protein-design-mcp/src
 
 requires:
   gpu: true
