@@ -1,5 +1,5 @@
 name: run_openmm_minimize
-category: scoring
+category: preparation
 composite: false
 timeout_s: 1800
 

@@ -1,6 +1,6 @@
 # run_openmm_minimize
 
-**Category:** scoring  
+**Category:** preparation  
 **Engine:** `openmm_minimize`  
 **Environment:** `md`  
 **GPU required:** no
