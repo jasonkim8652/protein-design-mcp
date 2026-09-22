@@ -1,0 +1,311 @@
+name: run_alphafold3
+category: structure_prediction
+composite: false
+timeout_s: 21600
+
+engine:
+  # This tool launches a SIBLING container (AF3 runs from its own image,
+  # not this server's) rather than a process inside a mounted conda
+  # environment -- see the doc's "How this tool is dispatched" section for
+  # the full reasoning and the wave report for the deployment requirement
+  # this creates. The wrapper needs nothing beyond the Python standard
+  # library (json, subprocess, pathlib) to build the job JSON and shell out
+  # to `docker run` -- no model-resolution mount is needed, so this reuses
+  # the `scoring` environment already baked into this image's root prefix
+  # (env: "scoring" is already shared by run_prodigy and run_ipsae; a
+  # fourth tool sharing one of the four baked-in CPU envs is the SAME
+  # established pattern, not a new one).
+  repo: alphafold3
+  env: scoring
+  entry: ["python", "/app/scripts/engines/alphafold3.py"]
+
+requires:
+  gpu: true
+
+outputs:
+  - name: model_cif
+    pattern: "out/job/job_model.cif"
+    description: Top-ranked predicted structure across every seed/sample.
+  - name: confidences_json
+    pattern: "out/job/job_confidences.json"
+    description: >-
+      Top-ranked prediction's full per-token/per-atom confidence arrays
+      (pae, atom_plddts, contact_probs, ...).
+  - name: summary_confidences_json
+    pattern: "out/job/job_summary_confidences.json"
+    description: >-
+      Top-ranked prediction's summary confidence scalars (ptm, iptm,
+      ranking_score, chain_ptm, chain_iptm, chain_pair_iptm, ...) -- this is
+      what this tool's own JSON reply is built from.
+  - name: ranking_scores_csv
+    pattern: "out/job/job_ranking_scores.csv"
+    description: ranking_score for every seed/sample this call produced, highest first.
+  - name: per_sample_cifs
+    pattern: "out/job/seed-*_sample-*/job_seed-*_sample-*_model.cif"
+    description: >-
+      Every individual seed/sample structure (not just the top-ranked one),
+      one per num_seeds x num_diffusion_samples combination.
+    multiple: true
+  - name: per_sample_confidences_json
+    pattern: "out/job/seed-*_sample-*/job_seed-*_sample-*_confidences.json"
+    description: Per-sample confidence arrays, paired with per_sample_cifs by seed/sample.
+    multiple: true
+
+summary: >-
+  Predict a multi-chain protein structure with AlphaFold 3, given an
+  explicit alignment (or none) per chain. The heaviest tool in this server:
+  runs as a SIBLING Docker container from AF3's own image, not a process in
+  a mounted conda environment -- see the doc's "How this tool is
+  dispatched" section, since that changes what an operator must configure
+  for this one tool to work at all. MSA is optional and NEVER built by this
+  tool (AF3's own alignment-search step is always disabled) -- pass
+  run_mmseqs_search's unpaired_a3m/paired_a3m outputs, or null/null to run
+  MSA-free. Protein
+  chains only in this version -- no RNA, DNA, ligands, covalent bonds, or
+  templates; see "Not exposed".
+
+doc: |
+  ## What this is
+  AlphaFold 3, run from the user's own checkout `~/projects/af3-mmseqs-gpu`
+  (ground truth for invocation: the reference inference script under its
+  `benchmarks/` directory for the `docker run` shape,
+  `docs/input.md`/`docs/output.md` for the JSON schema and output layout)
+  -- the current state-of-the-art structure
+  predictor, covering the same "chains + optional per-chain MSA" job shape
+  as `run_boltz`/`run_chai1`/`run_protenix`/`run_openfold3`, but from a
+  genuinely different model.
+
+  ## How this tool is dispatched -- read this before deploying it
+  AF3 runs from its OWN Docker image (per the design spec, §4: "AF3 itself
+  keeps running as its own container from its own image"), completely
+  separate from every other engine in this server, which run as
+  subprocesses inside conda environments mounted into THIS server's own
+  container. This tool's wrapper script therefore shells out to `docker
+  run` directly, launching a SIBLING container next to (not nested inside)
+  this server's own container.
+
+  This is a DEPLOYMENT requirement, stated explicitly rather than left
+  implicit: for this tool to work, this server's OWN container needs (1)
+  the `docker` CLI on PATH, and (2) the host's Docker socket bind-mounted
+  in (e.g. `-v /var/run/docker.sock:/var/run/docker.sock`), so `docker run`
+  here reaches the HOST's daemon and starts a sibling, not a nested,
+  container -- neither of which any manifest or adapter can arrange; both
+  are the operator's own container-runtime configuration, exactly like the
+  read-only host mounts every other GPU engine already needs. See the wave
+  report for what was and was not possible to verify about this from
+  inside an actual deployed instance of this server's own container.
+
+  There is a SECOND, related deployment requirement: the dispatcher's
+  scratch workdir (see `dispatch.env.EnvDispatcher`'s `scratch_root`) is
+  bind-mounted into this tool's `docker run` call so AF3 can read the job
+  JSON and write its output where this tool's `outputs:` patterns expect
+  it. Docker resolves a bind-mount SOURCE path against the HOST's own
+  filesystem, not this server's own container's filesystem -- so
+  `scratch_root` must be a path that is ALSO valid, at the IDENTICAL path,
+  on the host running the Docker daemon (the same "mount environments at
+  their own host path" rule design §2.2 already applies to conda
+  environments, applied here to the scratch directory instead). This
+  wrapper does not, and cannot, detect or correct a mismatch here -- it
+  trusts the path it is given.
+
+  ## MSA is optional and NEVER built by this tool
+  AlphaFold 3's own alignment-search flag is always passed as `false` --
+  AF3 never searches for its own alignment, matching this server's
+  universal MSA policy (see
+  `docs/TOOLS.md`). Every chain's `unpaired_msa`/`paired_msa` must be BOTH
+  `null` (run that chain MSA-free) or BOTH a path (use these alignments) --
+  never one of each. `run_mmseqs_search`'s own doc already documents this
+  exact pairing: pass its `unpaired_a3m` output as `unpaired_msa` and its
+  `paired_a3m` output as `paired_msa` (that output is always written, even
+  for a chain you do not intend to pair, specifically so it can satisfy
+  this "both set" requirement). `null`/`null` is translated to AlphaFold
+  3's OWN `""`/`""` encoding (its documented "equivalent to running
+  completely MSA-free" combination) -- NEVER to JSON `null`/`null`, which
+  is AlphaFold 3's OWN encoding for "build both MSAs automatically", i.e.
+  exactly the self-search behaviour disabling that flag exists to
+  prevent. `run_colabfold_search`'s a3m is a DIFFERENT sequence universe
+  (UniRef30/envDB, not AlphaFold 3's own database set) -- valid here too,
+  but do not mix producers within one call: pair each chain's
+  `unpaired_msa`/`paired_msa` from the SAME search tool.
+
+  ## Chain composition is explicit and never inferred
+  List every chain you want folded together in this call -- the target and
+  the binder together for a complex prediction, the binder alone to score
+  it in isolation. Nothing is inferred from anything else you have called.
+
+  ## When to use this instead of the alternatives
+  `run_boltz`, `run_chai1`, `run_protenix`, `run_openfold3` and `run_promera`
+  cover the same "chains + optional per-chain MSA" job shape, each from a
+  different model; comparing their outputs on the SAME `msa` input is
+  exactly what this server's MSA-tool-first design exists to make possible
+  -- do not change engines and alignment source in the same comparison.
+  This tool is the heaviest and slowest of the family (a full sibling
+  Docker container per call, see "How this tool is dispatched" above) and,
+  unlike the others, is not a simple conda-mounted subprocess -- prefer a
+  lighter structure predictor for routine screening and reserve this one
+  for a candidate you already want AlphaFold 3's specific prediction on.
+  `run_rf3` and `run_esmfold2` are the fastest members of this family
+  (RF3 takes an optional MSA; ESMFold2 takes none at all) and are the
+  better choice for a first-pass, high-throughput filter before spending
+  this tool's much larger cost on a shortlist.
+
+  ## Not exposed
+  - RNA, DNA, ligands, covalent bonds (`bondedAtomPairs`), user-provided
+    CCD, and structural templates -- this version handles protein chains
+    only. AlphaFold 3's own JSON schema supports all of these; they are a
+    real, deliberate scope boundary of this tool, not an oversight, given
+    this wave's time budget -- stated plainly rather than silently dropped.
+  - AF3's own alignment-search flag and its GPU-device-index flag: pinned,
+    never a parameter -- see "MSA is optional" above and design §2.1/§7
+    (the GPU is pinned at the container boundary, never a per-engine field).
+  - `--jax_compilation_cache_dir`: an internal performance cache, pointed at
+    a scratch subdirectory inside the sibling container automatically, the
+    same way this project already handles HF_HOME/TORCH_HOME for
+    conda-mounted engines -- never a caller-facing knob.
+
+  ## What you must supply
+  `chains`: one entry per chain in the assembly, each
+  `{"sequence": "<protein AA string>", "unpaired_msa": "<path>" | null,
+  "paired_msa": "<path>" | null, "copies": <int, default 1>}`. Both MSA
+  fields are required on every entry, with no default -- see "MSA is
+  optional" above.
+
+  ## What you get back
+  `ranking_score`, `ptm`, `iptm`, `fraction_disordered`, `has_clash` (from
+  the top-ranked sample), `num_samples`, and under `outputs` the paths to
+  the top-ranked structure/confidence files, the full ranking_scores.csv,
+  and every individual seed/sample's own structure and confidences.
+
+schema:
+  chains:
+    type: array
+    minItems: 1
+    maxItems: 20
+    items:
+      type: object
+    required: true
+    description: >-
+      One entry per chain in the predicted assembly: {"sequence": "<protein
+      amino-acid string, uppercase, standard 20 plus X/B/Z/J/U/O>",
+      "unpaired_msa": "<path to an unpaired a3m for this exact sequence>"
+      or null, "paired_msa": "<path to a paired a3m for this exact
+      sequence>" or null, "copies": <positive integer, default 1, identical
+      copies of this chain -- use for a homo-oligomer instead of repeating
+      the entry>}. Chain composition (who's present, alone or in complex)
+      is never inferred -- list exactly the chains you want folded
+      together. Both MSA fields are required on every entry (no default);
+      both must be null (MSA-free) or both a path (use these alignments) --
+      one null and one a path is rejected.
+    example: [{"sequence": "QLEDSEVEAVAKGLEEMYANGVTEDNFKNYVKNNFAQQEISSVEEELNVNISDSCVANKIKDEFFAMISISAIVKAAQKKAWKELAVTVLRFAKANGLKTNAIIVAGQLALWAVQCG", "unpaired_msa": null, "paired_msa": null, "copies": 1}]
+  seeds:
+    type: array
+    items:
+      type: integer
+    minItems: 1
+    maxItems: 20
+    default: [1]
+    description: >-
+      Random seeds AlphaFold 3 samples with -- one full inference pass per
+      seed, each producing num_diffusion_samples structures. [1] is this
+      tool's own default (a single, reproducible seed); pass several to get
+      a broader diverse set at roughly linear extra cost.
+    example: [1]
+  num_recycles:
+    type: integer
+    minimum: 1
+    maximum: 20
+    default: 10
+    description: >-
+      Number of recycling passes through the trunk before diffusion. 10 is
+      AlphaFold 3's own default (`run_alphafold.py`'s `--num_recycles`).
+      More recycling can improve hard interfaces at roughly linear extra
+      cost.
+    example: 10
+  num_diffusion_samples:
+    type: integer
+    minimum: 1
+    maximum: 20
+    default: 5
+    description: >-
+      Number of independent structures to sample PER seed. 5 is AlphaFold
+      3's own default. Total structures this call produces is
+      len(seeds) * num_diffusion_samples.
+    example: 5
+  max_template_date:
+    type: string
+    pattern: '^\d{4}-\d{2}-\d{2}$'
+    default: "2021-09-30"
+    description: >-
+      Format YYYY-MM-DD. AlphaFold 3's own default (the AlphaFold 3 paper's
+      cutoff date) -- even with templates not exposed here (see "Not
+      exposed"), this date still gates whether RDKit-conformer-generation
+      fallback to CCD model coordinates is allowed for a chemical
+      component, so `run_alphafold.py` still requires a value.
+    example: "2021-09-30"
+  resolve_msa_overlaps:
+    type: boolean
+    default: true
+    description: >-
+      Whether to deduplicate a chain's unpaired MSA against its paired MSA.
+      True is AlphaFold 3's own default. Set false only if unpaired_msa was
+      built with deliberate, hand-crafted cross-chain pairing you do not
+      want deduplication to disturb (AlphaFold 3's own docs' explicit
+      recommendation for that specific expert workflow).
+    example: true
+  flash_attention_implementation:
+    type: string
+    enum: ["triton", "cudnn", "xla"]
+    default: triton
+    description: >-
+      Which flash-attention kernel to use. triton is AlphaFold 3's own
+      default and the most thoroughly tested; cudnn is a comparable
+      alternative; xla is portable (no flash attention) and the ONLY valid
+      choice on a GPU with compute capability in [7.0, 8.0) per AlphaFold
+      3's own startup check (not relevant on this host's L40S, compute
+      capability 8.9, but stated since this tool may run on other
+      hardware).
+    example: triton
+  save_embeddings:
+    type: boolean
+    default: false
+    description: >-
+      Whether to save the trunk's single/pair embeddings
+      (num_tokens*384 + num_tokens^2*128 float16 values -- several GB for a
+      large complex). False is AlphaFold 3's own default; only needed for
+      downstream embedding-based analysis this server does not otherwise
+      provide.
+    example: false
+  save_distogram:
+    type: boolean
+    default: false
+    description: >-
+      Whether to save the predicted distogram (num_tokens^2*64 float16
+      values -- also several GB for a large complex). False is AlphaFold
+      3's own default.
+    example: false
+  buckets:
+    type: array
+    items:
+      type: integer
+    minItems: 1
+    default: [256, 512, 768, 1024, 1280, 1536, 2048, 2560, 3072, 3584, 4096, 4608, 5120]
+    description: >-
+      Strictly increasing token-count sizes AlphaFold 3 caches JIT
+      compilations for; an input with more tokens than the largest bucket
+      gets its own bucket for exactly that count. This is AlphaFold 3's own
+      default bucket list (`run_alphafold.py`'s `--buckets`) -- a pure
+      compilation-cache performance knob, exposed because this project's
+      policy is never to hide a real knob behind a default, but it does not
+      change a prediction's result.
+    example: [256, 512, 768, 1024, 1280, 1536, 2048, 2560, 3072, 3584, 4096, 4608, 5120]
+  conformer_max_iterations:
+    type: integer
+    minimum: 0
+    default: null
+    description: >-
+      Optional override for RDKit's maximum conformer-search iterations.
+      null (AlphaFold 3's own default) uses RDKit's own default parameters.
+      Not relevant to a protein-only chain set (this tool does not expose
+      ligands -- see "Not exposed"), but this flag is unconditional in
+      `run_alphafold.py`'s own invocation, so it is exposed for completeness.
+    example: null
