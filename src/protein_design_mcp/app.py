@@ -243,7 +243,23 @@ class ServerApp:
             workdir = None
             if manifest.engine.stage:
                 workdir = self._dispatcher.new_workdir()
-                params = stage_inputs(manifest.engine.stage, params, workdir)
+                # Staging can fail (most obviously: a caller-supplied path
+                # that doesn't exist) after the workdir already exists but
+                # before dispatcher.run() — which owns the "preserve on
+                # failure, remove on success, and SAY SO" contract — is ever
+                # reached. Without this, a staging failure would silently
+                # orphan the workdir: not removed (nothing said it should
+                # be), and not mentioned either. Preserving it and naming it
+                # in the error, in the exact wording run()'s own failure
+                # branches already use, keeps that contract unbroken across
+                # this earlier span too.
+                try:
+                    params = stage_inputs(manifest.engine.stage, params, workdir)
+                except OSError as exc:
+                    raise EngineError(
+                        f"could not stage input(s) for {name}: {exc}. "
+                        f"Working directory preserved for diagnosis: {workdir}"
+                    ) from exc
             run = await self._dispatcher.run(
                 manifest.engine,
                 build_args(manifest, params),
