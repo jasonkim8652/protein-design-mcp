@@ -95,6 +95,36 @@ def _parse_requires(data: Any, name: str) -> Requirements:
     )
 
 
+def _validate_schema_entries(schema: dict, name: str) -> None:
+    """Reject a malformed ``schema`` entry before it can reach the registry.
+
+    ``ToolRegistry.tools()`` and ``validation.py`` both assume every schema
+    entry is itself a mapping (e.g. they call ``spec.items()`` /
+    ``spec.get(...)``). A single manifest typo like ``schema: {p: "string"}``
+    used to parse cleanly and then raise ``AttributeError`` deep inside
+    ``ToolRegistry.tools()`` — at 29 manifests loaded from one directory,
+    that AttributeError takes down ``tools/list`` for every tool, not just
+    the malformed one.
+
+    Also reject a ``minimum``/``maximum`` with no ``type``: validation.py's
+    range check only fires for ``isinstance(value, (int, float))``, and in
+    Python ``bool`` is an ``int`` subclass, so a typeless numeric spec would
+    let ``True`` silently pass as ``1``.
+    """
+    for key, spec in schema.items():
+        if not isinstance(spec, dict):
+            raise ManifestError(
+                f"{name}: schema entry {key!r} must be a mapping, got "
+                f"{type(spec).__name__}"
+            )
+        if ("minimum" in spec or "maximum" in spec) and "type" not in spec:
+            raise ManifestError(
+                f"{name}: schema entry {key!r} has a minimum/maximum "
+                "constraint but no 'type'; add type: integer or type: "
+                "number (a typeless numeric spec lets a bool pass as 1/0)"
+            )
+
+
 def parse_manifest(data: dict) -> Manifest:
     """Parse one manifest mapping. Raises ManifestError if malformed."""
     if not isinstance(data, dict):
@@ -126,6 +156,7 @@ def parse_manifest(data: dict) -> Manifest:
     schema = data["schema"]
     if not isinstance(schema, dict):
         raise ManifestError(f"{name}: schema must be a mapping")
+    _validate_schema_entries(schema, name)
 
     max_residues = data.get("max_residues")
     return Manifest(

@@ -91,3 +91,32 @@ def test_rejects_missing_schema():
     data = {k: v for k, v in MINIMAL.items() if k != "schema"}
     with pytest.raises(ManifestError, match="schema"):
         parse_manifest(data)
+
+
+def test_rejects_a_schema_entry_that_is_not_a_mapping():
+    """Regression for FIX 6: schema: {p: "string"} used to parse cleanly
+    and only blow up later, deep inside ToolRegistry.tools(), with an
+    opaque AttributeError that takes down tools/list for every tool."""
+    data = {**MINIMAL, "schema": {"p": "string"}}
+    with pytest.raises(ManifestError, match="p"):
+        parse_manifest(data)
+
+
+def test_rejects_minimum_without_a_type():
+    """A typeless numeric spec lets a bool pass as 1/0 in validation.py's
+    range check, since bool is an int subclass."""
+    data = {**MINIMAL, "schema": {"n": {"minimum": 0}}}
+    with pytest.raises(ManifestError, match="n"):
+        parse_manifest(data)
+
+
+def test_rejects_maximum_without_a_type():
+    data = {**MINIMAL, "schema": {"n": {"maximum": 10}}}
+    with pytest.raises(ManifestError, match="n"):
+        parse_manifest(data)
+
+
+def test_accepts_minimum_with_a_type():
+    data = {**MINIMAL, "schema": {"n": {"type": "integer", "minimum": 0}}}
+    m = parse_manifest(data)
+    assert m.schema["n"]["minimum"] == 0
