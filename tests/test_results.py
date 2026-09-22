@@ -6,6 +6,7 @@ import pytest
 from protein_design_mcp.manifest.schema import OutputSpec
 from protein_design_mcp.results import (
     AmbiguousOutputError,
+    OutputPathEscapeError,
     collect_outputs,
     results_dir,
 )
@@ -159,3 +160,60 @@ def test_multiple_true_same_basename_in_different_subdirs_does_not_collide(
     assert len(set(paths)) == 2, "the two matches must not collide on one path"
     contents = sorted(Path(p).read_text() for p in paths)
     assert contents == ["X\n", "Y\n"]
+
+
+def test_symlinked_scratch_root_never_raises_a_bare_value_error(tmp_path, monkeypatch):
+    """Deterministic reproduction of the scratch-root-is-a-symlink shape:
+    a real directory tree with a symlink pointing at it, collecting through
+    a workdir reached via that symlink. On this platform/Python version,
+    Path.glob already builds match paths that share the workdir's own
+    (unresolved) prefix, so this case happens to succeed even before the
+    fix — but the assertion here is about what must NEVER happen, not about
+    forcing a particular outcome: collect_outputs must not let a bare
+    ValueError escape. Either a correct collection or a diagnosable
+    OSError is acceptable; a bare ValueError is not, and would fail this
+    test by propagating out uncaught.
+    """
+    monkeypatch.setenv("PROTEIN_MCP_RESULTS_DIR", str(tmp_path / "res"))
+    real_root = tmp_path / "real"
+    real_root.mkdir()
+    link_root = tmp_path / "link"
+    link_root.symlink_to(real_root, target_is_directory=True)
+
+    workdir = link_root / "wd"
+    workdir.mkdir()
+    (workdir / "out.fa").write_text("hello\n")
+
+    specs = (OutputSpec(name="design", pattern="out.fa"),)
+
+    try:
+        collected = collect_outputs(specs, workdir, "r")
+    except OSError:
+        # A diagnosable OSError (e.g. OutputPathEscapeError) is acceptable.
+        # A bare ValueError is NOT caught by this clause and would
+        # propagate out of the test, failing it -- which is exactly the
+        # regression this test guards against.
+        pass
+    else:
+        assert Path(collected["design"]).read_text() == "hello\n"
+
+
+def test_output_matching_a_symlink_outside_the_workdir_is_refused(tmp_path, monkeypatch):
+    """Deterministic escape case: a file *inside* the workdir that is a
+    symlink pointing outside it. Resolving both sides (the fix) makes this
+    genuinely fall outside the workdir once resolved, so it must be refused
+    with a diagnosable OutputPathEscapeError -- not silently copied from
+    wherever it points, and not a bare ValueError.
+    """
+    monkeypatch.setenv("PROTEIN_MCP_RESULTS_DIR", str(tmp_path / "res"))
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "leak.fa").write_text("secret\n")
+
+    workdir = tmp_path / "wd"
+    workdir.mkdir()
+    (workdir / "leak.fa").symlink_to(outside / "leak.fa")
+
+    specs = (OutputSpec(name="designs", pattern="*.fa", multiple=True),)
+    with pytest.raises(OutputPathEscapeError, match="designs"):
+        collect_outputs(specs, workdir, "r")
