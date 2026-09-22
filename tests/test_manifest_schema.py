@@ -185,3 +185,23 @@ def test_timeout_is_parsed():
 def test_nonpositive_timeout_is_rejected():
     with pytest.raises(ManifestError, match="timeout_s"):
         parse_manifest({**MINIMAL, "timeout_s": 0})
+
+
+def test_boolean_true_timeout_is_rejected():
+    with pytest.raises(ManifestError, match="timeout_s"):
+        parse_manifest({**MINIMAL, "timeout_s": True})
+
+
+def test_boolean_false_timeout_is_rejected():
+    with pytest.raises(ManifestError, match="timeout_s"):
+        parse_manifest({**MINIMAL, "timeout_s": False})
+
+
+def test_float_timeout_is_rejected():
+    with pytest.raises(ManifestError, match="timeout_s"):
+        parse_manifest({**MINIMAL, "timeout_s": 1.9})
+
+
+def test_integer_timeout_still_accepted():
+    m = parse_manifest({**MINIMAL, "timeout_s": 120})
+    assert m.timeout_s == 120

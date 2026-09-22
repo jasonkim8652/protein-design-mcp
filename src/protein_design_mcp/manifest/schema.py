@@ -187,13 +187,19 @@ def _parse_outputs(data: Any, name: str) -> tuple[OutputSpec, ...]:
 def _parse_timeout(data: Any, name: str) -> int:
     if data is None:
         return DEFAULT_TIMEOUT_S
-    try:
-        value = int(data)
-    except (TypeError, ValueError) as exc:
-        raise ManifestError(f"{name}: timeout_s must be an integer") from exc
-    if value <= 0:
-        raise ManifestError(f"{name}: timeout_s must be positive, got {value}")
-    return value
+    # Reject booleans first: bool is a subclass of int, so int(True) == 1
+    if isinstance(data, bool):
+        raise ManifestError(
+            f"{name}: timeout_s must be an integer, got {type(data).__name__}"
+        )
+    # Require strict int type to prevent silent truncation of floats
+    if not isinstance(data, int):
+        raise ManifestError(
+            f"{name}: timeout_s must be an integer, got {type(data).__name__}"
+        )
+    if data <= 0:
+        raise ManifestError(f"{name}: timeout_s must be positive, got {data}")
+    return data
 
 
 def parse_manifest(data: dict) -> Manifest:
