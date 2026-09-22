@@ -336,19 +336,29 @@ CASES: list[dict] = [
         "expect_keys": ["ptm", "iptm"],
     },
     {
-        # Task 7: AlphaFold2-Multimer via ColabFold, single chain (monomer
-        # -- the multimer_v3 model works fine on one chain, per the
-        # manifest doc), MSA-free (msa: null forces --msa-mode
-        # single_sequence -- the only mode this tool can ever reach; its
-        # remote mmseqs2_* modes are structurally unreachable, see the
-        # adapter's own docstring). num_models=1 runs only the fastest of
-        # the 5 already-cached multimer_v3 parameter sets rather than all
-        # 5 -- no new download is triggered, model_type itself is not a
-        # parameter this tool exposes.
+        # Task 7: AlphaFold2-Multimer via ColabFold. SETTLED LIVE (Task 7,
+        # round 1): a single-chain (monomer) query was tried first, and
+        # succeeded, but ColabFold's own scores JSON for a monomer carries
+        # no "iptm" key at all (only plddt/ptm/max_pae/pae) -- iptm is a
+        # cross-chain metric ColabFold only computes for an actual
+        # multimer, confirmed live by the real returned payload. Switched
+        # to the manifest's own two-chain schema example (also the exact
+        # shape Wave B verified live: "2-chain complex ... succeeded
+        # (ptm: 0.26, iptm: 0.04)") so iptm is genuinely present.
+        # MSA-free (msa: null forces --msa-mode single_sequence -- the only
+        # mode this tool can ever reach; its remote mmseqs2_* modes are
+        # structurally unreachable, see the adapter's own docstring).
+        # num_models=1 runs only the fastest of the 5 already-cached
+        # multimer_v3 parameter sets rather than all 5 -- no new download
+        # is triggered, model_type itself is not a parameter this tool
+        # exposes.
         "tool": "run_alphafold2_multimer",
         "device": "cuda",
         "arguments": {
-            "sequences": ["NLYIQWLKDGGPSSGRPPPS"],
+            "sequences": [
+                "MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQAPILSRVGDGTQDNLSGAEKAVQVKVKALPDA",
+                "MASSQTNSAGGGKKD",
+            ],
             "msa": None,
             "num_recycle": 1,
             "num_models": 1,
