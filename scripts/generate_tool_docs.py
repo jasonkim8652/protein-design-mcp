@@ -9,14 +9,11 @@ committed output is stale.
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-
-from protein_design_mcp.app import manifest_dir  # noqa: E402
-from protein_design_mcp.manifest.loader import load_manifests  # noqa: E402
-from protein_design_mcp.manifest.schema import Manifest  # noqa: E402
+from protein_design_mcp.app import manifest_dir
+from protein_design_mcp.manifest.loader import load_manifests
+from protein_design_mcp.manifest.schema import Manifest
 
 _CONSTRAINT_KEYS = (
     "pattern",
