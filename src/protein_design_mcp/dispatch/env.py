@@ -37,7 +37,7 @@ class CompletedRun:
     stdout: str
     stderr: str
     workdir: Path
-    outputs: dict[str, str] = field(default_factory=dict)
+    outputs: dict[str, str | list[str]] = field(default_factory=dict)
 
 
 class EnvDispatcher:
@@ -138,11 +138,15 @@ class EnvDispatcher:
 
         # Declared outputs must be copied out before the workdir is removed:
         # a workdir cannot be both cleaned up and the place results live. A
-        # missing declared output keeps the workdir (like the EngineError
-        # branches above) so it can be inspected.
+        # missing or ambiguous declared output, or any other collection
+        # failure (permission denied, disk full, a pattern matching a
+        # directory, ...), keeps the workdir (like the EngineError branches
+        # above) so it can be inspected. OSError is caught rather than just
+        # FileNotFoundError so every collection failure — not only a missing
+        # file — produces the same diagnosable message.
         try:
             collected = collect_outputs(outputs, workdir, workdir.name)
-        except FileNotFoundError as exc:
+        except OSError as exc:
             raise EngineError(
                 f"engine {engine.repo!r} exited successfully but did not produce "
                 f"an expected output: {exc}\n\n"
