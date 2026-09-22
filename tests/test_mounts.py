@@ -101,6 +101,26 @@ def test_missing_prefix_python_raises_mount_discovery_error(tmp_path):
 
 @requires_boltz_env
 def test_declared_mounts_of_every_prefix_manifest_match_the_helper():
+    """Every mount ``discover_mounts`` finds for module resolution must be
+    declared -- that is the actual regression this test guards against (an
+    engine silently reinstalled non-editable/newly-editable, caught here
+    instead of at call time inside a container).
+
+    This was written as an exact-equality check when it was still a no-op
+    ("Today: zero" below, from when this test was added a task before any
+    prefix-based manifest existed). The design doc's own §3.2 says
+    ``mounts`` covers more than module resolution -- "editable source
+    checkouts, user-site directories, WEIGHT DIRECTORIES" -- and a weight
+    cache (e.g. `~/.cache/huggingface`, `~/.foundry/checkpoints`,
+    `~/promera_weights`) is never something ``discover_mounts`` can find,
+    since nothing `import`s it. The first real prefix-based manifests
+    (run_esmfold2, run_promera, run_rf3, run_alphafold2_multimer) all
+    legitimately declare such mounts beyond what discover_mounts derives,
+    so the check here is a subset, not exact equality: every discovered
+    module-resolution mount must still be present (that regression is
+    still caught), and a manifest may declare additional mounts
+    discover_mounts has no way to know about.
+    """
     from protein_design_mcp.manifest.loader import load_manifests
 
     manifest_dir = Path(__file__).parent.parent / "src" / "protein_design_mcp" / "manifests"
@@ -110,11 +130,22 @@ def test_declared_mounts_of_every_prefix_manifest_match_the_helper():
     # Today: zero. Once Task 3+ ships a prefix-based manifest, this
     # assertion starts actually exercising the loop below.
     for manifest in prefix_manifests:
-        derived = discover_mounts(manifest.engine.prefix, manifest.engine.repo)
-        assert sorted(manifest.engine.mounts) == sorted(derived), (
-            f"{manifest.name}: declared mounts {manifest.engine.mounts} no "
-            f"longer match what discover_mounts derives ({derived}) — the "
-            "environment was likely reinstalled non-editable or newly "
-            "editable; regenerate with `python -m protein_design_mcp.mounts"
-            f" {manifest.engine.prefix} {manifest.engine.repo}`"
+        # engine.env_vars is passed through: an engine like esmfold2 whose
+        # correct import depends on PYTHONNOUSERSITE=1 would otherwise be
+        # probed without it, reproducing the very shadowing bug that
+        # variable exists to prevent and deriving the WRONG package's
+        # mounts (see discover_mounts' own `env` parameter docstring).
+        derived = discover_mounts(
+            manifest.engine.prefix, manifest.engine.repo, env=manifest.engine.env_vars
+        )
+        missing = set(derived) - set(manifest.engine.mounts)
+        assert not missing, (
+            f"{manifest.name}: declared mounts {manifest.engine.mounts} are "
+            f"missing module-resolution mount(s) {sorted(missing)} that "
+            "discover_mounts derives -- the environment was likely "
+            "reinstalled non-editable or newly editable; regenerate with "
+            f"`python -m protein_design_mcp.mounts {manifest.engine.prefix} "
+            f"{manifest.engine.repo}` and merge the result into "
+            "engine.mounts (keeping any additional non-import mounts, e.g. "
+            "weight directories, already declared there)."
         )
