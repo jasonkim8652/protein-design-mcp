@@ -1,0 +1,176 @@
+name: run_protenix
+category: structure_prediction
+composite: false
+timeout_s: 3600
+
+engine:
+  repo: protenix
+  # Plain PyPI install (`pip install protenix` -> 2.0.0 today), not
+  # editable -- confirmed live via `python -m protein_design_mcp.mounts
+  # /home/jk661/.conda/envs/protenix protenix`, which returned no extra
+  # mounts. No `mounts:` needed.
+  prefix: /home/jk661/.conda/envs/protenix
+  entry: ["python", "/app/scripts/engines/protenix.py"]
+
+requires:
+  gpu: true
+
+outputs:
+  - name: structures
+    pattern: "out/job/seed_*/predictions/job_sample_*.cif"
+    description: One predicted structure per (seed, sample) pair.
+    multiple: true
+  - name: confidence_json
+    pattern: "out/job/seed_*/predictions/job_summary_confidence_sample_*.json"
+    description: Per-sample confidence summary (plddt, ptm, iptm, gpde, ranking_score, has_clash).
+    multiple: true
+  - name: full_data_json
+    pattern: "out/job/seed_*/predictions/job_full_data_sample_*.json"
+    description: >-
+      Per-sample full per-token/per-atom confidence dump, written only when
+      need_atom_confidence is true. VERIFIED live to contain a
+      token_pair_pae matrix (plus atom_plddt, token_pair_pde,
+      contact_probs) -- the PAE data run_ipsae needs is genuinely here, but
+      under Protenix's own key name rather than an AF3-style "pae" key, so
+      it is not a drop-in run_ipsae input as-is; reformat it first.
+    multiple: true
+
+summary: >-
+  Predict a multi-chain protein structure with Protenix v1, given an
+  explicit alignment (or none) per chain. Always pins the v1.0.0 weights
+  explicitly (the proprietary v2 is never selected). Reports the richest
+  confidence output of the co-folding tools here (per-chain and per-
+  chain-pair ptm/iptm/plddt/gpde), and can optionally dump full per-token
+  confidence data for downstream scoring.
+
+doc: |
+  ## What this is
+  Protenix v1 all-atom structure prediction. `pip install protenix`
+  resolves to package version 2.0.0 today, whose own default model_name
+  already happens to be `protenix_base_default_v1.0.0` -- but this tool
+  always pins `-n protenix_base_default_v1.0.0` explicitly on every call
+  rather than relying on that default, because a future package release
+  could change it and the proprietary, opt-in-only `protenix-v2` must
+  never be selected silently.
+
+  ## What it is for
+  Predicting how a set of protein chains fold together, same job shape as
+  the other co-folding tools here.
+
+  ## When to use this instead of the alternatives
+  - `run_boltz`, `run_chai1`, `run_openfold3` (not yet implemented) are the
+    direct siblings -- same job shape, different model. Compare them on the
+    SAME `msa` input; do not change engine and alignment source in the
+    same comparison.
+  - This is the only co-folding tool here that reports per-chain-PAIR ptm
+    (`chain_pair_iptm` is in the raw confidence file even though this
+    tool's own summary surfaces only the scalar `chain_ptm`/`chain_iptm`
+    lists) -- inspect `outputs.confidence_json` directly if you need the
+    full per-pair matrix.
+  - `run_ipsae` needs a PAE JSON. This tool's `full_data_json` output
+    (written when `need_atom_confidence` is true) VERIFIED live to carry a
+    `token_pair_pae` matrix, but under Protenix's own key name, not an
+    AF3-style `pae` key -- it is not a drop-in `run_ipsae` input as-is.
+    `run_boltz`'s `pae_npz` output is the verified drop-in path to
+    `run_ipsae` today.
+
+  ## What you must supply
+  `chains`: one entry per chain in the assembly, each
+  `{"sequence": "<protein AA string>", "msa": "<path>" | null, "copies": <int, default 1>}`.
+  List every chain you want folded together in this call. `msa` has no
+  default: pass `null` to run that chain MSA-free, or a path to the
+  `unpaired_a3m` file `run_mmseqs_search` wrote for that exact sequence.
+
+  ## Important caveat
+  Protenix's own `--use_msa` flag is job-wide, not per-chain: if any
+  protein chain in a job lacks a resolvable alignment path AND `--use_msa`
+  is true, Protenix calls its OWN remote MSA service
+  (`https://protenix-server.com/api/msa`, verified from source). To keep
+  every `msa: null` chain genuinely local and MSA-free while still letting
+  other chains in the same call use a real alignment, this wrapper writes
+  a placeholder single-record (query-only) a3m for every `null` chain
+  before invoking Protenix, so its own search path is never reached
+  regardless of what any individual chain's `msa` is set to.
+
+  ## What you get back
+  `plddt`, `ptm`, `iptm`, `gpde`, `has_clash`, `ranking_score`, `chain_ptm`,
+  `chain_iptm` (from the lowest seed/sample pair), `num_structures`,
+  `model_pinned`, and under `outputs` the paths to every predicted
+  structure and its per-sample confidence file(s).
+
+schema:
+  chains:
+    type: array
+    minItems: 1
+    maxItems: 12
+    items:
+      type: object
+    required: true
+    description: >-
+      One entry per chain in the predicted assembly: {"sequence": "<protein
+      amino-acid string, uppercase, standard 20 plus X/B/Z/J/U/O>", "msa":
+      "<path to run_mmseqs_search's unpaired_a3m output for this sequence>"
+      or null, "copies": <positive integer, default 1, identical copies of
+      this chain>}. Chain composition is never inferred -- list exactly the
+      chains you want folded together. "msa" is required on every entry;
+      there is no default.
+    example: [{"sequence": "NLYIQWLKDGGPSSGRPPPS", "msa": null, "copies": 1}]
+  cycle:
+    type: integer
+    minimum: 1
+    maximum: 20
+    default: 10
+    description: >-
+      Number of Pairformer recycling cycles. 10 is Protenix's own default.
+      More cycles can improve hard interfaces at roughly linear extra cost.
+    example: 10
+  step:
+    type: integer
+    minimum: 1
+    maximum: 1000
+    default: 200
+    description: >-
+      Number of diffusion denoising steps. 200 is Protenix's own default.
+      Fewer steps is much faster and noticeably lower quality -- drop this
+      for a fast sanity check, not for a result you intend to keep.
+    example: 200
+  sample:
+    type: integer
+    minimum: 1
+    maximum: 25
+    default: 5
+    description: >-
+      Number of independent structures to sample per seed. 5 is Protenix's
+      own default; more samples costs roughly linear GPU time.
+    example: 5
+  seeds:
+    type: array
+    items:
+      type: integer
+    minItems: 1
+    maxItems: 5
+    default: [101]
+    description: >-
+      Random seeds; one full set of `sample` structures is generated per
+      seed. [101] is Protenix's own single-seed default. Add more seeds to
+      check sensitivity to initialization rather than only to sampling.
+    example: [101]
+  dtype:
+    type: string
+    enum: ["bf16", "fp32"]
+    default: bf16
+    description: >-
+      Inference numeric precision. bf16 (Protenix's own default) is faster
+      and uses less GPU memory with negligible accuracy cost on this
+      hardware; fp32 trades speed for maximum numerical precision.
+    example: bf16
+  need_atom_confidence:
+    type: boolean
+    default: true
+    description: >-
+      Whether to additionally dump full per-token/per-atom confidence data
+      (see the full_data_json output) alongside the summary. True by
+      default so the richer file is available whenever you need it; set
+      false to skip writing it and save a little disk/time on a call where
+      you only need the summary fields.
+    example: true
