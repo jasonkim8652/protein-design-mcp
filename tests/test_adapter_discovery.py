@@ -109,26 +109,46 @@ def test_shipped_adapter_functions_are_callable_two_arg_functions():
     assert callable(parse_output)
 
 
-def test_the_real_adapters_directory_scans_exactly_the_shipped_modules():
-    """Regression: the discovery machinery itself must never live inside
-    the directory it scans. It used to (adapters/discovery.py), which made
-    discovery.py a candidate '.py' file in its own scan — a false
-    'stranded adapter' (module_name='discovery', no run_discovery manifest)
-    reported at every single startup. Now the discovery code lives at
-    protein_design_mcp.adapters_discovery, outside adapters/, so the real
-    directory contains only the shipped tool adapters plus __init__.py."""
+def test_the_discovery_module_never_scans_itself():
+    """Regression: the discovery machinery must not live inside the directory
+    it scans. It used to (adapters/discovery.py), which made discovery.py a
+    candidate '.py' file in its own scan — a false 'stranded adapter'
+    (module_name='discovery', no run_discovery manifest) reported at every
+    startup. The code now lives at protein_design_mcp.adapters_discovery.
+
+    Asserted as an invariant rather than against a hardcoded module list:
+    this file is scanned on every tool addition, and a snapshot of the shipped
+    set would have to be edited ~30 more times while catching nothing.
+    """
     from protein_design_mcp.app import adapters_dir
 
     result = discover_adapters(adapters_dir())
-    assert result.module_names == {
-        "prodigy",
-        "ipsae",
-        "openmm_minimize",
-        "mpnn",
-        "mmseqs_search",
-    }
-    assert result.broken == {}
 
+    for forbidden in ("discovery", "adapters_discovery"):
+        assert forbidden not in result.module_names, (
+            f"{forbidden!r} was scanned as an adapter; the discovery module "
+            "has moved back inside the directory it scans"
+        )
+    assert result.module_names, "discovery found no adapters at all"
+
+
+def test_every_adapter_module_matches_a_manifest():
+    """The real invariant behind adapter discovery: the adapter set and the
+    manifest set are the same set. A stranded adapter means a manifest was
+    deleted or misnamed; a manifest with no adapter means a tool cannot run.
+    Derived at runtime so it keeps holding as tools are added.
+    """
+    from protein_design_mcp.app import adapters_dir, manifest_dir
+
+    modules = discover_adapters(adapters_dir()).module_names
+    expected = {
+        p.stem[len("run_"):] if p.stem.startswith("run_") else p.stem
+        for p in manifest_dir().glob("*.yaml")
+    }
+    assert modules == expected, (
+        f"adapters without a manifest: {sorted(modules - expected)}; "
+        f"manifests without an adapter: {sorted(expected - modules)}"
+    )
 
 def test_build_registry_reports_no_stranded_adapters_for_the_real_shipped_tree(caplog):
     """End-to-end: booting the real server must not emit a false
