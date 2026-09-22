@@ -61,9 +61,10 @@ lower-is-better and are applied as upper-bound thresholds, not ranked.
 
 ## When to use this instead of the alternatives
 - If you have not yet generated or inverse-folded any designs, this tool
-  has nothing to rank -- use `run_boltzgen_design` (not yet implemented)
-  and BoltzGen's own `folding`/`design_folding`/`analysis` steps, which
-  this server does not expose as separate tools, first.
+  has nothing to rank -- use `run_boltzgen_design` and
+  `run_boltzgen_inverse_fold` (not yet implemented), and BoltzGen's own
+  `folding`/`design_folding`/`analysis` steps, which this server does not
+  expose as separate tools, first.
 - `run_ipsae` and `run_prodigy` score ONE structure at a time from a
   predictor's raw output; this tool ranks a whole finished BATCH using
   metrics BoltzGen's own analysis step already computed, and adds
