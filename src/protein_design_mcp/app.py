@@ -15,31 +15,21 @@ from typing import Any
 
 from mcp.types import CallToolResult, TextContent, Tool
 
-from protein_design_mcp.adapters import ipsae, mpnn, openmm_minimize, prodigy
+from protein_design_mcp.adapters_discovery import (
+    discover_adapters,
+    missing_adapter_reasons,
+    stranded_adapter_reasons,
+)
 from protein_design_mcp.dispatch.env import EngineError, EnvDispatcher
 from protein_design_mcp.dispatch.serialize import to_jsonable
 from protein_design_mcp.manifest.loader import ManifestLoadResult, load_manifests_resilient
 from protein_design_mcp.manifest.registry import ToolNotAvailable, ToolRegistry, json_schema_for
-from protein_design_mcp.manifest.schema import Manifest, ManifestError
+from protein_design_mcp.manifest.schema import TOOL_NAME_RE, Manifest, ManifestError
 from protein_design_mcp.meta_tools import DESCRIBE_TOOL_MANIFEST, describe_tool
 from protein_design_mcp.staging import stage_inputs
 from protein_design_mcp.validation import ToolInputError, validate_and_fill
 
 logger = logging.getLogger(__name__)
-
-# Tool name -> (build_args, parse_output). Keyed on manifest.name, NOT
-# manifest.engine.repo: several tools can share one engine repo (e.g. a
-# future run_boltzgen_design / run_boltzgen_inverse_fold / run_boltzgen_filter
-# all with engine.repo == "boltzgen"), and keying on repo would make them all
-# resolve to the same adapter functions, building argv for the wrong tool.
-# Both functions receive the manifest so one adapter module can still serve
-# several tools sharing a repo by branching on manifest.name.
-ADAPTERS = {
-    "run_prodigy": (prodigy.build_args, prodigy.parse_output),
-    "run_ipsae": (ipsae.build_args, ipsae.parse_output),
-    "run_openmm_minimize": (openmm_minimize.build_args, openmm_minimize.parse_output),
-    "run_mpnn": (mpnn.build_args, mpnn.parse_output),
-}
 
 
 def manifest_dir() -> Path:
@@ -57,6 +47,43 @@ def manifest_dir() -> Path:
     return Path(importlib.resources.files("protein_design_mcp") / "manifests")
 
 
+def adapters_dir() -> Path:
+    """Directory holding adapter modules (see
+    ``protein_design_mcp.adapters.discovery`` for the naming convention: a
+    manifest named ``run_<x>`` is served by ``<x>.py`` in this directory).
+
+    Mirrors ``manifest_dir()`` in every respect: package data, resolved via
+    ``importlib.resources``, overridable by an env var
+    (``PROTEIN_MCP_ADAPTERS_DIR``) — mainly so tests can point discovery at
+    a scratch directory without touching the real ``adapters/`` package.
+    """
+    override = os.environ.get("PROTEIN_MCP_ADAPTERS_DIR")
+    if override:
+        return Path(override)
+    return Path(importlib.resources.files("protein_design_mcp") / "adapters")
+
+
+# Tool name -> (build_args, parse_output). Keyed on manifest.name, NOT
+# manifest.engine.repo: several tools can share one engine repo (e.g. a
+# future run_boltzgen_design / run_boltzgen_inverse_fold / run_boltzgen_filter
+# all with engine.repo == "boltzgen"), and keying on repo would make them all
+# resolve to the same adapter functions, building argv for the wrong tool.
+# Both functions receive the manifest so one adapter module can still serve
+# several tools sharing a repo by branching on manifest.name.
+#
+# Populated by DISCOVERY over adapters_dir() (see
+# protein_design_mcp.adapters.discovery), not hand-maintained: a module
+# named <tool_name minus "run_">.py in that directory, exposing build_args
+# and parse_output, registers itself. This is computed once here, at import
+# time, so ADAPTERS is ready for any caller that builds a ToolRegistry
+# directly without going through build_registry() (several tests in
+# tests/test_server_wiring.py do exactly that). build_registry() below
+# recomputes it from the current adapters_dir() every time it runs, so a
+# PROTEIN_MCP_ADAPTERS_DIR override set before a build_registry() call is
+# always honoured.
+ADAPTERS: dict[str, tuple[Any, Any]] = dict(discover_adapters(adapters_dir()).adapters)
+
+
 def build_registry(device: str = "cuda") -> ToolRegistry:
     """Load manifests from disk into a registry.
 
@@ -70,6 +97,14 @@ def build_registry(device: str = "cuda") -> ToolRegistry:
     with a reason, so the OTHER manifests always keep loading. Only a
     missing/unreadable manifest DIRECTORY (or STRICT_MANIFESTS=1 in CI)
     still raises.
+
+    A manifest with no matching adapter module (or a broken one — missing
+    symbol, wrong arity, raises on import) is excluded the same way: one
+    more per-tool reason merged into ``load_failures`` before ``ToolRegistry``
+    is built, so it disappears from the listing and ``resolve()`` explains
+    why instead of raising or silently dispatching nothing. An adapter
+    module with no manifest at all (a stranded adapter — the manifest side
+    of the same mismatch) has nothing to exclude, so it is only logged.
     """
     directory = manifest_dir()
     try:
@@ -84,8 +119,37 @@ def build_registry(device: str = "cuda") -> ToolRegistry:
             exc,
         )
         result = ManifestLoadResult([], {})
-    registry = ToolRegistry(result.manifests, device=device, load_failures=result.reasons)
-    _log_exclusions(registry, result.manifests, result.reasons)
+
+    discovery = discover_adapters(adapters_dir())
+    global ADAPTERS
+    ADAPTERS = dict(discovery.adapters)
+
+    # Every manifest name this run even attempted to load — successfully
+    # parsed ones plus post-parse failures still keyed by tool name (a
+    # duplicate name or bad cross-reference still means a manifest FILE by
+    # that name exists) — so a stranded-adapter check never flags a module
+    # whose manifest is merely broken for an unrelated reason.
+    known_tool_names = {m.name for m in result.manifests} | {
+        name for name in result.reasons if TOOL_NAME_RE.match(name)
+    }
+    stranded = stranded_adapter_reasons(known_tool_names, discovery)
+    if stranded:
+        logger.error(
+            "%d adapter module(s) have no matching manifest at startup "
+            "(a manifest was deleted/renamed, or the module was misnamed):\n%s",
+            len(stranded),
+            "\n".join(f"  - {name}: {reason}" for name, reason in sorted(stranded.items())),
+        )
+
+    adapter_reasons = missing_adapter_reasons(
+        (m.name for m in result.manifests), discovery
+    )
+    manifests = [m for m in result.manifests if m.name not in adapter_reasons]
+    reasons = dict(result.reasons)
+    reasons.update(adapter_reasons)
+
+    registry = ToolRegistry(manifests, device=device, load_failures=reasons)
+    _log_exclusions(registry, manifests, reasons)
     return registry
 
 
@@ -102,9 +166,12 @@ def _log_exclusions(
     ``available_weights``/``licensed``, so both default to empty), as well
     as GPU-only and composite tools — that's ``registry.excluded()`` below.
     Second, ``load_failures`` covers manifests that never made it into
-    ``manifests`` at all: a duplicate tool name, a bad cross-reference, or a
-    file that failed to parse (see ``load_manifests_resilient``). Without
-    logging both, a tool vanishing from the listing looked mysterious
+    ``manifests`` at all: a duplicate tool name, a bad cross-reference, a
+    file that failed to parse (see ``load_manifests_resilient``), or a
+    manifest with no usable adapter module (see
+    ``adapters.discovery.missing_adapter_reasons``, merged in by
+    ``build_registry`` alongside the loader's own reasons). Without logging
+    all of these, a tool vanishing from the listing looked mysterious
     rather than visible.
     """
     exclusions = {m.name: registry.excluded(m.name) for m in manifests}
