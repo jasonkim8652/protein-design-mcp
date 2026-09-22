@@ -169,6 +169,34 @@ CASES: list[dict] = [
         },
         "expect_keys": ["selected_designs", "num_selected"],
     },
+    {
+        # BoltzGen's `design` step -- all-atom diffusion, GPU-required.
+        # num_designs=1 keeps this quick; verified live on GPU 7 (2 designs,
+        # ~2 minutes total including one-time model load -- see
+        # wave-C-report.md).
+        "tool": "run_boltzgen_design",
+        "device": "cuda",
+        "arguments": {
+            "design_spec": "tests/fixtures/boltzgen/design_spec.yaml",
+            "num_designs": 1,
+        },
+        "expect_keys": ["designs", "num_designs"],
+    },
+    {
+        # BoltzGen's own inverse-folding head (--only_inverse_fold),
+        # standalone -- redesigns chain A of a real backbone this same wave
+        # generated live with run_boltzgen_design, verified live on GPU 7
+        # (9.1s for 2 sequences on a 17-residue chain -- see
+        # wave-C-report.md). Chain B (the target, not marked `design:`) is
+        # expected back unchanged.
+        "tool": "run_boltzgen_inverse_fold",
+        "device": "cuda",
+        "arguments": {
+            "design_spec": "tests/fixtures/boltzgen/redesign_spec.yaml",
+            "inverse_fold_num_sequences": 1,
+        },
+        "expect_keys": ["designs", "num_designs"],
+    },
 ]
 
 
