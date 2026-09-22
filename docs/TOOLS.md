@@ -1,6 +1,6 @@
 # protein-design-mcp — tools
 
-**39 tools** (37 `run_*` + 2 meta), classified by **function** — not by which engine a
+**41 tools** (39 `run_*` + 2 meta), classified by **function** — not by which engine a
 tool came from.
 
 ---
@@ -78,13 +78,29 @@ No tool here requires an alignment, and none builds its own — see below.
 | `run_boltzgen_filter` | BoltzGen | no |
 | `run_proteina_complexa_analyze` | Proteina-Complexa | no (foldseek / mmseqs) |
 
-## 8. `preparation` — modify a structure before scoring (1)
+## 8. `target_analysis` — find where to bind (2)
+
+| Tool | Input | Produces |
+|---|---|---|
+| `run_interface_residues` | an existing complex | per-residue contacts and buried surface area, in the hotspot formats the binder tools accept |
+| `run_epitope_scan` | an unbound target | candidate surface residues ranked by exposure and conservation, with the evidence exposed |
+
+Four binder-generation tools require hotspots — `run_rfdiffusion_binder` (`hotspot_res`),
+`run_genie3_binder` (`hotspot_residues`), `run_protpardelle` (`hotspots`),
+`run_rfdiffusion3_binder` (`select_hotspots`) — and until this category existed **nothing
+produced them**. The same hole as the MSA one: a required input no tool could supply.
+
+`run_epitope_scan` is the successor to the old composite `suggest_hotspots`, and differs
+from it in the way that matters: it **exposes the evidence and lets the caller choose**
+rather than collapsing hardcoded weights into a single answer.
+
+## 9. `preparation` — modify a structure before scoring (1)
 
 | Tool | Engine |
 |---|---|
 | `run_openmm_minimize` | OpenMM 8.6 |
 
-## 9. `meta` (2)
+## 10. `meta` (2)
 
 | Tool |
 |---|

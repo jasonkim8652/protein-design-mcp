@@ -105,7 +105,7 @@ subcommand: **open every pipeline step before admitting it.** A step qualifies o
 if it is one model's own inference, or a pure transformation over that model's own
 output that runs no other model.
 
-### 3.2 The tool list (37 tools + 2 meta-tools)
+### 3.2 The tool list (39 tools + 2 meta-tools)
 
 > **Amended 2026-09-22.** The original list held 29 tools and was written before the
 > engine version sweep. Two engines were missed for the same reason — both postdate it —
@@ -152,6 +152,21 @@ output that runs no other model.
 > are exposed. Exposing steps 1, 2 and 6 while blocking the orchestrator leaves the
 > caller with no path at all, which is worse than either extreme. `affinity` stays
 > excluded for the same reason as Boltz-2's affinity head: protein-ligand only.
+>
+> **Added 2026-09-22 after the freeze: `run_interface_residues` and
+> `run_epitope_scan`, in a new §H `target_analysis`.** The same class of hole as the
+> MSA one, and found the same way — by asking where a required input comes from. Four
+> tools take hotspots (`hotspot_res`, `hotspot_residues`, `hotspots`,
+> `select_hotspots` — four different parameter names for one concept) and **no tool
+> produced them**. A caller following the documentation reached a dead end, exactly as
+> with `run_rf3`'s "bring your own a3m".
+>
+> The capability was never lost: `utils/sasa.py`, `utils/conservation.py`,
+> `utils/pdb.py` (`get_interface_residues`) and `utils/uniprot.py` all survived the
+> deletion of `tools/`. What was removed was `suggest_hotspots`, correctly, as a
+> composite that collapsed hardcoded weights into one answer. Its successor
+> `run_epitope_scan` exposes the evidence and lets the caller rank — the distinction
+> §3.1 draws between a step and an orchestrator.
 >
 > The lesson for whoever amends this next: a list assembled from a point-in-time sweep
 > goes stale silently, and "engine X is unavailable" must be checked with the right
