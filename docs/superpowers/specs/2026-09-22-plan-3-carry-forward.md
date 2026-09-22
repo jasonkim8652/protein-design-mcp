@@ -6,10 +6,9 @@ the environment substrate and the first four CPU adapters — `run_prodigy`,
 `run_ipsae`, `run_openmm_minimize`, `run_mpnn` — all four proven live inside the
 multi-environment Docker image. Plan 3 adds the GPU engines.
 
-The full final review is at
-`.superpowers/sdd/2026-09-21-env-substrate-and-cpu-engines/final-review-plan-2.md`
-(verdict: MERGE, 0 blockers, 17 non-blockers). This file records only what plan 3 must
-act on.
+The full final review (449 lines, verdict MERGE, 0 blockers, 17 non-blockers) is
+committed at `docs/superpowers/reviews/2026-09-22-plan-2-final-review.md`. This file
+records only what plan 3 must act on.
 
 ## The framing that decides priority
 
