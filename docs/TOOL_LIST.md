@@ -3,7 +3,7 @@
 The list agreed in `docs/superpowers/specs/2026-09-21-atomistic-tool-refresh-design.md`
 §3.2, **amended 2026-09-22**: the spec's 29 tools + 2 meta, plus two Genie 3 tools added
 below (Genie 3 does binder design and motif scaffolding, which the spec did not cover) —
-**31 tools + 2 meta**. Status checked against this host on 2026-09-22, including
+**32 tools + 2 meta**. Status checked against this host on 2026-09-22, including
 a GPU survey that actually ran the engines on **GPU 7 only** (0 MiB before/during/after
 on every other index).
 
@@ -17,7 +17,7 @@ wrapper not written · 🟡 engine present, invocation confirmed but job not exe
 
 ---
 
-## A. Target-conditioned binder generation (11)
+## A. Target-conditioned binder generation (12)
 
 | Tool | Engine | Status | Invocation / blocker |
 |---|---|---|---|
@@ -25,6 +25,7 @@ wrapper not written · 🟡 engine present, invocation confirmed but job not exe
 | `run_proteina_complexa_filter` | ″ | 🟡 | reward-model ranking — where test-time compute goes |
 | `run_proteina_complexa_evaluate` | ″ | 🟡 | refolding metrics |
 | `run_proteina_complexa_analyze` | ″ | 🟡 | aggregate analysis over a run |
+| `run_rfdiffusion3` | RFdiffusion3 (RFD3) | ⬜ | **Missing from the spec's list** — released Dec 2025, after it was written. Via `pip install rc-foundry` (0.2.0, BSD-3) then `foundry install rfd3`. **Requires python 3.12.** All-atom diffusion under complex constraints; conditioning modes being confirmed, may warrant more than one tool |
 | `run_rfdiffusion2` | RFdiffusion2 | 🟡 | Official path needs **apptainer, which is not installed** (`.sif` present, 13.6G). Workaround verified: `PYTHONPATH=<repo> python rf_diffusion/benchmark/pipeline.py --config-name=...` in env `rfd2_src` |
 | `run_protpardelle` | Protpardelle-1c | 🟢 | `python -m protpardelle.sample <yaml> --num-mpnn-seqs 0` (env `pp1c`, editable → `~/projects/protpardelle-1c/src`) |
 | `run_genie3_binder` | Genie 3 | 🟡 | `~/projects/genie3`, `scripts/problem/binder_design/`. Imports under the `genie2` env; **checkpoints not downloaded** (`assets/` is 6 MB, a gif) |
@@ -59,7 +60,7 @@ wrapper not written · 🟡 engine present, invocation confirmed but job not exe
 | `run_chai1` | Chai-1 0.6.1 | ⬜ | **not on host** — Apache-2.0 code+weights. L40S is a supported SKU; lowest integration risk of the missing folders |
 | `run_protenix` | Protenix v1 | ⬜ | **not on host** — Apache-2.0. Pin v1; v2 weights proprietary |
 | `run_openfold3` | OpenFold3 | ⬜ | **not on host** — Apache-2.0 code+weights+data |
-| `run_rf3` | RoseTTAFold3 | ⬜ | **not on host** (env `rf` holds only `se3_transformer`). Output schema unstable |
+| `run_rf3` | RoseTTAFold3 | ⬜ | Same `rc-foundry` install as RFD3 (`models/` holds `rf3`, `rfd3`, `rfd3na`, `mpnn`). No MSA support — bring your own a3m. Output schema unstable |
 | `run_alphafold2_multimer` | AF2-Multimer / ColabFold | ⬜ | not confirmed. Env `BindCraft` carries `jax` and may bundle ColabFold — needs checking. Still the reference ipTM discriminator |
 
 ## E. Scoring and analysis (6)
@@ -90,10 +91,10 @@ wrapper not written · 🟡 engine present, invocation confirmed but job not exe
 | 🟢 Executed successfully on GPU 7 | **4** |
 | 🟡 Present, invocation known, job not run | **11** |
 | 🟠 Partially working | **1** |
-| ⬜ Needs installing | **9** |
-| | **31 + 2 meta** |
+| ⬜ Needs installing | **10** |
+| | **32 + 2 meta** |
 
-**22 of 31 are reachable with what is already on this box**, and 8 of those have now been
+**22 of 32 are reachable with what is already on this box**, and 8 of those have now been
 run or had their exact invocation confirmed. Of the 9 missing, 7 are permissively
 licensed installs (BoltzGen MIT; Chai-1, Protenix, OpenFold3 Apache-2.0; Promera MIT) —
 a fetch, not a blocker. RF3 and AF2-Multimer need a decision: RF3's output schema is
