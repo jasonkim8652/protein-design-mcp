@@ -114,3 +114,24 @@ def test_doc_may_name_a_tool_marked_not_yet_implemented(tmp_path):
     )
     _write(tmp_path, "run_prodigy.yaml", body)
     assert len(load_manifests(tmp_path)) == 1
+
+
+def test_summary_naming_an_unknown_tool_is_rejected(tmp_path):
+    """The summary field (most visible) must also validate tool references."""
+    body = SOLO.replace(
+        'summary: Estimate binding free energy.',
+        'summary: See run_does_not_exist for more.',
+    )
+    _write(tmp_path, "run_prodigy.yaml", body)
+    with pytest.raises(ManifestError, match="run_does_not_exist"):
+        load_manifests(tmp_path)
+
+
+def test_summary_naming_a_tool_marked_not_yet_implemented_is_accepted(tmp_path):
+    """Forward references in summary are OK if marked."""
+    body = SOLO.replace(
+        'summary: Estimate binding free energy.',
+        'summary: See run_future_tool (not yet implemented) for more.',
+    )
+    _write(tmp_path, "run_prodigy.yaml", body)
+    assert len(load_manifests(tmp_path)) == 1
