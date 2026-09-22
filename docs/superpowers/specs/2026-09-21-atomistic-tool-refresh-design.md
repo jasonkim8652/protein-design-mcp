@@ -194,6 +194,7 @@ Retire `run_genie2` once Genie 3's weights are in place and exercised.
 | `run_boltz` | Boltz-2 2.2.1 | MIT | server/precomputed | Confidence only. Affinity head **not exposed** (§1). |
 | `run_protenix` | Protenix v1 | Apache-2.0 | optional | Richest confidence output: `chain_iptm`, `chain_pair_iptm`. **`pip install protenix` now resolves to 2.0.0, not the 0.5.5 this spec first recorded.** 2.0.0's default `model_name` is already `protenix_base_default_v1.0.0` (368.48M params; the proprietary v2 is 464M and opt-in only) — verified live, but **always pass `-n protenix_base_default_v1.0.0` explicitly** rather than relying on a silent default that a future release can change. |
 | `run_openfold3` | OpenFold3 / OpenBind-0 | Apache-2.0 code+weights+data | server default | `num_diffusion_samples` capped at 5 (§5.3). |
+| `run_promera` | Promera | MIT | optional | **Moved from §E and renamed 2026-09-22.** It was filed as scoring-only, and as duplicating `run_ipsae`. Both were wrong: its input is a directory of target *schemas* plus an `msa_dir`, so it co-folds. Its iCS and ipSAE are its own confidence in its own prediction — the same kind of output as Chai's `iptm`, not a second opinion on someone else's structure. `run_ipsae` remains the model-agnostic tool for scoring any predictor's PAE. Promera's `Design` task stays excluded (composite). |
 | `run_rf3` | RoseTTAFold3 | BSD-3 | **none — bring your own a3m** | Output schema unstable (§7). |
 | `run_alphafold3` | AF3 (RomeroLab MMseqs2-GPU fork) | weights non-commercial, no redistribution | required | Bring-your-own weights (§5.4). |
 | `run_alphafold2_multimer` | AF2-Multimer / ColabFold | Apache-2.0 code, CC-BY-4.0 params | required | Still the reference ipTM discriminator for binder filtering. |
@@ -202,7 +203,6 @@ Retire `run_genie2` once Genie 3's weights are in place and exercised.
 
 | Tool | Engine | License | Notes |
 |---|---|---|---|
-| `run_promera_score` | Promera | MIT | iCS (interface contact score) + ipSAE. **Scoring only** — Promera's Design task is composite and is not exposed. |
 | `run_ipsae` | ipSAE (Dunbrack lab) | permissive | Computes ipSAE from any model's PAE. Model-agnostic, CPU, seconds. |
 | `run_rosetta_interface` | PyRosetta InterfaceAnalyzer | **redistribution prohibited** | `dG_separated`, `dSASA`, `sc`, hbonds. Installed at runtime (§5.4). |
 | `run_prodigy` | PRODIGY | Apache-2.0 | CPU, milliseconds. Calibrated on natural complexes — see doc warning. |
