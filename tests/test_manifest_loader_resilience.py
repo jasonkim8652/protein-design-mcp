@@ -57,7 +57,7 @@ VALID = """\
 # one category) while a test is only trying to exercise cross-references.
 BAD_REF = """\
     name: run_needs_ref
-    category: generation
+    category: binder_generation
     engine: {repo: x, env: e, entry: [x]}
     summary: Does a thing. See run_ghost_tool for the alternative.
     doc: |
@@ -323,7 +323,7 @@ def test_bad_mounts_entry_excludes_only_its_own_manifest(tmp_path, monkeypatch):
         "run_boltz.yaml",
         """\
         name: run_boltz
-        category: cofolding
+        category: structure_prediction
         engine:
           repo: boltz
           prefix: /home/jk661/.conda/envs/boltz

@@ -25,15 +25,17 @@ DESCRIBE_TOOL_MANIFEST = parse_manifest(
             "category. Tool names here name the engine they run and nothing more, "
             "so call this before choosing between similar tools. Pass exactly one of: "
             "name= for one tool, or category= for a comparison of all tools in that "
-            "category (generation, monomer_generation, sequence_design, cofolding, scoring)."
+            "category (binder_generation, monomer_generation, sequence_design, "
+            "structure_prediction, msa, scoring, run_analysis, preparation)."
         ),
         "doc": (
             "## What this is\n"
             "A lookup over this server's tool documentation.\n\n"
             "## When to use it\n"
             "Before calling any tool you have not used, and whenever several tools "
-            "look interchangeable. `category='cofolding'` returns every structure "
-            "prediction tool side by side with the condition that selects each.\n\n"
+            "look interchangeable. `category='structure_prediction'` returns every "
+            "structure prediction tool side by side with the condition that selects "
+            "each.\n\n"
             "## What you must supply\n"
             "Exactly one of `name` or `category`.\n"
         ),
@@ -46,15 +48,18 @@ DESCRIBE_TOOL_MANIFEST = parse_manifest(
             "category": {
                 "type": "string",
                 "enum": [
-                    "generation",
+                    "binder_generation",
                     "monomer_generation",
                     "sequence_design",
-                    "cofolding",
+                    "structure_prediction",
+                    "msa",
                     "scoring",
+                    "run_analysis",
+                    "preparation",
                     "meta",
                 ],
                 "description": "Category to compare.",
-                "example": "cofolding",
+                "example": "structure_prediction",
             },
         },
     }
