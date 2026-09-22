@@ -58,6 +58,17 @@ def _extract_paragraphs(text: str) -> list[str]:
     return paragraphs
 
 
+def _has_marker_for_mention(paragraph: str, mentioned: str) -> bool:
+    """Check if the marker appears near a specific tool mention in the text.
+
+    Looks for the marker directly following the mention (with optional backticks).
+    E.g., `run_tool` (not yet implemented) or run_tool (not yet implemented).
+    """
+    # Pattern: optional backtick, mention, optional backtick, whitespace, marker in parens
+    pattern = rf"[`]?{re.escape(mentioned)}[`]?\s*\([^)]*{re.escape(_UNAVAILABLE_MARKER)}[^)]*\)"
+    return bool(re.search(pattern, paragraph, re.IGNORECASE))
+
+
 def _check_doc_references(manifests: list[Manifest]) -> None:
     """Every tool a summary/doc names must exist, or be marked not yet implemented.
 
@@ -83,7 +94,7 @@ def _check_doc_references(manifests: list[Manifest]) -> None:
                 for mentioned in _TOOL_MENTION_RE.findall(paragraph):
                     if mentioned in known or mentioned == manifest.name:
                         continue
-                    if _UNAVAILABLE_MARKER in paragraph.lower():
+                    if _has_marker_for_mention(paragraph, mentioned):
                         continue
                     raise ManifestError(
                         f"{manifest.name}: {text_kind} names {mentioned!r}, which is not a "
