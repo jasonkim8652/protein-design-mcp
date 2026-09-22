@@ -31,7 +31,10 @@ from typing import Any
 
 
 def stage_inputs(
-    names: Sequence[str], params: dict[str, Any], workdir: Path
+    names: Sequence[str],
+    params: dict[str, Any],
+    workdir: Path,
+    subdirs: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Copy each named path parameter's file into its own subdirectory of
     ``workdir``, returning a NEW params dict with those entries rewritten to
@@ -71,13 +74,24 @@ def stage_inputs(
     safely paper over. An empty list stages nothing and returns an empty
     list, not ``None`` — this is a legitimate value (e.g. "nothing survived
     upstream filtering"), never treated as "parameter absent".
+
+    ``subdirs`` optionally maps a staged name to an explicit relative path
+    (which may itself contain more segments) used INSTEAD of the default
+    ``<name>`` — see ``manifest.schema.EngineSpec.stage_subdir`` for why:
+    several staged names can then share one parent tree, each landing at
+    the specific relative location a downstream engine's own convention
+    expects (e.g. ``"design_dir"`` for one name and
+    ``"design_dir/refold_cif"`` for another, so both end up under the same
+    ``workdir/design_dir/``). A name absent from ``subdirs`` (or when
+    ``subdirs`` itself is ``None``) keeps the original ``workdir/<name>/``
+    placement.
     """
     staged = dict(params)
     for name in names:
         value = params.get(name)
         if value is None:
             continue
-        dest_dir = workdir / name
+        dest_dir = workdir / (subdirs.get(name, name) if subdirs else name)
         dest_dir.mkdir(parents=True, exist_ok=True)
         if isinstance(value, list):
             staged_items = []
