@@ -26,7 +26,7 @@ wrapper not written · 🟡 engine present, invocation confirmed but job not exe
 | `run_proteina_complexa_evaluate` | ″ | 🟡 | refolding metrics |
 | `run_proteina_complexa_analyze` | ″ | 🟡 | aggregate analysis over a run |
 | `run_rfdiffusion3` | RFdiffusion3 (RFD3) | ⬜ | **Missing from the spec's list** — released Dec 2025, after it was written. Via `pip install rc-foundry` (0.2.0, BSD-3) then `foundry install rfd3`. **Requires python 3.12.** All-atom diffusion under complex constraints; conditioning modes being confirmed, may warrant more than one tool |
-| `run_rfdiffusion2` | RFdiffusion2 | 🟡 | Official path needs **apptainer, which is not installed** (`.sif` present, 13.6G). Workaround verified: `PYTHONPATH=<repo> python rf_diffusion/benchmark/pipeline.py --config-name=...` in env `rfd2_src` |
+| `run_rfdiffusion2` | RFdiffusion2 | 🟢 | Official path needs **apptainer, which is not installed** (`.sif` present, 13.6G); a converted Docker image works as an opt-in `backend: "docker"`. Default `backend: "conda"` dispatches into env `rfd2_fixed` (a clone of `rfd2_src` with pydantic/scipy-numpy/fire gaps closed) -- CONFIRMED LIVE end to end through `ServerApp.call_tool` on GPU 7, 2026-09-22 |
 | `run_protpardelle` | Protpardelle-1c | 🟢 | `python -m protpardelle.sample <yaml> --num-mpnn-seqs 0` (env `pp1c`, editable → `~/projects/protpardelle-1c/src`) |
 | `run_genie3_binder` | Genie 3 | 🟡 | `~/projects/genie3`, `scripts/problem/binder_design/`. Imports under the `genie2` env; **checkpoints not downloaded** (`assets/` is 6 MB, a gif) |
 | `run_rfdiffusion_binder` | RFdiffusion | 🟡 | env `SE3nv` has `rfdiffusion 1.1.0`; not exercised in this survey |

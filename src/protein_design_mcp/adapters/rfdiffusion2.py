@@ -1,5 +1,5 @@
 """Adapter for RFdiffusion2 (`scripts/engines/rfdiffusion2.py`, env
-`rfd2_src`). Dispatches through the `rfd2_src` conda prefix by default
+`rfd2_fixed`). Dispatches through the `rfd2_fixed` conda prefix by default
 (`params["backend"] == "conda"`, the manifest's default); the wrapper can
 also launch the official container image as a sibling `docker run` when
 the caller explicitly sets `backend: "docker"` -- see the wrapper's own
