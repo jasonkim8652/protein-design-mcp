@@ -23,21 +23,39 @@ Recorded in the plan's own self-review; not gaps.
   `ligandmpnn_env` conda environment exists.
 - `pixi.toml` / `pixi.lock` and the multi-environment Dockerfile.
 
-## Unreachable code scheduled for removal
+## Unreachable code removed in plan 2, Task 9
 
-`src/protein_design_mcp/tools/` — 17 modules, 2061 lines. Nothing live imports it
-after the registry migration. Its `__init__.py` still eagerly imports seven
-removed-tool modules, so it is an import hazard, not merely dead weight.
+`src/protein_design_mcp/tools/` — 17 modules, 2061 lines — is gone (commit
+`df08252`). Its `__init__.py` eagerly imported seven removed-tool modules, so it was
+an import hazard, not merely dead weight.
 
-Remove it together with its tests, as one coherent change:
-`tests/test_design_binder.py`, `tests/test_validate_design.py`,
-`tests/test_optimize.py`, `tests/test_hotspots.py`, `tests/test_tools.py`.
-Those five account for 25 of the suite's 41 known failures, so the baseline drops
-when they go.
+`tools/status.py` was NOT deleted with the rest. It moved to
+`src/protein_design_mcp/job_status.py`: `get_design_status` is a pure query over
+`utils/job_queue.py`, not orchestration, and it is the implementation the planned
+`get_job_status` meta-tool (spec §3.2) should adopt rather than rewrite.
 
-Before deleting, consider mining `tools/hotspots.py` (536 lines of interface-analysis
-logic) — `suggest_hotspots` was removed as a composite tool, but the underlying
-analysis may be worth keeping under the new structure.
+**Caveat for whoever implements `get_job_status`:** `_estimate_time_remaining` in that
+module hardcodes per-step timings for `rfdiffusion`, `proteinmpnn` and `esmfold` — the
+OLD composite pipeline's steps, which no longer exist. Its 6 tests in
+`tests/test_job_queue.py::TestGetDesignStatus` pass, but they pin stale behaviour.
+Replace the estimator when you wire the tool up; do not trust its numbers.
+
+Six test files went with the package: `test_design_binder.py`,
+`test_validate_design.py`, `test_optimize.py`, `test_hotspots.py`, `test_tools.py`,
+`test_analyze.py`. They carried 26 of the suite's 41 known failures (hotspots 17,
+optimize 7, design_binder 1, analyze 1, validate_design 0, tools 0), so the baseline
+is now **15**.
+
+`tools/hotspots.py` was reviewed for salvage before deletion and nothing was kept: it
+is orchestration glue over `utils/` (sasa, uniprot, conservation, pubmed,
+fetch_structure), where the real analysis lives untouched. What it added on top was
+hardcoded-weight scoring heuristics and blanket `except Exception` swallowing, neither
+of which fits the manifest-driven adapter pattern. Likewise `tools/analyze.py`:
+`analyze_interface`'s hand-rolled distance-cutoff heuristics are superseded by
+`run_prodigy` (shipped) and `run_rosetta_interface` (planned), per spec §8.
+
+Recoverable from git at `7a45f13:src/protein_design_mcp/tools/` if any of this proves
+wrong.
 
 ## Findings the final review carried forward
 
@@ -81,7 +99,7 @@ Python `int` — unlike `np.float64`, which does subclass `float`. That rational
 load-bearing and undocumented, and is exactly what a future "tidy-up" of branch
 order would break.
 
-## Two traps this plan fell into, worth naming
+## Three traps this plan fell into, worth naming
 
 **A test can confirm a file is current without confirming it is correct.** The
 doc-staleness test compares committed output against freshly generated output. When
@@ -95,3 +113,22 @@ replaced the call to `run_server`. Every test still passed, and the guard no lon
 guarded anything. When a test is the only protection for a specific bug, re-verify
 after every change that it still fails when that bug is reintroduced — in the
 production code, not in the test's own copy.
+
+**A deletion list is only as good as the dependency scan behind it.** This document
+originally named five test files to delete with `tools/` and stated they accounted for
+25 of the 41 failures. The count was right; the list was not. Two further files —
+`tests/test_analyze.py` and `tests/test_job_queue.py` — imported the package and were
+never checked for, because the list was assembled from "tests named after removed
+tools" rather than from `grep -rn "protein_design_mcp\.tools" tests/`. It surfaced
+only at execution time, and only because the implementer's brief required a safety
+grep and forbade working around a hit. Derive deletion lists from the importer graph,
+never from naming conventions.
+
+**A clean `git ls-files` does not prove a deleted package is unimportable.** After the
+deletion commit, `src/protein_design_mcp/tools/` still existed on disk holding nothing
+but a git-ignored `__pycache__`. Under PEP 420 a bare directory on the path is a
+namespace package, so `import protein_design_mcp.tools` still succeeded, returning
+`_NamespacePath([...])`. Git tracked nothing there and every grep was clean, yet the
+working tree masked the removal — any reference the grep had missed would have
+imported fine locally and failed only on a fresh clone, i.e. exactly where nobody was
+looking. Confirm a removal by attempting the import and requiring `ModuleNotFoundError`.
