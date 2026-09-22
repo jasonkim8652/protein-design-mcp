@@ -5,7 +5,7 @@
 **Environment:** `scoring`  
 **GPU required:** no
 
-> This file is generated from `manifests/run_prodigy.yaml`. Edit the manifest, then run `python scripts/generate_tool_docs.py`.
+> This file is generated from `src/protein_design_mcp/manifests/run_prodigy.yaml`. Edit the manifest, then run `python scripts/generate_tool_docs.py`.
 
 ## Summary
 

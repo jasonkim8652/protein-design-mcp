@@ -1,12 +1,14 @@
+from pathlib import Path
+
 import pytest
 
 from protein_design_mcp.adapters.prodigy import build_args, parse_output
+from protein_design_mcp.app import manifest_dir
 from protein_design_mcp.dispatch.env import CompletedRun
 from protein_design_mcp.manifest.loader import load_manifests
 from protein_design_mcp.validation import ToolInputError, validate_and_fill
-from pathlib import Path
 
-MANIFEST_DIR = Path(__file__).resolve().parents[1] / "manifests"
+MANIFEST_DIR = manifest_dir()
 
 SAMPLE_STDOUT = """\
 [+] Reading structure file: /tmp/complex.pdb

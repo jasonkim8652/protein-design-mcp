@@ -1,6 +1,13 @@
 """
 High-level MCP tools for protein design.
 
+NOTE: this package is unreachable from the MCP server after the
+manifest-driven migration (see protein_design_mcp.app.ServerApp /
+manifest.registry.ToolRegistry) — server.py no longer imports or dispatches
+to anything here. It is kept, along with its tests, only because its removal
+is deliberately scheduled for the follow-up plan that replaces it with
+manifest-driven adapters.
+
 Core tools exposed via MCP:
 - design_binder: End-to-end binder design pipeline (RFdiffusion + ProteinMPNN + ESMFold)
 - design_fold: End-to-end de novo fold design (RFdiffusion + ProteinMPNN + AlphaFold2)
@@ -17,13 +24,13 @@ Optional tools (imported lazily by server handlers — require extra deps):
   → `pip install "protein-design-mcp[boltz]"` (needs torch>=2.2)
 """
 
+from protein_design_mcp.tools.analyze import analyze_interface
 from protein_design_mcp.tools.design_binder import design_binder
 from protein_design_mcp.tools.design_fold import design_fold
 from protein_design_mcp.tools.design_sequence import design_sequence
-from protein_design_mcp.tools.analyze import analyze_interface
-from protein_design_mcp.tools.validate import validate_design
-from protein_design_mcp.tools.optimize import optimize_sequence
 from protein_design_mcp.tools.hotspots import suggest_hotspots
+from protein_design_mcp.tools.optimize import optimize_sequence
+from protein_design_mcp.tools.validate import validate_design
 
 __all__ = [
     "design_binder",
