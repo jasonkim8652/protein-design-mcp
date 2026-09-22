@@ -58,6 +58,44 @@ def test_manifest_documents_that_it_runs_no_model():
     assert "runs no model" in text
 
 
+def test_manifest_mounts_the_foldseek_binary_with_a_discovery_explanation():
+    """foldseek is a standalone binary invoked as a subprocess, not a Python
+    import -- python -m protein_design_mcp.mounts (discover_mounts) cannot
+    find it (it walks sys.path/.pth files), so it must be hand-declared, and
+    the manifest must say so or a future mounts-regeneration pass will
+    assume it's spurious and delete it (the exact failure class
+    run_mmseqs_search's own mounts comment already guards against)."""
+    engine = _manifest().engine
+    assert "/home/jk661/.local/bin/foldseek" in engine.mounts
+
+
+def test_manifest_explains_why_foldseek_is_hand_declared():
+    """The explanation belongs in the manifest's own YAML comment (PyYAML
+    strips comments from the parsed Manifest, so this reads the raw file,
+    same place a human re-deriving mounts would actually look)."""
+    source = (MANIFEST_DIR / "run_boltzgen_analyze.yaml").read_text().lower()
+    assert "discover_mounts" in source
+    assert "hand" in source
+
+
+def test_run_clustering_description_states_benefit_and_cost_not_unverified():
+    """Coordinator follow-up: foldseek is confirmed present on this host, so
+    'unverified' is no longer the right framing -- the description must say
+    what turning this on gets you and what it costs instead."""
+    desc = _manifest().schema["run_clustering"]["description"].lower()
+    assert "unverified" not in desc
+    assert "cluster" in desc
+
+
+def test_designfolding_metrics_path_records_its_unexercised_status_in_the_manifest():
+    """Coordinator follow-up: the designfolding_metrics -> run_boltzgen_design_fold
+    path was verified unit-test-only, not with a live GPU run -- that caveat
+    must live in the manifest/doc (git-tracked), not only in the
+    (gitignored) wave report, or it disappears."""
+    text = (_manifest().doc + _manifest().schema["designfolding_metrics"]["description"]).lower()
+    assert "not yet" in text or "not been" in text or "no live" in text or "unverified" in text
+
+
 def test_required_and_optional_params():
     schema = _manifest().schema
     assert schema["generated_files"]["required"] is True
@@ -76,6 +114,7 @@ def test_validation_fills_defaults():
     assert params["designfolding_metrics"] is False
     assert params["num_processes"] == 32
     assert params["num_workers"] == 4
+    assert params["foldseek_binary"] == "/home/jk661/.local/bin/foldseek"
 
 
 def test_validation_rejects_missing_refold_metrics():
@@ -132,6 +171,14 @@ def test_build_args_includes_liability_and_process_knobs():
     joined = " ".join(args)
     assert "liability_modality=antibody" in joined
     assert "num_processes=8" in joined
+
+
+def test_build_args_includes_foldseek_binary_path():
+    params = _base_params(run_clustering=True)
+    args = build_args(_manifest(), params)
+    joined = " ".join(args)
+    assert "run_clustering=true" in joined
+    assert "foldseek_binary=/home/jk661/.local/bin/foldseek" in joined
 
 
 # --- parse_output ---
