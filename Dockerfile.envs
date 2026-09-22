@@ -99,8 +99,10 @@ RUN micromamba create -y -n md -c conda-forge python=3.11 openmm=8.6.1 pdbfixer=
 # with the newest setuptools on PyPI — 84.0.0 as of this build — but
 # setuptools removed pkg_resources entirely some versions back, so the
 # engine subprocess died with `ModuleNotFoundError: No module named
-# 'pkg_resources'` on the very first live run. `setuptools<81` still ships
-# it (confirmed locally with 79.0.1); pinned explicitly here for that reason,
+# 'pkg_resources'` on the very first live run. Pinned to setuptools==79.0.1
+# exactly (verified live to still ship pkg_resources) — not the range
+# `setuptools<81` an earlier version of this file used, which is exactly
+# the kind of ambiguity pinning every engine dependency exists to rule out;
 # not because ligandmpnn declares any such bound itself.
 #
 # SETTLED LIVE (Task 7), second finding: ligandmpnn's `torch==2.2.1` pin has
@@ -116,7 +118,7 @@ RUN micromamba create -y -n md -c conda-forge python=3.11 openmm=8.6.1 pdbfixer=
 RUN micromamba create -y -n mpnn -c conda-forge python=3.11 pip \
     && micromamba run -n mpnn pip install --no-cache-dir torch==2.2.1 \
         --index-url https://download.pytorch.org/whl/cpu \
-    && micromamba run -n mpnn pip install --no-cache-dir "setuptools<81" ligandmpnn==0.1.2 \
+    && micromamba run -n mpnn pip install --no-cache-dir setuptools==79.0.1 ligandmpnn==0.1.2 \
     && micromamba clean --all --yes
 
 # SETTLED LIVE (Task 7), third finding: importing ligandmpnn.run pulls in

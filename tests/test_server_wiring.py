@@ -5,7 +5,7 @@ import pytest
 
 import protein_design_mcp.app as app_module
 from protein_design_mcp.app import ServerApp, manifest_dir
-from protein_design_mcp.dispatch.env import CompletedRun
+from protein_design_mcp.dispatch.env import CompletedRun, EnvDispatcher
 from protein_design_mcp.manifest.registry import ToolRegistry
 from protein_design_mcp.manifest.schema import parse_manifest
 
@@ -502,3 +502,38 @@ async def test_a_manifest_without_engine_stage_never_touches_new_workdir(tmp_pat
     )
     payload = json.loads(_text(result))
     assert payload["ok"] is True
+
+
+@pytest.mark.asyncio
+async def test_a_staging_failure_preserves_its_workdir_like_run_does(tmp_path, monkeypatch):
+    """FIX 1 (coordinator review round 2): a REAL EnvDispatcher, not a fake
+    one — a fake dispatcher's new_workdir()/run() are just recorded calls,
+    so they can't prove anything about what happens to the directory ON
+    DISK when staging fails between them. A manifest declaring `stage`
+    plus a caller-supplied path that does not exist must produce the same
+    diagnosable-error contract run()'s own failure branches already give:
+    the workdir is NOT removed, and the error names it as "preserved for
+    diagnosis", in that exact wording, rather than silently orphaning a
+    scratch directory nobody was told about."""
+
+    def build_args(manifest, params):
+        raise AssertionError("build_args must never run — staging failed first")
+
+    monkeypatch.setattr(
+        app_module, "ADAPTERS", {"run_prodigy": (build_args, lambda m, r: {})}
+    )
+
+    dispatcher = EnvDispatcher(runner=None, scratch_root=tmp_path)
+    app = ServerApp(ToolRegistry([_staging_manifest()]), dispatcher=dispatcher)
+
+    missing = tmp_path / "does_not_exist.pdb"
+    result = await app.call_tool("run_prodigy", {"structure": str(missing)})
+
+    assert result.isError is True
+    payload = json.loads(_text(result))
+    assert "preserved for diagnosis" in payload["error"]
+
+    workdirs = list(tmp_path.glob("pdmcp-*"))
+    assert len(workdirs) == 1, "the workdir new_workdir() created must survive the failure"
+    assert workdirs[0].is_dir()
+    assert str(workdirs[0]) in payload["error"]
