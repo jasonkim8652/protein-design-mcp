@@ -11,6 +11,7 @@ import re
 from typing import Any
 
 from protein_design_mcp.dispatch.env import CompletedRun
+from protein_design_mcp.manifest.schema import Manifest
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +26,16 @@ _KD_RE = re.compile(r"dissociation constant \(M\)[^:]*:\s*([\d.eE+-]+)", re.I)
 _CONTACTS_RE = re.compile(r"intermolecular contacts:\s*(\d+)", re.I)
 
 
-def build_args(params: dict[str, Any]) -> list[str]:
-    """Translate validated parameters into PRODIGY's argv."""
+def build_args(manifest: Manifest, params: dict[str, Any]) -> list[str]:
+    """Translate validated parameters into PRODIGY's argv.
+
+    ``manifest`` is unused here — PRODIGY backs exactly one tool — but is
+    part of every adapter's signature (app.ADAPTERS is keyed on
+    manifest.name, not manifest.engine.repo) so a future adapter module
+    backing several tools on one engine repo can branch on
+    ``manifest.name`` without changing the call site.
+    """
+    del manifest
     return [
         str(params["complex_pdb"]),
         "--selection",
@@ -37,8 +46,10 @@ def build_args(params: dict[str, Any]) -> list[str]:
     ]
 
 
-def parse_output(run: CompletedRun) -> dict[str, Any]:
-    """Extract PRODIGY's numbers from stdout."""
+def parse_output(manifest: Manifest, run: CompletedRun) -> dict[str, Any]:
+    """Extract PRODIGY's numbers from stdout. ``manifest`` is unused (see
+    ``build_args``)."""
+    del manifest
     affinity = _AFFINITY_RE.search(run.stdout)
     if affinity is None:
         raise ValueError(

@@ -28,9 +28,15 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT_S = float(os.environ.get("PROTEIN_MCP_TIMEOUT", "3600"))
 
-# Engine name -> (build_args, parse_output). Populated per adapter.
+# Tool name -> (build_args, parse_output). Keyed on manifest.name, NOT
+# manifest.engine.repo: several tools can share one engine repo (e.g. a
+# future run_boltzgen_design / run_boltzgen_inverse_fold / run_boltzgen_filter
+# all with engine.repo == "boltzgen"), and keying on repo would make them all
+# resolve to the same adapter functions, building argv for the wrong tool.
+# Both functions receive the manifest so one adapter module can still serve
+# several tools sharing a repo by branching on manifest.name.
 ADAPTERS = {
-    "prodigy": (prodigy.build_args, prodigy.parse_output),
+    "run_prodigy": (prodigy.build_args, prodigy.parse_output),
 }
 
 
@@ -142,20 +148,25 @@ class ServerApp:
         except ToolInputError as exc:
             return _error(str(exc))
 
-        adapter = ADAPTERS.get(manifest.engine.repo)
+        adapter = ADAPTERS.get(manifest.name)
         if adapter is None:
             return _error(
-                f"{name} has no adapter registered for engine "
-                f"{manifest.engine.repo!r}"
+                f"{name} has no adapter registered (engine "
+                f"{manifest.engine.repo!r})"
             )
 
         build_args, parse_output = adapter
         try:
             run = await self._dispatcher.run(
-                manifest.engine, build_args(params), timeout=DEFAULT_TIMEOUT_S
+                manifest.engine, build_args(manifest, params), timeout=DEFAULT_TIMEOUT_S
             )
-            return _ok(parse_output(run))
+            return _ok(parse_output(manifest, run))
         except EngineError as exc:
             return _error(str(exc))
-        except ValueError as exc:
-            return _error(f"{name}: could not parse engine output: {exc}")
+        except Exception as exc:
+            # Catches ValueError (e.g. "could not parse engine output") and,
+            # critically, KeyError: the most likely adapter mistake, since
+            # validate_and_fill omits optional parameters that have no
+            # default. Either must produce a clear error payload, not an
+            # opaque protocol-level failure.
+            return _error(f"adapter for {name} failed: {exc}")
