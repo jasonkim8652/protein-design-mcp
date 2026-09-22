@@ -24,12 +24,20 @@ requires:
   gpu: true
 
 outputs:
+  # Pattern matches BOTH `<id>.cif` and its companion `<id>.npz` -- see
+  # run_boltzgen_design.yaml's identical comment for the full reasoning
+  # (`[cn][ip][fz]` is "cif" or "npz", nothing else). BoltzGen's own
+  # downstream fold/design_fold/analyze steps need each design's .npz
+  # metadata alongside its .cif in the SAME directory.
   - name: inverse_folded_designs
-    pattern: "intermediate_designs/*.cif"
+    pattern: "intermediate_designs/*.[cn][ip][fz]"
     description: >-
-      One all-atom mmCIF per requested sequence (inverse_fold_num_sequences
-      of them), each carrying a fresh sequence for the chain(s) design_spec
-      marked `design:`. Every other chain is written back unchanged.
+      One all-atom mmCIF plus its metadata .npz per requested sequence
+      (inverse_fold_num_sequences of them), each carrying a fresh sequence
+      for the chain(s) design_spec marked `design:`. Every other chain is
+      written back unchanged. Pass this WHOLE list (both file types) as
+      run_boltzgen_fold's or run_boltzgen_design_fold's `generated_files`
+      to continue the pipeline -- the .npz is required, not optional.
     multiple: true
 
 summary: >-

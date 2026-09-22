@@ -192,3 +192,24 @@ def test_parse_output_raises_when_outputs_missing(tmp_path):
     run = CompletedRun(returncode=0, stdout="", stderr="", workdir=tmp_path, outputs={})
     with pytest.raises(ValueError, match="inverse_folded_designs"):
         parse_output(_manifest(), run)
+
+
+def test_parse_output_ignores_npz_metadata_mixed_into_outputs(tmp_path):
+    """inverse_folded_designs' pattern now collects BOTH .cif and .npz (see
+    the manifest) so a downstream run_boltzgen_fold/analyze call can be
+    handed the combined list directly."""
+    cif = tmp_path / "spec_0.cif"
+    npz = tmp_path / "spec_0.npz"
+    _write_cif(cif, {"A": "LALVL"})
+    npz.write_bytes(b"\x00not a cif")
+    run = CompletedRun(
+        returncode=0, stdout="", stderr="", workdir=tmp_path,
+        outputs={"inverse_folded_designs": [str(cif), str(npz)]},
+    )
+    result = parse_output(_manifest(), run)
+    assert result["num_designs"] == 1
+
+
+def test_manifest_inverse_folded_designs_pattern_also_collects_npz():
+    pattern = _manifest().outputs[0].pattern
+    assert pattern.endswith(".[cn][ip][fz]")

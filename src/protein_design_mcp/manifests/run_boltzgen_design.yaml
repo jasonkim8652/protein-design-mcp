@@ -25,14 +25,31 @@ requires:
   gpu: true
 
 outputs:
+  # Pattern matches BOTH `<id>.cif` and its companion `<id>.npz`: `[cn][ip][fz]`
+  # is a 3-position character class ("cif" or "npz", nothing else -- both
+  # extensions happen to be 3 characters, and no other extension in this
+  # directory matches any combination it allows). BoltzGen's own downstream
+  # steps (fold/design_fold/analyze, via data_from_generated.py) read a
+  # design's .npz metadata (design_mask, mol_type, ...) from the SAME
+  # directory as its .cif, by matching stem -- without the .npz collected
+  # here too, run_boltzgen_fold/run_boltzgen_analyze would have no path to
+  # this tool's output at all (results.collect_outputs puts every declared
+  # output under its OWN name's subdirectory, so a second `generated_metadata`
+  # spec would land the .npz files in a DIFFERENT collected directory than
+  # the .cif files, breaking the same-directory requirement all over again).
+  # See wave-E-report.md for the full reasoning.
   - name: generated_designs
-    pattern: "intermediate_designs/*.cif"
+    pattern: "intermediate_designs/*.[cn][ip][fz]"
     description: >-
-      One all-atom mmCIF per generated design. Chain composition matches
-      design_spec's own entities (the target chain(s) unchanged, the
-      designed chain(s) with new coordinates AND a new sequence BoltzGen's
-      diffusion model proposed jointly). This is NOT yet inverse-folded --
-      see the doc's "What you get back" for why that usually matters.
+      One all-atom mmCIF plus its metadata .npz per generated design. Chain
+      composition matches design_spec's own entities (the target chain(s)
+      unchanged, the designed chain(s) with new coordinates AND a new
+      sequence BoltzGen's diffusion model proposed jointly). This is NOT
+      yet inverse-folded -- see the doc's "What you get back" for why that
+      usually matters. Pass this WHOLE list (both file types) as
+      run_boltzgen_fold's or run_boltzgen_inverse_fold's `generated_files`
+      to continue the pipeline -- the .npz is required, not optional, for
+      those tools to read this design back.
     multiple: true
 
 summary: >-
