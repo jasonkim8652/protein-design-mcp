@@ -178,6 +178,26 @@ def test_timeout_defaults_to_one_hour():
     assert parse_manifest(MINIMAL).timeout_s == 3600
 
 
+def test_output_multiple_defaults_to_false():
+    data = {
+        **MINIMAL,
+        "outputs": [{"name": "minimized_pdb", "pattern": "minimized.pdb"}],
+    }
+    (out,) = parse_manifest(data).outputs
+    assert out.multiple is False
+
+
+def test_output_multiple_is_parsed():
+    data = {
+        **MINIMAL,
+        "outputs": [
+            {"name": "designs_fasta", "pattern": "seqs/*.fa", "multiple": True},
+        ],
+    }
+    (out,) = parse_manifest(data).outputs
+    assert out.multiple is True
+
+
 def test_timeout_is_parsed():
     assert parse_manifest({**MINIMAL, "timeout_s": 120}).timeout_s == 120
 

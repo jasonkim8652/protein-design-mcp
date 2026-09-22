@@ -40,11 +40,16 @@ class OutputSpec:
     ``pattern`` is a path relative to the scratch directory. Declaring outputs
     is what lets the dispatcher collect results and then remove the workdir;
     an engine whose results are only on stdout declares none.
+
+    ``multiple`` opts a spec into collecting every file the pattern matches,
+    returned as a list. Without it, a pattern matching more than one file is
+    treated as ambiguous and rejected rather than silently picking one.
     """
 
     name: str
     pattern: str
     description: str = ""
+    multiple: bool = False
 
 
 @dataclass(frozen=True)
@@ -179,6 +184,7 @@ def _parse_outputs(data: Any, name: str) -> tuple[OutputSpec, ...]:
                 name=str(out_name),
                 pattern=pattern,
                 description=str(entry.get("description", "")),
+                multiple=bool(entry.get("multiple", False)),
             )
         )
     return tuple(specs)
