@@ -2,7 +2,7 @@
 
 **Category:** run_analysis  
 **Engine:** `boltzgen`  
-**Environment:** `None`  
+**Environment:** `/home/jk661/miniforge3/envs/boltzgen`  
 **GPU required:** no
 
 > This file is generated from `src/protein_design_mcp/manifests/run_boltzgen_filter.yaml`. Edit the manifest, then run `python scripts/generate_tool_docs.py`.
@@ -62,7 +62,7 @@ lower-is-better and are applied as upper-bound thresholds, not ranked.
 ## When to use this instead of the alternatives
 - If you have not yet generated or inverse-folded any designs, this tool
   has nothing to rank -- use `run_boltzgen_design` and
-  `run_boltzgen_inverse_fold` (not yet implemented), and BoltzGen's own
+  `run_boltzgen_inverse_fold`, and BoltzGen's own
   `folding`/`design_folding`/`analysis` steps, which this server does not
   expose as separate tools, first.
 - `run_ipsae` and `run_prodigy` score ONE structure at a time from a

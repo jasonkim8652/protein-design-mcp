@@ -1,0 +1,89 @@
+# run_boltzgen_inverse_fold
+
+**Category:** sequence_design  
+**Engine:** `boltzgen`  
+**Environment:** `/home/jk661/miniforge3/envs/boltzgen`  
+**GPU required:** yes
+
+> This file is generated from `src/protein_design_mcp/manifests/run_boltzgen_inverse_fold.yaml`. Edit the manifest, then run `python scripts/generate_tool_docs.py`.
+
+## Summary
+
+Design a sequence for a fixed, fully-specified structure with BoltzGen's OWN inverse-folding head (boltzgen1_ifold.ckpt) -- NOT ProteinMPNN. This is BoltzGen's `inverse_folding` step run standalone (`--only_inverse_fold`), the alternative sequence-design path to `run_mpnn` for anyone already working in BoltzGen's own structure/spec format: redesigning an existing structure (including this server's own `run_boltzgen_design` output), not extending a diffusion run.
+
+## What this is
+BoltzGen's `inverse_folding` pipeline step
+(`boltzgen.task.predict.predict.Predict` over `inverse_fold_only.yaml`),
+run via `boltzgen run <design_spec> --steps inverse_folding
+--only_inverse_fold`. Reads a FULLY specified structure -- every residue,
+including the ones being redesigned, needs real backbone coordinates
+already, since there is no diffusion step here to generate them -- and
+predicts a new sequence for whichever residues design_spec marks
+`design:` (a `file:` entity's own `design:`/`not_design:` residue mask;
+see BoltzGen's own spec grammar). Every other residue is written back
+with its input sequence unchanged.
+
+This is the SAME inverse-folding head BoltzGen's own default pipeline
+runs automatically after its `design` (diffusion) step -- exposed here
+standalone so it can also be applied directly to a structure that did not
+come from BoltzGen's own diffusion model at all (an experimental
+structure, another tool's backbone, or a structure you are simply
+re-designing).
+
+## When to use this instead of the alternatives
+- `run_mpnn` (ProteinMPNN/LigandMPNN/SolubleMPNN) is the field-standard
+  inverse-folding tool and works from a bare backbone PDB with no spec
+  file needed -- use it when you are not otherwise working in BoltzGen's
+  design_spec format, or want ProteinMPNN specifically (a different
+  model, different training data, different failure modes).
+- Use THIS tool when you already have (or want) a BoltzGen design_spec --
+  most directly, to re-derive the sequence BoltzGen's own default
+  pipeline would keep for a backbone `run_boltzgen_design` (this same
+  wave) just generated: wrap that tool's output `.cif` in a design_spec
+  `file:` entity, mark the designed chain with `design:`, and call this
+  tool on it.
+- Neither this tool nor `run_mpnn` scores the result. Refold with a
+  structure predictor and check the sequence actually folds the way you
+  designed it before trusting it.
+
+## What you must supply
+`design_spec`: a design specification YAML whose `file:` entity/entities
+carry real backbone coordinates for every residue, with a `design:` list
+naming the chain(s)/residue(s) to redesign (e.g. `design: [{chain: {id:
+A}}]` redesigns all of chain A; everything not listed is held fixed).
+Chain composition -- which chains are present, which are redesigned -- is
+entirely design_spec's own decision, never inferred by this tool.
+
+## What you get back
+`designs`: one entry per generated `.cif` (inverse_fold_num_sequences of
+them), each `{"id", "chains": [{"chain_id", "sequence", "length"}, ...]}`
+for every chain in that file. No chain is singled out as "the design" in
+this payload -- the chain(s) you marked `design:` are the ones whose
+sequence changed; every other chain is reported too, as a genuine
+confirmation that it came back unchanged, not a guess about which is
+which. `num_designs`, and under `outputs` the paths to every generated
+`.cif`.
+
+## Important caveats
+- No confidence metric of any kind is computed here -- refold and score
+  before trusting a result.
+- `--reuse` is not exposed: every call gets a fresh, empty scratch
+  directory, so there is never anything to reuse.
+- `avoid_residues` has no static default tied to a modality name (this
+  tool does not expose `--protocol` at all): BoltzGen's own CLI defaults
+  this to "C" (exclude cysteine) for its peptide/nanobody/antibody
+  protocols and "" otherwise, but since design_spec alone (not a protocol
+  name) determines what you are designing here, set `avoid_residues`
+  directly to "C" yourself for a peptide/nanobody/antibody redesign.
+
+## Parameters
+
+| Parameter | Type | Required | Default | Constraints | Description |
+|---|---|---|---|---|---|
+| `design_spec` | string | yes | `—` | pattern: `\.(yaml\|yml)$` | Design specification YAML with a FULLY specified structure (real backbone coordinates for every residue) and a `design:` list naming which chain(s)/residue(s) to redesign. Chain composition is defined here, never inferred by this tool. |
+| `inverse_fold_num_sequences` | integer | no | `1` | minimum: `1`<br>maximum: `1000` | Number of independent sequences to sample for the same fixed backbone. BoltzGen's own default is 1; raise it to get a diverse set of sequences for the same shape (verified live: 2 sequences for one 17-residue chain took 9.1s total, most of it one-time model load). |
+| `inverse_fold_checkpoint` | string | no | `huggingface:boltzgen/boltzgen-1:boltzgen1_ifold.ckpt` | — | Path or huggingface:repo:file reference for the inverse-folding checkpoint. BoltzGen's own default, already cached on this host (~12M -- much smaller than the design/folding checkpoints). |
+| `avoid_residues` | string | no | `` | pattern: `^[A-Z]*$` | One-letter amino acid codes this tool must never place at a designed position, e.g. "C" to forbid cysteine, "CM" to forbid cysteine and methionine. Empty (allow every residue) is BoltzGen's own default for a bare protein; its peptide/nanobody/antibody protocol presets instead default this to "C" (an unpaired free cysteine is a liability for those modalities: aggregation, disulfide scrambling) -- set "C" yourself if design_spec is peptide/nanobody/antibody-typed, since this tool does not read a protocol name to infer it for you. |
+| `use_kernels` | string | no | `auto` | enum: `['auto', 'true', 'false']` | Whether to use BoltzGen's fused CUDA kernels. "auto" (BoltzGen's own default) enables them when the GPU's compute capability is >= 8.0 -- confirmed live on this host's GPUs (capability 8.9), kernels are used. |
+| `moldir` | string | no | `huggingface:boltzgen/inference-data:mols.zip` | — | Path or huggingface:repo:file reference for BoltzGen's canonical molecule/CCD library, needed to resolve residue and ligand chemistry. BoltzGen's own default, already cached on this host. |
+| `num_workers` | integer | no | `1` | minimum: `0`<br>maximum: `32` | DataLoader worker process count. 1 is a safe default for a single interactive call; raise it only if data loading, not GPU compute, is the bottleneck. |
