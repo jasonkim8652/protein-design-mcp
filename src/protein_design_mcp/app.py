@@ -76,7 +76,34 @@ def build_registry(device: str = "cuda") -> ToolRegistry:
             exc,
         )
         manifests = []
-    return ToolRegistry(manifests, device=device)
+    registry = ToolRegistry(manifests, device=device)
+    _log_exclusions(registry, manifests)
+    return registry
+
+
+def _log_exclusions(registry: ToolRegistry, manifests: list[Manifest]) -> None:
+    """Log the full exclusion table at startup.
+
+    ``build_registry`` never passes ``available_weights`` or ``licensed``,
+    so both default to empty, and ToolRegistry silently excludes ANY
+    manifest declaring ``requires.weights`` or ``requires.license_gated``
+    (as well as GPU-only and composite tools). ToolRegistry already stores
+    the reason per tool (``excluded()``); without this, a tool vanishing
+    from the listing looked mysterious rather than visible.
+    """
+    exclusions = {m.name: registry.excluded(m.name) for m in manifests}
+    exclusions = {name: reason for name, reason in exclusions.items() if reason}
+    if not exclusions:
+        return
+    table = "\n".join(
+        f"  - {name}: {reason}" for name, reason in sorted(exclusions.items())
+    )
+    logger.warning(
+        "%d of %d tool manifest(s) excluded from the registry at startup:\n%s",
+        len(exclusions),
+        len(manifests),
+        table,
+    )
 
 
 def _resolve_path_params(manifest: Manifest, params: dict[str, Any]) -> dict[str, Any]:
