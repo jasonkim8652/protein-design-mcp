@@ -1,173 +1,153 @@
 # protein-design-mcp — tools
 
-**36 tools** (34 `run_*` + 2 meta). Classified by **function**, not by which engine a
+**36 tools** (34 `run_*` + 2 meta), classified by **function** — not by which engine a
 tool came from.
-
-Status: ✅ shipped · 🟢 ran on GPU 7 · 🟠 partial · 🟡 present, not yet run
-
-MSA columns: **optional?** = can the caller turn the alignment off · **builds own?** =
-can the tool produce its own alignment, or must one be supplied
 
 ---
 
 ## 1. `binder_generation` — generate a binder against a target (7)
 
-| Tool | Engine | Status |
-|---|---|---|
-| `run_proteina_complexa_generate` | Proteina-Complexa 160M | 🟡 |
-| `run_boltzgen_design` | BoltzGen 0.3.2 | 🟢 |
-| `run_rfdiffusion_binder` | RFdiffusion 1.1.0 | 🟡 |
-| `run_rfdiffusion2` | RFdiffusion2 | 🟡 |
-| `run_rfdiffusion3_binder` | RFdiffusion3 | 🟡 |
-| `run_genie3_binder` | Genie 3 | 🟡 |
-| `run_protpardelle` | Protpardelle-1c 1.3.2 | 🟢 |
+| Tool | Engine |
+|---|---|
+| `run_proteina_complexa_generate` | Proteina-Complexa 160M |
+| `run_boltzgen_design` | BoltzGen 0.3.2 |
+| `run_rfdiffusion_binder` | RFdiffusion 1.1.0 |
+| `run_rfdiffusion2` | RFdiffusion2 |
+| `run_rfdiffusion3_binder` | RFdiffusion3 |
+| `run_genie3_binder` | Genie 3 |
+| `run_protpardelle` | Protpardelle-1c 1.3.2 |
 
 ## 2. `monomer_generation` — generate a monomer or scaffold (6)
 
-| Tool | Engine | Status |
-|---|---|---|
-| `run_rfdiffusion3_scaffold` | RFdiffusion3 | 🟢 |
-| `run_genie3_scaffold` | Genie 3 | 🟡 |
-| `run_genie2` | Genie2 | 🟢 |
-| `run_frameflow` | FrameFlow | 🟢 |
-| `run_multiflow` | MultiFlow | 🟠 |
-| `run_la_proteina` | La-Proteina | 🟡 |
+| Tool | Engine |
+|---|---|
+| `run_rfdiffusion3_scaffold` | RFdiffusion3 |
+| `run_genie3_scaffold` | Genie 3 |
+| `run_genie2` | Genie2 |
+| `run_frameflow` | FrameFlow |
+| `run_multiflow` | MultiFlow |
+| `run_la_proteina` | La-Proteina |
 
 ## 3. `sequence_design` — design a sequence for a fixed backbone (2)
 
-| Tool | Engine | Status |
-|---|---|---|
-| `run_mpnn` | ProteinMPNN / LigandMPNN / SolubleMPNN | ✅ |
-| `run_boltzgen_inverse_fold` | BoltzGen's own IF head | 🟢 |
+| Tool | Engine |
+|---|---|
+| `run_mpnn` | ProteinMPNN / LigandMPNN / SolubleMPNN |
+| `run_boltzgen_inverse_fold` | BoltzGen's own inverse-folding head |
 
 ## 4. `structure_prediction` — predict a structure (9)
 
-| Tool | Engine | MSA optional? | Builds own? | Status |
-|---|---|---|---|---|
-| `run_esmfold2` | ESMFold2 | n/a — takes no alignment | — | 🟢 |
-| `run_chai1` | Chai-1 0.6.1 | yes (off by default) | yes | 🟢 |
-| `run_boltz` | Boltz-2 2.2.1 | yes | server / precomputed | 🟢 |
-| `run_protenix` | Protenix v1 | yes — smoke ran MSA-free | yes | 🟢 |
-| `run_openfold3` | OpenFold3 | yes — smoke ran MSA-free | server default | 🟢 |
-| `run_promera` | Promera | yes (`msa_dir`) | no — supply one | 🟢 |
-| `run_rf3` | RoseTTAFold3 | **yes** — smoke ran with `seq` only | **no** — supply one | 🟢 |
-| `run_alphafold3` | AlphaFold 3 | **yes** — both fields `""` | **yes** — both `null` | 🟡 |
-| `run_alphafold2_multimer` | ColabFold | **yes** — `--msa-mode single_sequence` | yes | 🟢 |
+| Tool | Engine | MSA |
+|---|---|---|
+| `run_esmfold2` | ESMFold2 | takes none |
+| `run_chai1` | Chai-1 0.6.1 | optional |
+| `run_boltz` | Boltz-2 2.2.1 | optional |
+| `run_protenix` | Protenix v1 | optional |
+| `run_openfold3` | OpenFold3 | optional |
+| `run_promera` | Promera | optional |
+| `run_rf3` | RoseTTAFold3 | optional |
+| `run_alphafold3` | AlphaFold 3 | optional (paired + unpaired) |
+| `run_alphafold2_multimer` | AF2-Multimer / ColabFold | optional |
+
+No tool here requires an alignment, and none builds its own — see below.
 
 ## 5. `msa` — build an alignment (2)
 
-| Tool | Engine | Status |
-|---|---|---|
-| `run_mmseqs_search` | MMseqs2 vs the 1.3 TB local DB | 🟡 |
-| `run_colabfold_search` | `colabfold_search` vs UniRef30/envDB | 🟡 |
+| Tool | Engine |
+|---|---|
+| `run_mmseqs_search` | MMseqs2 vs the local 1.3 TB databases |
+| `run_colabfold_search` | `colabfold_search` vs UniRef30 / envDB |
 
 ## 6. `scoring` — score an existing structure (4)
 
-| Tool | Engine | Status |
-|---|---|---|
-| `run_ipsae` | ipSAE — works on any predictor's PAE | ✅ |
-| `run_prodigy` | PRODIGY | ✅ |
-| `run_rosetta_interface` | PyRosetta InterfaceAnalyzer | 🟡 |
-| `run_esm_score` | ESM2-650M / ESM-C | 🟡 |
+| Tool | Engine |
+|---|---|
+| `run_ipsae` | ipSAE — works on any predictor's PAE |
+| `run_prodigy` | PRODIGY |
+| `run_rosetta_interface` | PyRosetta InterfaceAnalyzer |
+| `run_esm_score` | ESM2-650M / ESM-C |
 
 ## 7. `run_analysis` — operate on a finished run's outputs (3)
 
-| Tool | Engine | Runs a model | Status |
-|---|---|---|---|
-| `run_proteina_complexa_filter` | Proteina-Complexa | no | 🟡 |
-| `run_boltzgen_filter` | BoltzGen | no | 🟢 |
-| `run_proteina_complexa_analyze` | Proteina-Complexa | no (foldseek/mmseqs) | 🟡 |
+| Tool | Engine | Runs a model |
+|---|---|---|
+| `run_proteina_complexa_filter` | Proteina-Complexa | no |
+| `run_boltzgen_filter` | BoltzGen | no |
+| `run_proteina_complexa_analyze` | Proteina-Complexa | no (foldseek / mmseqs) |
 
 ## 8. `preparation` — modify a structure before scoring (1)
 
-| Tool | Engine | Status |
-|---|---|---|
-| `run_openmm_minimize` | OpenMM 8.6 | ✅ |
+| Tool | Engine |
+|---|---|
+| `run_openmm_minimize` | OpenMM 8.6 |
 
 ## 9. `meta` (2)
 
-| Tool | Status |
-|---|---|
-| `describe_tool` | ✅ |
-| `get_job_status` | 🟡 |
+| Tool |
+|---|
+| `describe_tool` |
+| `get_job_status` |
 
 ---
+
+## MSA is always supplied, never generated inside a folding tool
+
+A folding tool that builds its own alignment is doing two steps — search, then fold —
+and hiding one of them. The alignment comes from category 5 and nowhere else.
+
+| `msa` value | meaning |
+|---|---|
+| `null` | run MSA-free |
+| `<path>` | use this alignment |
+| absent | rejected — the choice is stated, never inherited from a default |
+
+There is no `"auto"`. Four reasons it was dropped:
+
+1. **It hides a step this server registers separately** — the same rule that removed
+   `run_proteina_complexa_evaluate`.
+2. **It makes model comparison impossible.** If AlphaFold 3 searches its own databases
+   while Chai-1 searches ColabFold's, the difference between two predicted structures
+   confounds the model with the alignment. One a3m into all nine is the only clean
+   comparison.
+3. **It is how a sequence silently leaves the machine.** Several of these engines
+   default to a *remote* MSA server, and the sequences here are usually novel designs.
+4. **It hides cost and duplicates work.** A search over 1.3 TB is slow; under `"auto"`
+   the caller can neither see nor control it, and nine tools rebuild the same alignment
+   nine times instead of reusing one.
+
+**Sequencing — the MSA tools land first.** AlphaFold 3's native pipeline produces a
+paired MSA, an unpaired MSA and templates, not one plain a3m. `run_mmseqs_search` must
+be able to emit each consumer's required shape *before* `"auto"` is removed anywhere;
+otherwise a working path is replaced by a broken one. Each MSA tool states which
+consumers its output is valid for, and each `msa` parameter states which producer it
+expects — MMseqs2 against AlphaFold 3's databases and `colabfold_search` against
+UniRef30/envDB search different sequence universes, and a consumer handed the wrong one
+usually returns worse results rather than failing.
+
+AF3 also carries a coupling rule the schema must enforce: `unpairedMsa` and `pairedMsa`
+are either both set or both null.
 
 ## Parameter policy
 
-Every engine knob is exposed. A parameter is hidden only if it selects a step this
-server registers separately, or if it would let a caller escape the workdir.
+Every knob the engine exposes is exposed here. A parameter is hidden only when it
+selects a step this server registers separately, or when it would let a caller escape
+the workdir.
 
-### `msa` — always the caller's choice
-
-Being able to build an alignment is not a reason to use one. Running MSA-free and
-running with an MSA are **different experiments**, and comparing them is a legitimate
-thing to want. So the parameter is tri-state on every tool that can accept one:
-
-| value | meaning |
-|---|---|
-| `null` | run MSA-free, even though an alignment could have been supplied |
-| `"auto"` | let the engine build its own, where it can |
-| `<path to a3m>` | use this alignment |
-| absent | rejected — the choice must be stated, never inherited from a default |
-
-**No tool requires an MSA.** An earlier version of this table marked `run_rf3`,
-`run_alphafold3` and `run_alphafold2_multimer` as `req`; all three were wrong.
-RF3's smoke test ran from a JSON carrying only `seq` and returned a structure. AF3's
-own documentation lists "both `unpairedMsa` and `pairedMsa` set to `""`" as
-"equivalent to running completely MSA-free". ColabFold has `--msa-mode
-single_sequence`. The error came from reading RF3's note "none — bring your own a3m"
-as *requires* an alignment, when it means the engine *does not build* one — two
-different properties that this table now keeps in separate columns.
-
-`"auto"` is rejected by the tools whose **builds own?** column says no; the error names
-`run_mmseqs_search` as the way to obtain an a3m rather than leaving the caller stuck.
-
-AF3 carries a coupling rule the schema must enforce: `unpairedMsa` and `pairedMsa` are
-either *both* set or *both* null — one of each is invalid.
-
-Each `msa` description names **which producer's a3m it expects**. MMseqs2 against
-AlphaFold 3's databases and `colabfold_search` against UniRef30/envDB search different
-sequence universes; a consumer built for one will often accept the other and quietly
-return worse results rather than failing.
-
-### `chains` — multimer or binder alone, never inferred
-
-Whether a prediction runs with the target present or on the binder alone is the
-caller's decision, and one of the most consequential it makes — a binder predicted
-alone and the same binder predicted in complex are different experiments. No tool
-infers this from the shape of its input.
-
-### Every other knob
-
-Sampling steps, diffusion timesteps, temperature, seed, sample count, beam width,
-recycles, model variant — all exposed. Each description says what the parameter does,
-what changes when it moves, and a sensible range. Defaults are documented as choices
-with a reason, not stated as facts.
-
----
-
-## Corrections made while building this
-
-| Was | Now |
-|---|---|
-| `run_promera_score` in `scoring`, "duplicates `run_ipsae`" | **Wrong.** Its input is a target-schema directory plus `msa_dir` — it co-folds. Its iCS/ipSAE are its own confidence in its own prediction, like Chai's iptm. Moved to `structure_prediction`, renamed `run_promera`. |
-| `run_openmm_minimize` category `scoring` | It relaxes a structure and scores nothing. Moved to `preparation`. |
-| `run_boltzgen_inverse_fold` in generation | It is inverse folding. Moved to `sequence_design`, which looked like it held one tool. |
-| Filters and analyze in generation | They run no model. Moved to `run_analysis`. |
-| `run_rfdiffusion3` as one tool | Split into `_binder` / `_scaffold` — different inputs, and merging would hide binder design inside a JSON field. |
-| `cofolding` | Renamed `structure_prediction`; half of them also fold monomers. |
-| No MSA tool at all | Three tools required an alignment nothing could produce. Added category 5. |
-| `run_proteina_complexa_evaluate` | **Removed** — composite over capabilities exposed here individually, and it hid a `binder is last chain` convention. |
+- **`chains` is never inferred.** Whether a prediction runs with the target present or
+  on the binder alone is the caller's decision and one of the most consequential it
+  makes — the same binder predicted alone and in complex are different experiments.
+- **Every description says what the parameter does, what changes when it moves, and a
+  sensible range.** A type is not a description.
+- **Defaults are documented as choices with a reason**, not stated as facts.
 
 ## Excluded by design
 
 BindCraft, FreeBindCraft, ColabDesign, BoltzDesign1, mosaic, Odin-Multi, EasyNano,
 dl_binder_design, RFantibody — gradient-based hallucination through a folding model.
 `complexa design`, `boltzgen run`, Promera's `Design` task — orchestrators over steps
-exposed here individually. Boltz-2's affinity head — protein–ligand only. Protenix v2,
-SeedProteo, Chai-2, AlphaProteo, Pearl, Proteina (original), Chroma — no public or
-permissive weights.
-
-Remote MSA servers are off by default: they transmit the caller's sequence to a third
-party, and here those sequences are usually novel designs.
+exposed here individually. `run_proteina_complexa_evaluate` — bundled refolding,
+interface analysis and force-field metrics that are all exposed separately, and hid a
+`binder is last chain` convention. Boltz-2's affinity head — protein-ligand only.
+Protenix v2, SeedProteo, Chai-2, AlphaProteo, Pearl, Proteina (original), Chroma — no
+public or permissive weights. Remote MSA servers — they transmit the caller's sequence
+off the machine.
