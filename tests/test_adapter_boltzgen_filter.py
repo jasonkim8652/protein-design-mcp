@@ -19,7 +19,13 @@ def _manifest():
 def _base_params(**overrides):
     return validate_and_fill(
         _manifest(),
-        {"design_spec": "design.yaml", "design_dir": "analysis_out", **overrides},
+        {
+            "design_spec": "design.yaml",
+            "generated_files": ["design_0.cif", "design_0.npz"],
+            "metrics_files": ["metrics.csv", "seqs.pkl.gz"],
+            "refold_structures": ["design_0.cif"],
+            **overrides,
+        },
     )
 
 
@@ -45,10 +51,22 @@ def test_manifest_documents_that_it_runs_no_model():
     assert "runs no model" in text
 
 
-def test_design_spec_and_design_dir_are_required():
+def test_design_spec_and_file_lists_are_required():
     schema = _manifest().schema
     assert schema["design_spec"]["required"] is True
-    assert schema["design_dir"]["required"] is True
+    assert schema["generated_files"]["required"] is True
+    assert schema["metrics_files"]["required"] is True
+    assert schema["refold_structures"]["required"] is True
+
+
+def test_manifest_stages_all_three_file_lists_into_one_shared_tree():
+    engine = _manifest().engine
+    assert set(engine.stage) == {"generated_files", "metrics_files", "refold_structures"}
+    assert engine.stage_subdir == {
+        "generated_files": "design_dir",
+        "metrics_files": "design_dir",
+        "refold_structures": "design_dir/refold_cif",
+    }
 
 
 def test_every_threshold_and_ranking_knob_is_a_parameter():
@@ -83,9 +101,40 @@ def test_min_interaction_pae_direction_is_documented():
 # --- validation corner cases ---
 
 
-def test_validation_rejects_missing_design_dir():
-    with pytest.raises(ToolInputError, match="design_dir"):
-        validate_and_fill(_manifest(), {"design_spec": "design.yaml"})
+def test_validation_rejects_missing_generated_files():
+    with pytest.raises(ToolInputError, match="generated_files"):
+        validate_and_fill(
+            _manifest(),
+            {
+                "design_spec": "design.yaml",
+                "metrics_files": ["a.csv", "b.pkl.gz"],
+                "refold_structures": ["a.cif"],
+            },
+        )
+
+
+def test_validation_rejects_missing_metrics_files():
+    with pytest.raises(ToolInputError, match="metrics_files"):
+        validate_and_fill(
+            _manifest(),
+            {
+                "design_spec": "design.yaml",
+                "generated_files": ["a.cif", "a.npz"],
+                "refold_structures": ["a.cif"],
+            },
+        )
+
+
+def test_validation_rejects_missing_refold_structures():
+    with pytest.raises(ToolInputError, match="refold_structures"):
+        validate_and_fill(
+            _manifest(),
+            {
+                "design_spec": "design.yaml",
+                "generated_files": ["a.cif", "a.npz"],
+                "metrics_files": ["a.csv", "b.pkl.gz"],
+            },
+        )
 
 
 def test_validation_fills_defaults():
@@ -123,11 +172,14 @@ def test_build_args_wraps_boltzgen_run_with_filtering_step_only():
     assert args[args.index("--config") + 1] == "filtering"
 
 
-def test_build_args_includes_design_dir_and_outdir_overrides():
-    params = _base_params()
+def test_build_args_derives_design_dir_from_metrics_files_parent():
+    params = _base_params(
+        metrics_files=["/scratch/design_dir/metrics.csv", "/scratch/design_dir/seqs.pkl.gz"],
+        refold_structures=["/scratch/design_dir/refold_cif/design_0.cif"],
+    )
     args = build_args(_manifest(), params)
     joined = " ".join(args)
-    assert "design_dir=analysis_out" in joined
+    assert "design_dir=/scratch/design_dir" in joined
     assert "outdir=." in joined
 
 

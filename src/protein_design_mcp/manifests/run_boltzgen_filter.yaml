@@ -13,6 +13,22 @@ engine:
   # no `mounts:` beyond the prefix itself is needed for module resolution.
   prefix: /home/jk661/miniforge3/envs/boltzgen
   entry: ["boltzgen", "run"]
+  # Filter needs a design_dir that contains THREE different prior tool
+  # calls' outputs, reassembled: run_boltzgen_design/inverse_fold's own
+  # original .cif (Filter.write_outdir's own `self.design_dir / filename`
+  # copy -- verified live, it reads this directly, not just the refolded
+  # copy) at design_dir's ROOT alongside run_boltzgen_analyze's metrics
+  # (aggregate_metrics_*.csv, ca_coords_sequences.pkl.gz -- also ROOT), and
+  # run_boltzgen_fold's refolded structures under design_dir/refold_cif/
+  # specifically. Each already split into its own collected subdirectory
+  # (results.collect_outputs namespaces every declared output by spec
+  # name) -- `stage`+`stage_subdir` reassembles them before this engine
+  # runs, same mechanism as run_boltzgen_analyze.
+  stage: ["generated_files", "metrics_files", "refold_structures"]
+  stage_subdir:
+    generated_files: design_dir
+    metrics_files: design_dir
+    refold_structures: design_dir/refold_cif
   env_vars:
     # BoltzGen's own weights/mol-library artifacts are cached under the
     # HOST's real HuggingFace cache (~5.6G, already downloaded -- see
@@ -55,21 +71,19 @@ summary: >-
   Re-rank a finished BoltzGen run with new thresholds, for free, without
   regenerating anything (BoltzGen's own `filtering` pipeline step). This
   tool runs no model at all -- it is pure dataframe filtering and ranking
-  over the numeric columns BoltzGen's own predict/score steps already wrote
-  to design_dir/aggregate_metrics_*.csv. Change a threshold and call again
-  as many times as you like; each call costs seconds, not GPU time.
+  over the numeric columns `run_boltzgen_analyze` already wrote. Change a
+  threshold and call again as many times as you like; each call costs
+  seconds, not GPU time.
 
 doc: |
   ## What this is
   BoltzGen's `filtering` pipeline step (`boltzgen.task.filter.filter.Filter`),
   run in isolation via `boltzgen run <design_spec> --steps filtering`. It reads
-  `design_dir/aggregate_metrics_*.csv` (written earlier by BoltzGen's own
-  `analysis` step, over structures its `folding`/`design_folding` steps
-  produced) and does three things, in order: (1) apply hard pass/fail
-  thresholds, (2) rank the survivors by a composite of the metrics you
-  choose, weighted by how much each should matter, (3) run a lazy-greedy
-  diversity selection so the final set is not just the top-ranked cluster of
-  near-duplicate sequences.
+  `design_dir/aggregate_metrics_*.csv` (from `run_boltzgen_analyze`) and does
+  three things, in order: (1) apply hard pass/fail thresholds, (2) rank the
+  survivors by a composite of the metrics you choose, weighted by how much
+  each should matter, (3) run a lazy-greedy diversity selection so the final
+  set is not just the top-ranked cluster of near-duplicate sequences.
 
   **This step runs no model.** There is no `boltz` package import anywhere
   in it and no GPU use -- it is dataframe arithmetic (pandas/numpy) over
@@ -89,13 +103,22 @@ doc: |
     `boltzgen run` validates every design spec it is given before running
     any step, `--steps filtering` included -- this file's content has no
     effect on the filtering step's own numbers, but it must still parse.
-  - `design_dir`: the directory BoltzGen's own `analysis` step wrote into --
-    it must contain `aggregate_metrics_*.csv` and `ca_coords_sequences.pkl.gz`,
-    and (unless you disable the filters that need them) `refold_cif/` and
-    `refold_design_cif/`. This is a read-only input to this tool; nothing is
-    ever written back into it -- every output goes to this tool's own scratch
-    directory instead (`outdir`/`--output` are always this run's workdir, not
-    `design_dir`, and not the original run's `--output` directory either).
+  - `generated_files`: the WHOLE `outputs.generated_designs` (or
+    `outputs.inverse_folded_designs`) list, passed straight through --
+    BoltzGen's own `Filter.write_outdir` copies the ORIGINAL (pre-refold)
+    `.cif` from `design_dir` directly, not just the refolded copy
+    (verified live).
+  - `metrics_files`: `run_boltzgen_analyze`'s own `aggregate_metrics_csv`
+    and `sequence_cache` outputs, passed straight through (e.g.
+    `[analyze_result["outputs"]["aggregate_metrics_csv"],
+    analyze_result["outputs"]["sequence_cache"]]`) -- BoltzGen's own
+    `analysis` step's outputs are collected under two different names by
+    this server (see `results.collect_outputs`), so they arrive as two
+    separate paths; this tool reassembles them into one directory before
+    running, same as `run_boltzgen_analyze` itself does for ITS inputs.
+  - `refold_structures`: `run_boltzgen_fold`'s own `refolded_structures`
+    output, passed straight through -- needed to copy the selected designs'
+    structures into the final output, not for any ranking number.
 
   ## Ranking direction -- read before setting metrics_override
   Every metric this tool ranks by is defined so that **higher is better**
@@ -140,18 +163,50 @@ schema:
       here) -- it is required because `boltzgen run` validates every design
       spec it is given before running any step at all, `--steps filtering`
       included. Pass the same file you used (or would have used) to produce
-      design_dir.
+      the designs metrics_files/refold_structures came from.
     example: design.yaml
-  design_dir:
-    type: string
-    format: path
+  generated_files:
+    type: array
+    minItems: 2
+    items:
+      type: string
+      format: path
     required: true
     description: >-
-      Directory BoltzGen's own `analysis` step wrote into: must contain
-      `aggregate_metrics_*.csv` and `ca_coords_sequences.pkl.gz`, and (for
-      the default filter/metric settings below) `refold_cif/` and
-      `refold_design_cif/`. Read-only -- nothing is ever written back here.
-    example: intermediate_designs_inverse_folded
+      The WHOLE `outputs.generated_designs` (from run_boltzgen_design) or
+      `outputs.inverse_folded_designs` (from run_boltzgen_inverse_fold)
+      list -- every `.cif` AND `.npz` path that call returned, unfiltered.
+      Required because BoltzGen's own `Filter.write_outdir` copies the
+      ORIGINAL (pre-refold) `.cif` from `design_dir` directly, not just the
+      refolded copy in `refold_structures` (verified live).
+    example: ["design_spec_0.cif", "design_spec_0.npz"]
+  metrics_files:
+    type: array
+    minItems: 2
+    items:
+      type: string
+      format: path
+    required: true
+    description: >-
+      `run_boltzgen_analyze`'s own `aggregate_metrics_csv` and
+      `sequence_cache` outputs (the exact paths that call returned), passed
+      through unfiltered. `aggregate_metrics_*.csv` is the ranking table
+      itself; `ca_coords_sequences.pkl.gz` is required for the diversity
+      selection step.
+    example: ["aggregate_metrics_analyze.csv", "ca_coords_sequences.pkl.gz"]
+  refold_structures:
+    type: array
+    minItems: 1
+    items:
+      type: string
+      format: path
+    required: true
+    description: >-
+      `run_boltzgen_fold`'s own `refolded_structures` output (the exact
+      paths that call returned), passed through unfiltered -- the mmCIF
+      files copied into the final selected-designs output. Not used for
+      any ranking number, only for producing `selected_structures`.
+    example: ["design_spec_0.cif"]
   budget:
     type: integer
     minimum: 1
@@ -225,35 +280,35 @@ schema:
       protocol presets all default this to true instead, since an
       unpaired free cysteine is a liability for those modalities
       (aggregation, disulfide scrambling) more than for a bulk protein
-      binder. Set true if design_dir's designs were peptide/nanobody/
-      antibody-typed.
+      binder. Set true if the designs were peptide/nanobody/antibody-typed.
     example: false
   filter_designfolding:
     type: boolean
-    default: true
+    default: false
     description: >-
       Also require the design refolded ALONE (target absent) to match its
       generated shape (`designfolding-filter_rmsd`), on top of the
-      with-target refolding check every run already applies. true is
-      BoltzGen's default when its `design_folding` step ran (its
-      `protein-anything`/`protein-small_molecule` protocols run it by
-      default; `peptide-anything`/`nanobody-anything`/`antibody-anything`
-      do not). Set this to false if design_dir has no
-      `refold_design_cif/` directory -- true against missing data raises
-      a KeyError from the underlying engine, not a clean filtered-out result.
-    example: true
+      with-target refolding check every run already applies. Requires the
+      metrics table (`metrics_files`) to carry a `designfolding-rmsd`/
+      `designfolding-bb_rmsd` column -- only present if `run_boltzgen_analyze`
+      was run with `designfolding_metrics: true`, which itself requires
+      `run_boltzgen_design_fold` to have produced that data. true against
+      metrics with no such column raises a KeyError from the underlying
+      engine, not a clean filtered-out result -- leave this false unless
+      you have confirmed that column exists.
+    example: false
   from_inverse_folded:
     type: boolean
     default: true
     description: >-
-      True if design_dir's designs went through BoltzGen's own
-      inverse-folding head (this server's `run_boltzgen_inverse_fold`, or
-      the `inverse_folding` step of a full `boltzgen run`) -- the normal
-      case, and the only one this server's own tools produce. Ranks and
-      filters on backbone-only RMSD (`bb_rmsd*`) and the refolded ΔSASA
-      column. Set false only if design_dir's designs skipped inverse
-      folding entirely, which switches ranking to all-atom RMSD and the
-      ΔSASA computed on the original (non-refolded) structure instead.
+      True if the designs went through BoltzGen's own inverse-folding head
+      (this server's `run_boltzgen_inverse_fold`, or the `inverse_folding`
+      step of a full `boltzgen run`) -- the normal case, and the only one
+      this server's own tools produce. Ranks and filters on backbone-only
+      RMSD (`bb_rmsd*`) and the refolded ΔSASA column. Set false only if
+      the designs skipped inverse folding entirely, which switches ranking
+      to all-atom RMSD and the ΔSASA computed on the original
+      (non-refolded) structure instead.
     example: true
   filter_bindingsite:
     type: boolean
@@ -376,9 +431,10 @@ schema:
     description: >-
       Switch the ranking metric set to one built around
       `affinity_probability_binary1` instead of the default interface
-      metrics -- only meaningful if design_dir's designs went through
-      BoltzGen's own `affinity` step (small-molecule-binder campaigns,
-      BoltzGen's `protein-small_molecule` protocol). false is BoltzGen's
-      default for every other protocol; true against a design_dir with no
-      affinity column ranks on a column that does not exist.
+      metrics -- only meaningful if the designs went through BoltzGen's own
+      `affinity` step (small-molecule-binder campaigns; not exposed by any
+      tool in this server -- protein-ligand only, excluded the same way
+      Boltz-2's affinity head is). false is BoltzGen's default for every
+      other case; true against metrics with no affinity column ranks on a
+      column that does not exist.
     example: false
