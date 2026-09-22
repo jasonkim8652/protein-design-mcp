@@ -147,6 +147,15 @@ def _describe_one(registry: ToolRegistry, name: str) -> dict[str, Any]:
         # Answer directly rather than failing registry.resolve() with
         # "unknown tool".
         manifest = DESCRIBE_TOOL_MANIFEST
+    elif name == GET_JOB_STATUS_MANIFEST.name:
+        # Same reasoning as describe_tool immediately above: get_job_status
+        # has no engine and is never loaded from manifests/*.yaml either, so
+        # it is equally absent from the registry's own manifest set. Without
+        # this branch, describe_tool(name="get_job_status") would fail with
+        # "unknown tool" even though the tool itself is callable -- a real
+        # gap caught by driving this through the real describe_tool path
+        # live rather than only unit-testing get_job_status in isolation.
+        manifest = GET_JOB_STATUS_MANIFEST
     else:
         try:
             manifest = registry.resolve(name)
