@@ -12,12 +12,14 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import shutil
 import signal
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import gettempdir
-from typing import Any, Sequence
+from typing import Any
 
 from protein_design_mcp.manifest.schema import EngineSpec
 
@@ -82,7 +84,8 @@ class EnvDispatcher:
             raise EngineError(
                 f"could not start engine {engine.repo!r} in environment "
                 f"{engine.env!r}: {exc}. Check that the environment exists "
-                f"and that {command[0]!r} is on PATH."
+                f"and that {command[0]!r} is on PATH. Working directory "
+                f"preserved for diagnosis: {workdir}"
             ) from exc
 
         try:
@@ -99,7 +102,8 @@ class EnvDispatcher:
                     await process.wait()
                 raise EngineError(
                     f"engine {engine.repo!r} timed out after {timeout:.0f}s. "
-                    "Reduce the sample count or raise the tool's timeout."
+                    "Reduce the sample count or raise the tool's timeout. "
+                    f"Working directory preserved for diagnosis: {workdir}"
                 ) from exc
         except BaseException:
             if process.returncode is None:
@@ -120,12 +124,19 @@ class EnvDispatcher:
                 raise EngineError(
                     f"engine {engine.repo!r} ran out of GPU memory. Reduce the "
                     "number of samples, shorten the input, or use a smaller "
-                    f"model variant.\n{stderr.strip()[-2000:]}"
+                    f"model variant.\n{stderr.strip()[-2000:]}\n"
+                    f"Working directory preserved for diagnosis: {workdir}"
                 )
             raise EngineError(
                 f"engine {engine.repo!r} exited with code {process.returncode}.\n"
-                f"{stderr.strip()[-2000:]}"
+                f"{stderr.strip()[-2000:]}\n"
+                f"Working directory preserved for diagnosis: {workdir}"
             )
+
+        # Only a clean run's scratch directory is removed: a failed run
+        # keeps its workdir (see the EngineError branches above) so it can
+        # be inspected, since it may hold partial output or logs.
+        shutil.rmtree(workdir, ignore_errors=True)
 
         return CompletedRun(
             returncode=process.returncode,
