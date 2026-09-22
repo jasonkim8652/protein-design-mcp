@@ -217,3 +217,126 @@ def test_output_matching_a_symlink_outside_the_workdir_is_refused(tmp_path, monk
     specs = (OutputSpec(name="designs", pattern="*.fa", multiple=True),)
     with pytest.raises(OutputPathEscapeError, match="designs"):
         collect_outputs(specs, workdir, "r")
+
+
+# ---------------------------------------------------------------------------
+# Containment matrix.
+#
+# Containment is a property of *every* matched source, so it has to be tested
+# across every axis that changes which code path a match travels. `multiple`
+# is that axis: rounds 1 and 3 each fixed one of its two branches and left the
+# other exposed, precisely because each round's test only exercised the branch
+# it had just edited. These four tests pin both branches against both
+# outcomes -- refuse the escape, and do NOT over-reject the ordinary file --
+# so a fix to one branch alone can no longer look green.
+# ---------------------------------------------------------------------------
+
+BOTH_MULTIPLE_MODES = pytest.mark.parametrize(
+    "multiple",
+    [False, True],
+    ids=["multiple_false_the_default", "multiple_true"],
+)
+
+
+@BOTH_MULTIPLE_MODES
+def test_symlink_escape_is_refused_for_both_multiple_modes(tmp_path, monkeypatch, multiple):
+    """A symlink inside the workdir pointing outside it must be refused.
+
+    The default (``multiple=False``) branch is the one every simple engine
+    uses, so an escape there is the one that matters most.
+    """
+    monkeypatch.setenv("PROTEIN_MCP_RESULTS_DIR", str(tmp_path / "res"))
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("SECRET\n")
+
+    workdir = tmp_path / "wd"
+    workdir.mkdir()
+    (workdir / "link.txt").symlink_to(outside / "secret.txt")
+
+    specs = (OutputSpec(name="leak", pattern="link.txt", multiple=multiple),)
+    with pytest.raises(OutputPathEscapeError, match="leak"):
+        collect_outputs(specs, workdir, f"r{multiple}")
+
+    # Nothing from outside the workdir may have been written into results.
+    results_root = tmp_path / "res"
+    leaked = [p for p in results_root.rglob("*") if p.is_file()]
+    assert leaked == [], f"refused escape still copied files: {leaked}"
+
+
+@BOTH_MULTIPLE_MODES
+def test_ordinary_file_is_still_collected_for_both_multiple_modes(
+    tmp_path, monkeypatch, multiple
+):
+    """Over-rejection guard: a plain, non-symlinked file must still collect.
+
+    A containment check that refuses everything would make the escape tests
+    above pass vacuously.
+    """
+    monkeypatch.setenv("PROTEIN_MCP_RESULTS_DIR", str(tmp_path / "res"))
+    workdir = tmp_path / "wd"
+    workdir.mkdir()
+    (workdir / "plain.txt").write_text("ORDINARY\n")
+
+    specs = (OutputSpec(name="plain", pattern="plain.txt", multiple=multiple),)
+    collected = collect_outputs(specs, workdir, f"r{multiple}")
+
+    got = collected["plain"]
+    if multiple:
+        assert isinstance(got, list) and len(got) == 1
+        got = got[0]
+    else:
+        assert isinstance(got, str)
+    assert Path(got).read_text() == "ORDINARY\n"
+    assert not Path(got).is_relative_to(workdir)
+
+
+@BOTH_MULTIPLE_MODES
+def test_symlink_pointing_inside_the_workdir_is_allowed(tmp_path, monkeypatch, multiple):
+    """Second over-rejection guard: symlink-ness alone is not an escape.
+
+    A symlink that resolves to a file still inside the workdir is contained,
+    so it must be collected. Only leaving the workdir is refused.
+    """
+    monkeypatch.setenv("PROTEIN_MCP_RESULTS_DIR", str(tmp_path / "res"))
+    workdir = tmp_path / "wd"
+    (workdir / "real").mkdir(parents=True)
+    (workdir / "real" / "target.txt").write_text("INSIDE\n")
+    (workdir / "alias.txt").symlink_to(workdir / "real" / "target.txt")
+
+    specs = (OutputSpec(name="alias", pattern="alias.txt", multiple=multiple),)
+    collected = collect_outputs(specs, workdir, f"r{multiple}")
+
+    got = collected["alias"]
+    if multiple:
+        got = got[0]
+    assert Path(got).read_text() == "INSIDE\n"
+
+
+def test_no_output_is_copied_when_a_later_spec_escapes(tmp_path, monkeypatch):
+    """Containment is checked for every spec before any copy happens.
+
+    This pins the choke point's *position*: a valid spec listed before an
+    escaping one must not have been copied out by the time the escape is
+    refused. Without a validate-everything-first pass, the first spec's file
+    would already be sitting in the results directory.
+    """
+    monkeypatch.setenv("PROTEIN_MCP_RESULTS_DIR", str(tmp_path / "res"))
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("SECRET\n")
+
+    workdir = tmp_path / "wd"
+    workdir.mkdir()
+    (workdir / "good.txt").write_text("GOOD\n")
+    (workdir / "link.txt").symlink_to(outside / "secret.txt")
+
+    specs = (
+        OutputSpec(name="good", pattern="good.txt"),
+        OutputSpec(name="leak", pattern="link.txt"),
+    )
+    with pytest.raises(OutputPathEscapeError, match="leak"):
+        collect_outputs(specs, workdir, "r")
+
+    copied = [p for p in (tmp_path / "res").rglob("*") if p.is_file()]
+    assert copied == [], f"a copy happened before all specs were checked: {copied}"
