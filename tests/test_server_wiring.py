@@ -1,13 +1,12 @@
 import json
-from pathlib import Path
 
 import pytest
 
-from protein_design_mcp.app import ServerApp
+from protein_design_mcp.app import ServerApp, manifest_dir
 from protein_design_mcp.manifest.registry import ToolRegistry
 from protein_design_mcp.manifest.schema import parse_manifest
 
-MANIFEST_DIR = Path(__file__).resolve().parents[1] / "manifests"
+MANIFEST_DIR = manifest_dir()
 
 
 def _composite():

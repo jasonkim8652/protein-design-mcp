@@ -212,7 +212,7 @@ async def call_tool(item: dict) -> dict:
     # (design_binder, analyze_interface, ...), which were deleted from
     # protein_design_mcp.server when the server moved to the manifest-driven
     # ToolRegistry/ServerApp (see src/protein_design_mcp/app.py and
-    # manifests/*.yaml). Porting this Modal deployment to the new
+    # src/protein_design_mcp/manifests/*.yaml). Porting this Modal deployment to the new
     # manifest-driven surface is deliberately deferred to a later plan, so
     # fail early and explicitly here rather than hitting an ImportError deep
     # in a lazy import.
@@ -221,7 +221,7 @@ async def call_tool(item: dict) -> dict:
             f"deploy/modal_app.py is obsolete: it still dispatches the "
             f"pre-manifest tool named {name!r}, which no longer exists. "
             "The server now derives its tool surface from "
-            "protein_design_mcp.app.ServerApp and manifests/*.yaml. This "
+            "protein_design_mcp.app.ServerApp and src/protein_design_mcp/manifests/*.yaml. This "
             "Modal deployment has not been ported to that surface yet; "
             "redeploy is tracked as a follow-up. Do not call this endpoint "
             "until it has been updated."

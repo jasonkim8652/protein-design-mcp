@@ -35,6 +35,16 @@ def test_empty_directory_returns_empty_list(tmp_path):
     assert load_manifests(tmp_path) == []
 
 
+def test_nonexistent_directory_raises_manifest_error(tmp_path):
+    """Regression for FIX 1: a missing manifest directory must raise
+    ManifestError (which build_registry can catch and degrade from),
+    never an unhandled FileNotFoundError or similar."""
+    missing = tmp_path / "does-not-exist"
+    assert not missing.exists()
+    with pytest.raises(ManifestError, match="not found"):
+        load_manifests(missing)
+
+
 def test_duplicate_names_are_rejected(tmp_path):
     _write(tmp_path, "a.yaml", SOLO)
     _write(tmp_path, "b.yaml", SOLO)

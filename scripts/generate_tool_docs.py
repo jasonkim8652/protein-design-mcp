@@ -14,6 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from protein_design_mcp.app import manifest_dir  # noqa: E402
 from protein_design_mcp.manifest.loader import load_manifests  # noqa: E402
 from protein_design_mcp.manifest.schema import Manifest  # noqa: E402
 
@@ -56,8 +57,8 @@ def render_doc(manifest: Manifest) -> str:
         f"**GPU required:** {'yes' if manifest.requires.gpu else 'no'}",
         "",
         "> This file is generated from "
-        f"`manifests/{manifest.name}.yaml`. Edit the manifest, then run "
-        "`python scripts/generate_tool_docs.py`.",
+        f"`src/protein_design_mcp/manifests/{manifest.name}.yaml`. Edit the "
+        "manifest, then run `python scripts/generate_tool_docs.py`.",
         "",
         "## Summary",
         "",
@@ -95,5 +96,5 @@ def main(manifest_dir: Path, out_dir: Path) -> list[Path]:
 
 if __name__ == "__main__":
     root = Path(__file__).resolve().parents[1]
-    for path in main(root / "manifests", root / "docs" / "tools"):
+    for path in main(manifest_dir(), root / "docs" / "tools"):
         print(f"wrote {path}")
