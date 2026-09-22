@@ -43,7 +43,7 @@ class _FakeDispatcher:
     def __init__(self):
         self.calls = []
 
-    async def run(self, engine, args, *, timeout):
+    async def run(self, engine, args, *, timeout, outputs=()):
         self.calls.append((engine, list(args)))
         return CompletedRun(returncode=0, stdout="ok", stderr="", workdir=Path("/tmp"))
 
@@ -249,3 +249,67 @@ async def test_adapter_keyerror_produces_a_clear_error_not_a_crash(monkeypatch):
     assert "error" in payload
     assert "run_sharedrepo_broken" in payload["error"]
     assert "adapter" in payload["error"]
+
+
+class _RecordingDispatcher:
+    """Captures what the app asked the dispatcher to do."""
+
+    def __init__(self):
+        self.timeout = None
+        self.outputs = None
+
+    async def run(self, engine, args, *, timeout, outputs=()):
+        self.timeout = timeout
+        self.outputs = tuple(outputs)
+        return CompletedRun(
+            returncode=0, stdout="", stderr="", workdir=Path("/tmp"), outputs={}
+        )
+
+
+def _timeout_manifest():
+    return parse_manifest(
+        {
+            "name": "run_prodigy",
+            "category": "scoring",
+            "engine": {"repo": "prodigy", "env": "scoring", "entry": ["prodigy"]},
+            "summary": "Timeout probe.",
+            "doc": "## What this is\nProbe.\n",
+            "timeout_s": 45,
+            "outputs": [{"name": "o", "pattern": "o.txt"}],
+            "schema": {
+                "complex_pdb": {"type": "string", "required": True,
+                                "example": "c.pdb", "format": "path"},
+                "chain_a": {"type": "string", "required": True, "example": "A"},
+                "chain_b": {"type": "string", "required": True, "example": "B"},
+                "temperature": {"type": "number", "default": 25.0},
+            },
+        }
+    )
+
+
+@pytest.mark.asyncio
+async def test_manifest_timeout_reaches_the_dispatcher(tmp_path):
+    dispatcher = _RecordingDispatcher()
+    app = ServerApp(ToolRegistry([_timeout_manifest()]), dispatcher)
+    pdb = tmp_path / "c.pdb"
+    pdb.write_text("ATOM\n")
+
+    await app.call_tool(
+        "run_prodigy",
+        {"complex_pdb": str(pdb), "chain_a": "A", "chain_b": "B"},
+    )
+    assert dispatcher.timeout == 45
+
+
+@pytest.mark.asyncio
+async def test_manifest_outputs_reach_the_dispatcher(tmp_path):
+    dispatcher = _RecordingDispatcher()
+    app = ServerApp(ToolRegistry([_timeout_manifest()]), dispatcher)
+    pdb = tmp_path / "c.pdb"
+    pdb.write_text("ATOM\n")
+
+    await app.call_tool(
+        "run_prodigy",
+        {"complex_pdb": str(pdb), "chain_a": "A", "chain_b": "B"},
+    )
+    assert [o.name for o in dispatcher.outputs] == ["o"]

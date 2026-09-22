@@ -26,8 +26,6 @@ from protein_design_mcp.validation import ToolInputError, validate_and_fill
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_TIMEOUT_S = float(os.environ.get("PROTEIN_MCP_TIMEOUT", "3600"))
-
 # Tool name -> (build_args, parse_output). Keyed on manifest.name, NOT
 # manifest.engine.repo: several tools can share one engine repo (e.g. a
 # future run_boltzgen_design / run_boltzgen_inverse_fold / run_boltzgen_filter
@@ -231,9 +229,15 @@ class ServerApp:
         build_args, parse_output = adapter
         try:
             run = await self._dispatcher.run(
-                manifest.engine, build_args(manifest, params), timeout=DEFAULT_TIMEOUT_S
+                manifest.engine,
+                build_args(manifest, params),
+                timeout=manifest.timeout_s,
+                outputs=manifest.outputs,
             )
-            return _ok(parse_output(manifest, run))
+            payload = parse_output(manifest, run)
+            if run.outputs:
+                payload = {**payload, "outputs": run.outputs}
+            return _ok(payload)
         except EngineError as exc:
             return _error(str(exc))
         except Exception as exc:
