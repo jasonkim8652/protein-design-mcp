@@ -37,7 +37,7 @@ def test_manifest_documents_what_it_needs():
 
 
 def test_build_args_maps_chains_to_two_flags():
-    args = build_args({"complex_pdb": "/tmp/c.pdb", "chain_a": "A", "chain_b": "B",
+    args = build_args(_manifest(), {"complex_pdb": "/tmp/c.pdb", "chain_a": "A", "chain_b": "B",
                        "temperature": 25.0})
     assert "/tmp/c.pdb" in args
     assert "--selection" in args
@@ -45,7 +45,7 @@ def test_build_args_maps_chains_to_two_flags():
 
 
 def test_build_args_includes_temperature():
-    args = build_args({"complex_pdb": "/tmp/c.pdb", "chain_a": "A", "chain_b": "B",
+    args = build_args(_manifest(), {"complex_pdb": "/tmp/c.pdb", "chain_a": "A", "chain_b": "B",
                        "temperature": 37.0})
     assert "--temperature" in args
     assert "37.0" in args
@@ -53,7 +53,8 @@ def test_build_args_includes_temperature():
 
 def test_parse_output_extracts_affinity_and_kd():
     result = parse_output(
-        CompletedRun(returncode=0, stdout=SAMPLE_STDOUT, stderr="", workdir=Path("/tmp"))
+        _manifest(),
+        CompletedRun(returncode=0, stdout=SAMPLE_STDOUT, stderr="", workdir=Path("/tmp")),
     )
     assert result["binding_affinity_kcal_per_mol"] == pytest.approx(-11.30)
     assert result["dissociation_constant_M"] == pytest.approx(5.2e-09)
@@ -62,7 +63,8 @@ def test_parse_output_extracts_affinity_and_kd():
 
 def test_parse_output_carries_the_calibration_warning():
     result = parse_output(
-        CompletedRun(returncode=0, stdout=SAMPLE_STDOUT, stderr="", workdir=Path("/tmp"))
+        _manifest(),
+        CompletedRun(returncode=0, stdout=SAMPLE_STDOUT, stderr="", workdir=Path("/tmp")),
     )
     assert "de novo" in result["caveat"]
 
@@ -70,8 +72,9 @@ def test_parse_output_carries_the_calibration_warning():
 def test_parse_output_raises_when_affinity_is_absent():
     with pytest.raises(ValueError, match="affinity"):
         parse_output(
+            _manifest(),
             CompletedRun(returncode=0, stdout="nothing useful", stderr="",
-                         workdir=Path("/tmp"))
+                         workdir=Path("/tmp")),
         )
 
 

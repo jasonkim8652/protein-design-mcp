@@ -1,12 +1,41 @@
 import json
+from pathlib import Path
 
 import pytest
 
+import protein_design_mcp.app as app_module
 from protein_design_mcp.app import ServerApp, manifest_dir
+from protein_design_mcp.dispatch.env import CompletedRun
 from protein_design_mcp.manifest.registry import ToolRegistry
 from protein_design_mcp.manifest.schema import parse_manifest
 
 MANIFEST_DIR = manifest_dir()
+
+
+def _manifest_sharing_a_repo(name):
+    """Two manifests that would collide if ADAPTERS were keyed on
+    engine.repo instead of manifest.name (FIX 2)."""
+    return parse_manifest(
+        {
+            "name": name,
+            "category": "generation",
+            "engine": {"repo": "sharedrepo", "env": "e", "entry": ["x"]},
+            "summary": "Summary.",
+            "doc": "## What this is\nDoc.\n",
+            "schema": {},
+        }
+    )
+
+
+class _FakeDispatcher:
+    """Records the args it was called with instead of spawning a subprocess."""
+
+    def __init__(self):
+        self.calls = []
+
+    async def run(self, engine, args, *, timeout):
+        self.calls.append((engine, list(args)))
+        return CompletedRun(returncode=0, stdout="ok", stderr="", workdir=Path("/tmp"))
 
 
 def _composite():
@@ -81,3 +110,59 @@ def _load_real():
 
 def test_real_manifests_all_load():
     assert {m.name for m in _load_real()} >= {"run_prodigy"}
+
+
+@pytest.mark.asyncio
+async def test_adapters_are_keyed_by_tool_name_not_engine_repo(monkeypatch):
+    """Regression for FIX 2: two tools sharing one engine.repo must each get
+    the argv their OWN adapter builds, not whichever adapter happened to be
+    registered first for that repo."""
+    design = _manifest_sharing_a_repo("run_sharedrepo_design")
+    filter_ = _manifest_sharing_a_repo("run_sharedrepo_filter")
+
+    def design_build_args(manifest, params):
+        return ["design-argv"]
+
+    def filter_build_args(manifest, params):
+        return ["filter-argv"]
+
+    monkeypatch.setattr(
+        app_module,
+        "ADAPTERS",
+        {
+            "run_sharedrepo_design": (design_build_args, lambda m, r: {"ok": True}),
+            "run_sharedrepo_filter": (filter_build_args, lambda m, r: {"ok": True}),
+        },
+    )
+
+    dispatcher = _FakeDispatcher()
+    app = ServerApp(ToolRegistry([design, filter_]), dispatcher=dispatcher)
+
+    await app.call_tool("run_sharedrepo_design", {})
+    await app.call_tool("run_sharedrepo_filter", {})
+
+    assert dispatcher.calls[0][1] == ["design-argv"]
+    assert dispatcher.calls[1][1] == ["filter-argv"]
+
+
+@pytest.mark.asyncio
+async def test_adapter_keyerror_produces_a_clear_error_not_a_crash(monkeypatch):
+    """Regression for FIX 2: an adapter KeyError (the likely mistake when
+    validate_and_fill omits an optional parameter with no default) must not
+    escape call_tool as an opaque, unhandled exception."""
+    manifest = _manifest_sharing_a_repo("run_sharedrepo_broken")
+
+    def broken_build_args(manifest, params):
+        raise KeyError("some_optional_param")
+
+    monkeypatch.setattr(
+        app_module,
+        "ADAPTERS",
+        {"run_sharedrepo_broken": (broken_build_args, lambda m, r: {})},
+    )
+
+    app = ServerApp(ToolRegistry([manifest]), dispatcher=_FakeDispatcher())
+    payload = json.loads((await app.call_tool("run_sharedrepo_broken", {}))[0].text)
+    assert "error" in payload
+    assert "run_sharedrepo_broken" in payload["error"]
+    assert "adapter" in payload["error"]
