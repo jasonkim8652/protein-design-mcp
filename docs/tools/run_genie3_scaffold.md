@@ -46,15 +46,15 @@ not documented in the README):
   default is false.
 
 ## When to use this instead of the alternatives
-- `run_genie2`, `run_frameflow` and `run_la_proteina`
-  (not yet implemented) are the other unconditional monomer generators
-  (diffusion, flow-matching and latent-flow-matching respectively). No
-  single one is strictly better across all lengths.
-- `run_multiflow` (not yet implemented) additionally co-designs a
-  sequence; this tool produces backbones only.
-- For a target-conditioned binder, use `run_genie3_binder`
-  (not yet implemented) or `run_protpardelle` (not yet implemented)
-  instead -- this tool has no notion of a target at all.
+- `run_genie2`, `run_frameflow` and `run_la_proteina` are the other
+  unconditional monomer generators (diffusion, flow-matching and
+  latent-flow-matching respectively). No single one is strictly better
+  across all lengths.
+- `run_multiflow` additionally co-designs a sequence; this tool produces
+  backbones only.
+- For a target-conditioned binder, use `run_genie3_binder` or
+  `run_protpardelle` instead -- this tool has no notion of a target at
+  all.
 
 ## What is NOT exposed, and why
 - **`predict_sequence`** (Genie 3's own built-in codesign head) is fixed

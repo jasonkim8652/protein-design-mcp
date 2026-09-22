@@ -55,17 +55,15 @@ trained model, not a config preset:
   PDB-style chains.
 
 ## When to use this instead of the alternatives
-- `run_genie2` and `run_genie3_scaffold` (not yet implemented) are the
-  direct siblings -- other unconditional monomer generators. FrameFlow is a
-  flow-matching model; Genie 2/3 are diffusion models. No single one is
-  strictly better across all lengths; compare outputs if it matters for
-  your use case.
-- `run_multiflow` (not yet implemented) additionally co-designs a sequence
-  with ProteinMPNN in the same call; this tool produces backbones only,
-  designed afterward with `run_mpnn`.
+- `run_genie2` and `run_genie3_scaffold` are the direct siblings -- other
+  unconditional monomer generators. FrameFlow is a flow-matching model;
+  Genie 2/3 are diffusion models. No single one is strictly better across
+  all lengths; compare outputs if it matters for your use case.
+- `run_multiflow` additionally co-designs a sequence with ProteinMPNN in
+  the same call; this tool produces backbones only, designed afterward
+  with `run_mpnn`.
 - For a target-conditioned binder rather than a free-standing monomer, use
-  `run_genie3_binder` (not yet implemented) or `run_protpardelle`
-  (not yet implemented) instead.
+  `run_genie3_binder` or `run_protpardelle` instead.
 
 ## What you must supply
 Nothing beyond the length range -- this is unconditional generation.

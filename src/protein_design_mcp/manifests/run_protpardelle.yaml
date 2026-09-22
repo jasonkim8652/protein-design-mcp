@@ -116,9 +116,8 @@ doc: |
     of a contig string, and a materially different (non-latent) diffusion
     architecture.
   - Neither this tool nor `run_genie3_binder` scores the result. Refold with
-    `run_chai1` (not yet implemented) or `run_boltz` (not yet implemented)
-    with the target chain present, then score the interface with
-    `run_ipsae`.
+    `run_chai1` or `run_boltz` with the target chain present, then score
+    the interface with `run_ipsae`.
   - Design (or verify) a sequence for the generated chain with `run_mpnn` --
     this tool's `num_mpnn_seqs` is always 0 (sequence design is run_mpnn's
     job, same rule as every other generative tool here), even with an
