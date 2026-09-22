@@ -5,8 +5,8 @@ tool came from.
 
 Status: ✅ shipped · 🟢 ran on GPU 7 · 🟠 partial · 🟡 present, not yet run
 
-MSA column: **free** = runs without an alignment · **opt** = caller's choice ·
-**req** = cannot run without one
+MSA columns: **optional?** = can the caller turn the alignment off · **builds own?** =
+can the tool produce its own alignment, or must one be supplied
 
 ---
 
@@ -42,17 +42,17 @@ MSA column: **free** = runs without an alignment · **opt** = caller's choice ·
 
 ## 4. `structure_prediction` — predict a structure (9)
 
-| Tool | Engine | MSA | Status |
-|---|---|---|---|
-| `run_esmfold2` | ESMFold2 | free | 🟢 |
-| `run_chai1` | Chai-1 0.6.1 | opt | 🟢 |
-| `run_boltz` | Boltz-2 2.2.1 | opt | 🟢 |
-| `run_protenix` | Protenix v1 | opt | 🟢 |
-| `run_openfold3` | OpenFold3 | opt | 🟢 |
-| `run_promera` | Promera | opt | 🟢 |
-| `run_rf3` | RoseTTAFold3 | **req** | 🟢 |
-| `run_alphafold3` | AlphaFold 3 | **req** | 🟡 |
-| `run_alphafold2_multimer` | AF2-Multimer / ColabFold | **req** | 🟢 |
+| Tool | Engine | MSA optional? | Builds own? | Status |
+|---|---|---|---|---|
+| `run_esmfold2` | ESMFold2 | n/a — takes no alignment | — | 🟢 |
+| `run_chai1` | Chai-1 0.6.1 | yes (off by default) | yes | 🟢 |
+| `run_boltz` | Boltz-2 2.2.1 | yes | server / precomputed | 🟢 |
+| `run_protenix` | Protenix v1 | yes — smoke ran MSA-free | yes | 🟢 |
+| `run_openfold3` | OpenFold3 | yes — smoke ran MSA-free | server default | 🟢 |
+| `run_promera` | Promera | yes (`msa_dir`) | no — supply one | 🟢 |
+| `run_rf3` | RoseTTAFold3 | **yes** — smoke ran with `seq` only | **no** — supply one | 🟢 |
+| `run_alphafold3` | AlphaFold 3 | **yes** — both fields `""` | **yes** — both `null` | 🟡 |
+| `run_alphafold2_multimer` | ColabFold | **yes** — `--msa-mode single_sequence` | yes | 🟢 |
 
 ## 5. `msa` — build an alignment (2)
 
@@ -107,11 +107,24 @@ thing to want. So the parameter is tri-state on every tool that can accept one:
 | value | meaning |
 |---|---|
 | `null` | run MSA-free, even though an alignment could have been supplied |
+| `"auto"` | let the engine build its own, where it can |
 | `<path to a3m>` | use this alignment |
 | absent | rejected — the choice must be stated, never inherited from a default |
 
-Tools marked **req** reject `null` and say so in the error, naming what to run to get an
-a3m. Tools marked **free** accept only `null`.
+**No tool requires an MSA.** An earlier version of this table marked `run_rf3`,
+`run_alphafold3` and `run_alphafold2_multimer` as `req`; all three were wrong.
+RF3's smoke test ran from a JSON carrying only `seq` and returned a structure. AF3's
+own documentation lists "both `unpairedMsa` and `pairedMsa` set to `""`" as
+"equivalent to running completely MSA-free". ColabFold has `--msa-mode
+single_sequence`. The error came from reading RF3's note "none — bring your own a3m"
+as *requires* an alignment, when it means the engine *does not build* one — two
+different properties that this table now keeps in separate columns.
+
+`"auto"` is rejected by the tools whose **builds own?** column says no; the error names
+`run_mmseqs_search` as the way to obtain an a3m rather than leaving the caller stuck.
+
+AF3 carries a coupling rule the schema must enforce: `unpairedMsa` and `pairedMsa` are
+either *both* set or *both* null — one of each is invalid.
 
 Each `msa` description names **which producer's a3m it expects**. MMseqs2 against
 AlphaFold 3's databases and `colabfold_search` against UniRef30/envDB search different
