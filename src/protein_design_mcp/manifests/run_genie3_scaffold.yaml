@@ -1,0 +1,212 @@
+name: run_genie3_scaffold
+category: monomer_generation
+composite: false
+timeout_s: 7200
+
+engine:
+  repo: genie3
+  # Runs under the genie2 environment's own python, NOT a dedicated genie3
+  # env -- confirmed working live (controller-verified): Genie 3 imports
+  # under genie2's interpreter with an explicit PYTHONPATH (see env_vars
+  # below). Genie 2 (run_genie2) stays registered as its own tool
+  # separately; sharing an interpreter here is purely an import-path fact,
+  # not a merging of the two engines.
+  prefix: /home/jk661/.conda/envs/genie2
+  entry: ["python", "/app/scripts/engines/genie3_scaffold.py"]
+  env_vars:
+    PYTHONPATH: /home/jk661/projects/genie3/.deps:/home/jk661/projects/genie3/src
+  # discover_mounts has no single importable module name to probe that
+  # covers both PYTHONPATH components above (`.deps` is a manually
+  # vendored dependency bundle, not a registered editable install target,
+  # and `src` holds the `genie3` package itself but discover_mounts probing
+  # `genie3` under the genie2 env's OWN site-packages would report nothing
+  # useful -- genie3 is not installed there at all, only reachable via this
+  # PYTHONPATH). Hand-set to the whole repo, which covers both.
+  mounts:
+    - /home/jk661/projects/genie3
+
+requires:
+  gpu: true
+
+outputs:
+  - name: backbones
+    pattern: "output/pdbs/*.pdb"
+    description: One backbone-only PDB per generated sample.
+    multiple: true
+
+summary: >-
+  Generate an unconditional monomer backbone with Genie 3, an all-atom
+  SE(3)-equivariant diffusion model (backbone frames only here -- no
+  sequence, no side chains; design a sequence for the result with
+  run_mpnn). Only unconditional generation is exposed; Genie 3's
+  motif-scaffolding and binder-design entry points are separate (the latter
+  is `run_genie3_binder` (not yet implemented)).
+
+doc: |
+  ## What this is
+  Genie 3's unconditional generation path (`genie3.cli generate`, dataset
+  source `unconditional`), run with either of the two checkpoints downloaded
+  on this host.
+
+  ## `model_variant` -- which trained model and sampler, not a decoration
+  - `v1` (default): the current model (`pretrained/v1/checkpoints/
+    step=600000.ckpt`), sampled with Genie 3's DDIM sampler. `direction_scale`,
+    `eta`, `n_sample_step`, `noise_scale` and `predict_sidechain` all apply.
+  - `legacy`: the Genie-2-compatible checkpoint (`pretrained/legacy/
+    checkpoints/step=400000.ckpt`), sampled with the simpler DDPM sampler,
+    which takes only `noise_scale` -- `direction_scale`, `eta`,
+    `n_sample_step` and `predict_sidechain` are silently ignored when this
+    variant is selected (DDPM has no equivalent knobs), documented here
+    rather than left to be discovered by a caller wondering why they had no
+    effect.
+
+  ## The DDIM knobs, read from source
+  (`genie3/generation/diffusion/sampler/ddim.py`, read directly -- these are
+  not documented in the README):
+  - `direction_scale`: scales the predicted denoising direction at each
+    step. No shipped default (Genie 3's own config requires a value); higher
+    values follow the model's predicted direction more strongly.
+  - `eta`: stochasticity, 0 (fully deterministic, ODE-like) to 1
+    (DDPM-equivalent stochastic sampling). Genie 3's own default is 1.0.
+  - `n_sample_step`: number of denoising steps, out of a fixed 1000-step
+    training schedule (can be fewer). Genie 3's own default is 100; more
+    steps is finer-grained integration at roughly linear cost.
+  - `noise_scale`: scales injected noise at each step. Genie 3's own default
+    is 1.0.
+  - `predict_sidechain`: whether the model also predicts sidechain atoms
+    (all-atom output) rather than backbone frames only. Genie 3's own
+    default is false.
+
+  ## When to use this instead of the alternatives
+  - `run_genie2`, `run_frameflow` and `run_la_proteina`
+    (not yet implemented) are the other unconditional monomer generators
+    (diffusion, flow-matching and latent-flow-matching respectively). No
+    single one is strictly better across all lengths.
+  - `run_multiflow` (not yet implemented) additionally co-designs a
+    sequence; this tool produces backbones only.
+  - For a target-conditioned binder, use `run_genie3_binder`
+    (not yet implemented) or `run_protpardelle` (not yet implemented)
+    instead -- this tool has no notion of a target at all.
+
+  ## What is NOT exposed, and why
+  - **`predict_sequence`** (Genie 3's own built-in codesign head) is fixed
+    to `false` -- sequence design is `run_mpnn`'s job, the same rule that
+    excludes it from every other generative tool in this wave.
+  - **Motif scaffolding and binder design** are Genie 3's own separate
+    applications with entirely different dataset/conditioning config, not
+    exposed by this tool.
+
+  ## What you must supply
+  Nothing beyond the length range -- this is unconditional generation.
+
+  ## What you get back
+  `backbones`: one entry per generated PDB, each `{"id", "length"}` (`length`
+  counted from the file's own CA atoms). `num_backbones`, and under
+  `outputs` the path to every generated PDB.
+
+schema:
+  min_length:
+    type: integer
+    minimum: 5
+    maximum: 512
+    required: true
+    description: Shortest length to sample, inclusive.
+    example: 100
+  max_length:
+    type: integer
+    minimum: 5
+    maximum: 512
+    required: true
+    description: >-
+      Longest length to sample, inclusive. Set equal to min_length to sample
+      one length only.
+    example: 100
+  length_step:
+    type: integer
+    minimum: 1
+    maximum: 512
+    default: 50
+    description: >-
+      Gap between sampled lengths, from min_length to max_length. Ignored
+      when min_length equals max_length.
+    example: 50
+  num_samples:
+    type: integer
+    minimum: 1
+    maximum: 200
+    default: 2
+    description: >-
+      Number of samples to draw AT EACH sampled length (not a total count --
+      multiplies with the number of lengths in [min_length, max_length]).
+    example: 2
+  batch_size:
+    type: integer
+    minimum: 1
+    maximum: 64
+    default: 4
+    description: Number of structures denoised in parallel per forward pass.
+    example: 4
+  model_variant:
+    type: string
+    enum: ["v1", "legacy"]
+    default: v1
+    description: >-
+      Which trained checkpoint and sampler to use. See the doc's
+      "model_variant" section -- `legacy` ignores every DDIM-only parameter
+      below.
+    example: v1
+  direction_scale:
+    type: number
+    minimum: 0.0
+    maximum: 5.0
+    default: 1.0
+    description: >-
+      DDIM sampler only (ignored for model_variant=legacy). Scales the
+      predicted denoising direction at each step; Genie 3's own config
+      requires an explicit value (no shipped default). Higher values follow
+      the model's prediction more strongly.
+    example: 1.0
+  eta:
+    type: number
+    minimum: 0.0
+    maximum: 1.0
+    default: 1.0
+    description: >-
+      DDIM sampler only (ignored for model_variant=legacy). Stochasticity: 0
+      is deterministic (ODE-like), 1 is DDPM-equivalent stochastic sampling.
+      Genie 3's own default is 1.0.
+    example: 1.0
+  n_sample_step:
+    type: integer
+    minimum: 1
+    maximum: 1000
+    default: 100
+    description: >-
+      DDIM sampler only (ignored for model_variant=legacy). Number of
+      denoising steps out of the model's fixed 1000-step training schedule.
+      Genie 3's own default is 100; more steps is finer-grained at roughly
+      linear cost.
+    example: 100
+  noise_scale:
+    type: number
+    minimum: 0.0
+    maximum: 2.0
+    default: 1.0
+    description: >-
+      Scales injected noise at each denoising step. Applies to both
+      samplers. Genie 3's own default is 1.0 for both.
+    example: 1.0
+  predict_sidechain:
+    type: boolean
+    default: false
+    description: >-
+      DDIM sampler only (ignored for model_variant=legacy). Whether the
+      model also predicts sidechain atoms (all-atom output) rather than
+      backbone frames only. Genie 3's own default is false.
+    example: false
+  seed:
+    type: integer
+    minimum: 0
+    default: 0
+    description: Random seed.
+    example: 0
