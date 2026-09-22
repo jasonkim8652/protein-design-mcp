@@ -175,3 +175,88 @@ def test_a_nonexistent_item_in_a_list_raises_file_not_found(tmp_path):
             {"generated_files": [str(tmp_path / "nope.cif")]},
             workdir,
         )
+
+
+# --- subdirs: several staged names sharing one parent tree, each at its
+# own explicit relative path (BoltzGen's analyze step reads a design's
+# original files from design_dir itself but its refolded structures/
+# metrics from design_dir/refold_cif and design_dir/fold_out_npz
+# specifically -- see manifest.schema.EngineSpec.stage_subdir). -----------
+
+
+def test_subdirs_places_a_staged_name_at_an_explicit_relative_path(tmp_path):
+    cif = tmp_path / "refolded.cif"
+    cif.write_text("x")
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+
+    staged = stage_inputs(
+        ["refold_structures"],
+        {"refold_structures": [str(cif)]},
+        workdir,
+        subdirs={"refold_structures": "design_dir/refold_cif"},
+    )
+
+    expected = workdir / "design_dir" / "refold_cif" / "refolded.cif"
+    assert staged["refold_structures"] == [str(expected)]
+    assert expected.read_text() == "x"
+
+
+def test_subdirs_lets_several_names_share_one_parent_tree(tmp_path):
+    original = tmp_path / "design_0.cif"
+    refolded = tmp_path / "design_0.cif"  # same basename, different source dir
+    metrics = tmp_path / "design_0.npz"
+    original.write_text("orig")
+    metrics.write_text("meta")
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    refold_src_dir = tmp_path / "refold_src"
+    refold_src_dir.mkdir()
+    refolded = refold_src_dir / "design_0.cif"
+    refolded.write_text("refolded")
+
+    staged = stage_inputs(
+        ["generated_files", "refold_structures", "refold_metrics"],
+        {
+            "generated_files": [str(original)],
+            "refold_structures": [str(refolded)],
+            "refold_metrics": [str(metrics)],
+        },
+        workdir,
+        subdirs={
+            "generated_files": "design_dir",
+            "refold_structures": "design_dir/refold_cif",
+            "refold_metrics": "design_dir/fold_out_npz",
+        },
+    )
+
+    design_dir = workdir / "design_dir"
+    assert (design_dir / "design_0.cif").read_text() == "orig"
+    assert (design_dir / "refold_cif" / "design_0.cif").read_text() == "refolded"
+    assert (design_dir / "fold_out_npz" / "design_0.npz").read_text() == "meta"
+    assert staged["generated_files"] == [str(design_dir / "design_0.cif")]
+    assert staged["refold_structures"] == [str(design_dir / "refold_cif" / "design_0.cif")]
+
+
+def test_a_name_absent_from_subdirs_keeps_the_default_placement(tmp_path):
+    source = tmp_path / "model.pdb"
+    source.write_text("x")
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+
+    staged = stage_inputs(
+        ["structure"], {"structure": str(source)}, workdir, subdirs={}
+    )
+
+    assert staged["structure"] == str(workdir / "structure" / "model.pdb")
+
+
+def test_subdirs_defaults_to_none_and_behaves_like_before(tmp_path):
+    source = tmp_path / "model.pdb"
+    source.write_text("x")
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+
+    staged = stage_inputs(["structure"], {"structure": str(source)}, workdir)
+
+    assert staged["structure"] == str(workdir / "structure" / "model.pdb")

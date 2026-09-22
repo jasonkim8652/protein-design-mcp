@@ -87,18 +87,34 @@ class EngineSpec:
     cache-directory redirection; deliberately NOT used for GPU selection,
     which is pinned at the container boundary instead (design §2.1, §7).
 
-    ``stage`` names schema parameters (each must be ``format: path``) whose
-    files the dispatcher must COPY into the engine's scratch working
-    directory before running, rewriting that parameter's value to the
-    staged copy's path. This exists for engines that write their results
-    next to one of their INPUT files rather than into the process's cwd
-    (ipSAE is the first: it always writes beside the structure file it was
-    given) — without staging, that input resolves to an absolute path
-    outside the scratch directory (see app._resolve_path_params), so the
-    engine's outputs would land outside it too, where a relative
-    ``outputs:`` pattern can never see them and the containment check in
-    results.collect_outputs would refuse them even if it could. Most
-    engines need no staging at all, hence the empty default.
+    ``stage`` names schema parameters (each must be ``format: path``, or an
+    array whose items are ``format: path``) whose files the dispatcher must
+    COPY into the engine's scratch working directory before running,
+    rewriting that parameter's value to the staged copy's path(s). This
+    exists for engines that write their results next to one of their INPUT
+    files rather than into the process's cwd (ipSAE is the first: it always
+    writes beside the structure file it was given) — without staging, that
+    input resolves to an absolute path outside the scratch directory (see
+    app._resolve_path_params), so the engine's outputs would land outside
+    it too, where a relative ``outputs:`` pattern can never see them and the
+    containment check in results.collect_outputs would refuse them even if
+    it could. Most engines need no staging at all, hence the empty default.
+
+    ``stage_subdir`` optionally overrides, per staged name, WHERE under the
+    scratch directory that name's files land — default is
+    ``workdir/<name>/`` (see ``staging.stage_inputs``); a mapped value is a
+    relative path used instead (may itself contain more path segments, e.g.
+    ``"design_dir/refold_cif"``), letting several staged names share ONE
+    parent directory with the SPECIFIC subdirectory structure an engine's
+    own convention expects. BoltzGen's ``analyze`` step is the reason this
+    exists: it reads a design's original files from ``design_dir`` itself
+    but its refolded structures/metrics from ``design_dir/refold_cif`` and
+    ``design_dir/fold_out_npz`` specifically (hardcoded relative to ONE
+    ``design_dir``, not independently configurable) — five DIFFERENT prior
+    tool calls' outputs have to land in five specific places under the same
+    tree for this server's tools to reach it at all. Every key must also
+    appear in ``stage``; a name absent from this mapping keeps the default
+    ``workdir/<name>/`` placement.
     """
 
     repo: str
@@ -106,6 +122,7 @@ class EngineSpec:
     env: str | None = None
     prefix: str | None = None
     stage: tuple[str, ...] = ()
+    stage_subdir: dict[str, str] = field(default_factory=dict)
     mounts: tuple[str, ...] = ()
     env_vars: dict[str, str] = field(default_factory=dict)
 
@@ -245,6 +262,32 @@ def _parse_env_vars(data: Any, name: str) -> dict[str, str]:
     return env_vars
 
 
+def _parse_stage_subdir(data: Any, stage: list[str], name: str) -> dict[str, str]:
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise ManifestError(f"{name}: engine.stage_subdir must be a mapping")
+    subdirs: dict[str, str] = {}
+    for key, value in data.items():
+        if key not in stage:
+            raise ManifestError(
+                f"{name}: engine.stage_subdir names {key!r}, which is not "
+                "in engine.stage"
+            )
+        if not isinstance(value, str) or not value:
+            raise ManifestError(
+                f"{name}: engine.stage_subdir[{key!r}] must be a non-empty "
+                "string"
+            )
+        if value.startswith("/") or ".." in Path(value).parts:
+            raise ManifestError(
+                f"{name}: engine.stage_subdir[{key!r}] = {value!r} must be "
+                "a relative path within the scratch directory, with no '..'"
+            )
+        subdirs[key] = value
+    return subdirs
+
+
 def _parse_engine(data: Any, name: str) -> EngineSpec:
     if not isinstance(data, dict):
         raise ManifestError(f"{name}: engine must be a mapping")
@@ -258,6 +301,7 @@ def _parse_engine(data: Any, name: str) -> EngineSpec:
         raise ManifestError(f"{name}: engine.stage must be a list of strings")
     if len(set(stage)) != len(stage):
         raise ManifestError(f"{name}: engine.stage lists a parameter more than once")
+    stage_subdir = _parse_stage_subdir(data.get("stage_subdir"), stage, name)
 
     env, prefix = _parse_env_or_prefix(data, name)
     mounts = _parse_mounts(data.get("mounts"), name)
@@ -269,6 +313,7 @@ def _parse_engine(data: Any, name: str) -> EngineSpec:
         env=env,
         prefix=prefix,
         stage=tuple(stage),
+        stage_subdir=stage_subdir,
         mounts=mounts,
         env_vars=env_vars,
     )

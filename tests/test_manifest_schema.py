@@ -518,3 +518,65 @@ def test_env_vars_rejects_a_non_string_value():
     data = {**MINIMAL, "engine": {**MINIMAL["engine"], "env_vars": {"FOO": 1}}}
     with pytest.raises(ManifestError, match="env_vars"):
         parse_manifest(data)
+
+
+# --- stage_subdir: explicit relative placement for a staged name ----------
+
+
+def test_stage_subdir_defaults_to_empty():
+    assert parse_manifest(MINIMAL).engine.stage_subdir == {}
+
+
+def test_stage_subdir_is_read_for_a_staged_name():
+    data = _with_path_param()
+    data["engine"] = {
+        **data["engine"],
+        "stage": ["structure"],
+        "stage_subdir": {"structure": "design_dir/refold_cif"},
+    }
+    m = parse_manifest(data)
+    assert m.engine.stage_subdir == {"structure": "design_dir/refold_cif"}
+
+
+def test_stage_subdir_rejects_a_name_not_in_stage():
+    data = _with_path_param()
+    data["engine"] = {
+        **data["engine"],
+        "stage": ["structure"],
+        "stage_subdir": {"other_param": "design_dir"},
+    }
+    with pytest.raises(ManifestError, match="stage_subdir"):
+        parse_manifest(data)
+
+
+def test_stage_subdir_rejects_an_absolute_path():
+    data = _with_path_param()
+    data["engine"] = {
+        **data["engine"],
+        "stage": ["structure"],
+        "stage_subdir": {"structure": "/etc/passwd"},
+    }
+    with pytest.raises(ManifestError, match="stage_subdir"):
+        parse_manifest(data)
+
+
+def test_stage_subdir_rejects_a_dotdot_path():
+    data = _with_path_param()
+    data["engine"] = {
+        **data["engine"],
+        "stage": ["structure"],
+        "stage_subdir": {"structure": "../escape"},
+    }
+    with pytest.raises(ManifestError, match="stage_subdir"):
+        parse_manifest(data)
+
+
+def test_stage_subdir_must_be_a_mapping():
+    data = _with_path_param()
+    data["engine"] = {
+        **data["engine"],
+        "stage": ["structure"],
+        "stage_subdir": ["structure"],
+    }
+    with pytest.raises(ManifestError, match="stage_subdir"):
+        parse_manifest(data)

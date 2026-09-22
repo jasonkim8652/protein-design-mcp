@@ -364,7 +364,12 @@ class ServerApp:
                 # branches already use, keeps that contract unbroken across
                 # this earlier span too.
                 try:
-                    params = stage_inputs(manifest.engine.stage, params, workdir)
+                    params = stage_inputs(
+                        manifest.engine.stage,
+                        params,
+                        workdir,
+                        subdirs=manifest.engine.stage_subdir,
+                    )
                 except OSError as exc:
                     raise EngineError(
                         f"could not stage input(s) for {name}: {exc}. "
