@@ -117,9 +117,9 @@ output that runs no other model.
 >   checkout. Genie was filed under §B alone, which was wrong — it belongs in §A too.
 >   Added `run_genie3_binder` (§A) and `run_genie3_scaffold` (§B).
 > - **RFdiffusion3** was released in December 2025, after this list was written. Added
->   `run_rfdiffusion3` (§A). It ships through RosettaCommons **foundry**
+>   `run_rfdiffusion3_binder` (§A) and `run_rfdiffusion3_scaffold` (§B). It ships through RosettaCommons **foundry**
 >   (`pip install rc-foundry`, BSD-3), whose `models/` holds `rf3`, `rfd3`, `rfd3na`
->   and `mpnn` — one install serves both `run_rfdiffusion3` and `run_rf3`.
+>   and `mpnn` — one install serves both `run_rfdiffusion3_*` and `run_rf3`.
 >   **`rc-foundry` requires python 3.12**; querying it from a 3.10 interpreter returns
 >   "No matching distribution found", which is indistinguishable from the package not
 >   existing. That false negative nearly removed RFD3 from this plan.
