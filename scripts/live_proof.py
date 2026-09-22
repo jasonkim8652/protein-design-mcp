@@ -183,16 +183,42 @@ CASES: list[dict] = [
     },
     {
         # BoltzGen's `filtering` step runs no model -- pure CPU dataframe
-        # ranking over a real (tiny, single-design) analysis directory this
-        # tool's own wave produced with a live GPU run (design_to_target_iptm
-        # 0.60088, design_ptm 0.9398 -- see tests/fixtures/boltzgen/ and
-        # wave-C-report.md). Included even on a CPU-only image, unlike the
-        # other GPU-required BoltzGen tools, because requires.gpu is false.
+        # ranking. Included even on a CPU-only image, unlike the other
+        # GPU-required BoltzGen tools, because requires.gpu is false.
+        #
+        # FIXED (task 12, in-container proof): this case predated commit
+        # f35079d (Wave E), which redesigned run_boltzgen_filter's inputs
+        # from a single `design_dir` to three explicit staged file lists
+        # (`generated_files`, `metrics_files`, `refold_structures`) --
+        # nothing updated this case, so it dispatched with a `design_dir`
+        # argument the manifest no longer accepts ("received unexpected
+        # parameter(s): design_dir"), caught only by the in-container run,
+        # near the very end of a long piece of work -- see
+        # tests/test_live_proof_cases_validate.py, added the same day so
+        # this class of drift is caught statically instead. generated_files
+        # and refold_structures reuse the exact design_spec.cif/npz fixtures
+        # run_boltzgen_design/run_boltzgen_fold's own live GPU runs produced
+        # (tests/fixtures/boltzgen/generated_designs/,
+        # tests/fixtures/boltzgen/refold/ -- see wave-E-report.md's own
+        # design->fold->analyze->filter transcript). metrics_files is a NEW
+        # fixture (tests/fixtures/boltzgen/analyzed/) produced by running
+        # run_boltzgen_analyze live on the host (CPU, requires.gpu: false)
+        # over those exact same generated_files/refold_structures --
+        # confirmed its `id` column is "design_spec", matching the other
+        # two file sets, so Filter's row lookup actually finds it.
         "tool": "run_boltzgen_filter",
         "device": "cpu",
         "arguments": {
             "design_spec": "tests/fixtures/boltzgen/design_spec.yaml",
-            "design_dir": "tests/fixtures/boltzgen/analysis_dir",
+            "generated_files": [
+                "tests/fixtures/boltzgen/generated_designs/design_spec.cif",
+                "tests/fixtures/boltzgen/generated_designs/design_spec.npz",
+            ],
+            "metrics_files": [
+                "tests/fixtures/boltzgen/analyzed/aggregate_metrics_analyze.csv",
+                "tests/fixtures/boltzgen/analyzed/ca_coords_sequences.pkl.gz",
+            ],
+            "refold_structures": ["tests/fixtures/boltzgen/refold/design_spec.cif"],
             "budget": 1,
             "top_budget": 1,
         },

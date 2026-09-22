@@ -12,7 +12,14 @@ engine:
   # protein_design_mcp.mounts /home/jk661/.conda/envs/protein-design-mcp
   # protein_design_mcp` (confirmed live) resolves with zero extra mounts.
   repo: protein_design_mcp
-  prefix: /home/jk661/.conda/envs/protein-design-mcp
+  # This tool's wrapper imports the SERVER's own package
+  # (protein_design_mcp.utils.pdb / .sasa), so it dispatches into the
+  # image's `server` env, which has that package installed. It must NOT
+  # point at a host env: the server's own package is deliberately never
+  # mounted (commit 61b0bb2 -- mounting it would shadow the container's
+  # code with a different checkout), so a host prefix resolves to nothing
+  # inside the image. Found by the in-container proof, not by any test.
+  env: server
   entry: ["python", "/app/scripts/engines/epitope_scan.py"]
 
 requires:
