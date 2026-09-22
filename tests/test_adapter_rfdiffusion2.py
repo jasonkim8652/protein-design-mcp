@@ -12,6 +12,7 @@ from protein_design_mcp.validation import ToolInputError, validate_and_fill
 BASE_PARAMS = {
     "target_pdb": "/tmp/target.pdb",
     "contig": "A1-150_100-100",
+    "backend": "conda",
     "num_designs": 10,
     "diffusion_steps": 100,
     "noise_scale_ca": 1.0,
@@ -58,6 +59,23 @@ def test_manifest_declares_a_timeout():
     assert _manifest().timeout_s > 3600
 
 
+def test_manifest_dispatches_through_conda_prefix_by_default():
+    """Security ruling: this tool must dispatch like every other engine
+    (a mounted conda prefix, no Docker socket needed) -- Docker is an
+    opt-in *parameter* (`backend`), never the manifest's own engine.prefix.
+    """
+    m = _manifest()
+    assert m.engine.prefix.endswith("/rfd2_src")
+    assert any(mount.endswith("/RFdiffusion2") for mount in m.engine.mounts)
+    assert m.engine.env_vars.get("PYTHONPATH", "").endswith("/RFdiffusion2")
+
+
+def test_manifest_backend_defaults_to_conda():
+    spec = _manifest().schema["backend"]
+    assert spec["default"] == "conda"
+    assert set(spec["enum"]) == {"conda", "docker"}
+
+
 # ---------------------------------------------------------------------------
 # build_args
 # ---------------------------------------------------------------------------
@@ -77,6 +95,17 @@ def test_build_args_includes_diffusion_steps_and_num_designs():
     job = json.loads(args[0])
     assert job["num_designs"] == 10
     assert job["diffusion_steps"] == 100
+
+
+def test_build_args_passes_backend_through():
+    args = build_args(_manifest(), BASE_PARAMS)
+    job = json.loads(args[0])
+    assert job["backend"] == "conda"
+
+    docker_params = dict(BASE_PARAMS, backend="docker")
+    args = build_args(_manifest(), docker_params)
+    job = json.loads(args[0])
+    assert job["backend"] == "docker"
 
 
 # ---------------------------------------------------------------------------
@@ -174,3 +203,28 @@ def test_validation_fills_defaults():
     assert params["num_designs"] == 10
     assert params["diffusion_steps"] == 100
     assert params["ckpt_variant"] == "140"
+    assert params["backend"] == "conda"
+
+
+def test_validation_rejects_backend_not_in_enum():
+    with pytest.raises(ToolInputError, match="backend"):
+        validate_and_fill(
+            _manifest(),
+            {
+                "target_pdb": "/tmp/target.pdb",
+                "contig": "A1-150_100-100",
+                "backend": "apptainer",
+            },
+        )
+
+
+def test_validation_accepts_explicit_docker_backend():
+    params = validate_and_fill(
+        _manifest(),
+        {
+            "target_pdb": "/tmp/target.pdb",
+            "contig": "A1-150_100-100",
+            "backend": "docker",
+        },
+    )
+    assert params["backend"] == "docker"
