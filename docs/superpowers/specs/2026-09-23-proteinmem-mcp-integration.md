@@ -91,3 +91,54 @@ debate needs.
 deliberately deferred pending the user's decision**. Push route (fork versus direct) and
 permissions must be settled before anything leaves this machine. Until then, local
 branches only.
+
+---
+
+## Decisions taken 2026-09-23
+
+Settled by the user; recorded so they are not relitigated.
+
+**1. No composite tool is ever exposed.** The MCP tool surface is the atomistic `run_*`
+set and nothing else. This rules out the compatibility-shim option that would have
+reproduced `design_binder`'s behaviour in `proteinmem` so existing call sites kept
+working — that would have resurrected the orchestrator one layer up, which is exactly
+what §3.1 forbids. The harness may still contain workflow code a human or script drives;
+what it must not do is hand a model a single call that hides the steps.
+
+**2. GPU is selected by environment variable.** `--device nvidia.com/gpu=${...:-0}`
+rather than a hardcoded 7. Index 7 is this machine's constraint, not a property of the
+software, and a shared repository should not carry it. The structural guarantee — the
+container sees exactly one GPU, so an engine cannot reach another index — is preserved;
+only which index moves.
+
+**3. AlphaFold 3 is an optional mount.** If the 8 GB venv mount is absent, that one tool
+is excluded from the registry and the other 40 work normally. The loader already reports
+per-tool exclusions with reasons (commit `032b210`), so this needs no new mechanism and
+fails visibly rather than silently.
+
+**4. Order of publication: server, then image, then harness PR.** The harness PR points
+at an image tag, so that tag must exist first. Pushing the harness first would produce a
+PR referencing something unbuildable.
+
+## Consequence of decision 1 — the real shape of the work
+
+`binder_workflow.py`, `debate_protein_design.py` and `run_proteinmem_binder.py` currently
+reach for `design_binder`, which does generation, sequence design and folding in one
+call. Replacing it means the harness composes:
+
+```
+run_epitope_scan | run_interface_residues        -> hotspots
+  -> run_rfdiffusion3_binder | run_boltzgen_design | run_genie3_binder | ...
+  -> run_mpnn | run_boltzgen_inverse_fold
+  -> run_esmfold2 | run_chai1 | run_boltz | ...   (with msa stated, never inherited)
+  -> run_ipsae | run_prodigy | run_rosetta_interface
+```
+
+Each arrow is a decision with a defensible answer either way. That is the substrate the
+debate needs, and it is why this is an improvement rather than a migration cost.
+
+**Keep the target-sequence guard.** `binder_workflow.py:99` refuses a design identical to
+or containing the target chain — added as defence against `design_binder`'s chain-order
+bug. The tool is gone, but the bug class is not: `run_mpnn`'s first FASTA record is its
+own input, and any composition can make the same mistake. The guard is cheap and now
+protects a pipeline the model assembles itself.
