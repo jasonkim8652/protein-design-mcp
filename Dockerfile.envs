@@ -43,7 +43,26 @@
 # Interactive shell:
 #   docker run --rm -it protein-design-mcp:envs bash
 
-FROM mambaorg/micromamba:2.9.0-ubuntu22.04
+# Ubuntu 24.04 (jammy's successor, noble), not 22.04 -- CONFIRMED in-container
+# (task-15-report.md): `run_proteina_complexa_generate` failed with Hydra's
+# own swallowed-exception message ("Error locating target
+# 'proteinfoundation.datasets.gen_dataset.collate_fn'"), which
+# HYDRA_FULL_ERROR=1 unwound to the real cause -- a transitive import
+# (graphein -> cpdb, a compiled extension) needing `__isoc23_strtol@GLIBC_2.38`,
+# which 22.04's glibc 2.35 does not provide. This tool's `proteina_complexa`
+# conda env is a HOST-mounted prefix (like every other GPU engine's), so its
+# own packages are unaffected by this bump; only the base OS layer's system
+# libc -- resolved via the plain `libc.so.6` NEEDED entry, no env-local RPATH
+# or bundled sysroot exists for it (confirmed: `objdump -x` on the failing
+# .so shows no RPATH pointing at any libc) -- changes. Verified live on the
+# host (task-14) that `complexa generate` completes outside any container,
+# where the OS's own (newer) glibc is used directly; this is the same fix,
+# just baked into the image instead of relying on the host's copy. 22.04
+# shipped no libc newer than 2.35 in any of its official package pools, so
+# there is no in-place apt-level fix (see the CVE class of "cannot backport
+# glibc without upgrading the release") -- bumping the base image tag is the
+# standard, supported way to get a newer one.
+FROM mambaorg/micromamba:2.9.0-ubuntu24.04
 
 USER root
 # freesasa (a prodigy-prot dependency) ships no manylinux wheel on PyPI, so
