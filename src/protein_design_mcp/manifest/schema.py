@@ -74,7 +74,51 @@ class EngineSpec:
     §2.4: ``micromamba run -n`` cannot reach a mounted environment even with
     ``MAMBA_ENVS_DIRS`` set, only ``run -p <absolute prefix>`` can).
     Declaring both, or neither, is a load error (see
-    manifest.schema._parse_engine).
+    manifest.schema._parse_engine). ``prefix`` is always the CONTAINER-side
+    path — the path this environment's own files believe they live at (its
+    console scripts' shebangs, and anything else baked in at build time) —
+    because ``EnvDispatcher.build_command`` runs ``micromamba run -p
+    <prefix>`` INSIDE the deployed container, where that belief has to hold.
+
+    ``prefix_host``, when set, is the REAL host filesystem path backing
+    ``prefix``, if and only if that differs from ``prefix`` itself. For
+    every ordinary conda environment this is unset (``None``) and stays
+    unset: a conda environment's host install path AND its own internal
+    belief about where it lives are the SAME path by construction (it was
+    created there), so ``container_run.py`` mounts it at that one identical
+    path on both sides — see ``EngineSpec.mounts``' own "at its own path"
+    wording and design §2.2. ``run_alphafold3`` is the one exception this
+    field exists for: its ``/alphafold3_venv`` is not a conda environment
+    created on this host, it is extracted (``docker create`` + ``docker
+    cp``) from ``romerolabduke/alphafast:latest``, and its own console
+    scripts and a hand-patched editable-install redirect table (see that
+    manifest's own comment) hardcode ``/alphafold3_venv`` as an absolute
+    path regardless of where its 8+GB of files are actually stored on this
+    host's disk — and this host has no writable ``/alphafold3_venv`` (root
+    owns ``/``, nowhere under it is writable by an unprivileged deploy).
+    ``prefix_host`` names wherever those bytes were actually put (e.g.
+    ``/opt/alphafold3_data/alphafold3_venv``); ``prefix`` stays
+    ``/alphafold3_venv``, the path its files still believe they live at.
+    ``container_run.py`` mounts ``prefix_host:prefix:ro`` instead of
+    ``prefix:prefix:ro`` whenever this is set.
+
+    This is deliberately NOT a general relocation mechanism: ``mounts``
+    entries (below) have no equivalent field and are always mounted at
+    their own identical path, full stop, and a manifest that declares
+    ``prefix`` without ``prefix_host`` gets no relocation either — the
+    default (and every existing manifest) is exactly as strict as before
+    this field existed. Validated STRUCTURALLY at load like ``mounts``
+    (absolute, no ``..``), and only accepted alongside ``prefix`` — but,
+    UNLIKE ``mounts`` and unlike an earlier version of this field,
+    deliberately NOT existence-checked at load: this manifest gets loaded
+    both on the HOST (before deploy) and again every time the server
+    starts INSIDE the deployed container, and ``prefix_host`` only ever
+    names a real path in the FIRST context — inside the container only
+    ``prefix`` (what it is mounted AT) exists; ``prefix_host`` (where it
+    came from) is never visible there by construction. An existence check
+    here broke exactly that way (see manifest.schema._parse_prefix_host's
+    own comment for the live traceback). Real existence verification is
+    ``scripts/container_run.py --check``, run by the operator on the host.
 
     ``mounts`` lists read-only host paths this engine needs beyond its
     prefix — an editable install's source checkout, or a user-site
@@ -122,6 +166,7 @@ class EngineSpec:
     entry: tuple[str, ...]
     env: str | None = None
     prefix: str | None = None
+    prefix_host: str | None = None
     stage: tuple[str, ...] = ()
     stage_subdir: dict[str, str] = field(default_factory=dict)
     mounts: tuple[str, ...] = ()
@@ -202,6 +247,61 @@ def _parse_env_or_prefix(data: dict, name: str) -> tuple[str | None, str | None]
             f"{name}: engine.prefix must not contain '..', got {prefix!r}"
         )
     return None, prefix
+
+
+def _parse_prefix_host(data: dict, name: str, prefix: str | None) -> str | None:
+    """The real host filesystem path backing ``engine.prefix``, when it
+    differs from ``prefix`` itself — see ``EngineSpec.prefix_host``'s own
+    docstring for the full reasoning (``run_alphafold3``'s extracted venv
+    is the one case that needs it).
+
+    Validated structurally like ``_parse_mounts`` (absolute, no ``..``) but
+    deliberately NOT existence-checked — see the check's own removal
+    comment below for why that differs from ``mounts``. Also rejected
+    outright when ``prefix`` itself is not set — ``prefix_host`` only means
+    anything as an override for WHERE ``prefix``'s bytes live; naming one
+    without the other leaves nothing to override.
+    """
+    value = data.get("prefix_host")
+    if value in (None, ""):
+        return None
+    if prefix is None:
+        raise ManifestError(
+            f"{name}: engine.prefix_host is set but engine.prefix is not — "
+            "prefix_host only makes sense as an override for where prefix's "
+            "own bytes are stored on the host; without prefix there is "
+            "nothing to override."
+        )
+    if not isinstance(value, str):
+        raise ManifestError(f"{name}: engine.prefix_host must be a string")
+    if not value.startswith("/"):
+        raise ManifestError(
+            f"{name}: engine.prefix_host must be an absolute path, got {value!r}"
+        )
+    if ".." in Path(value).parts:
+        raise ManifestError(
+            f"{name}: engine.prefix_host must not contain '..', got {value!r}"
+        )
+    # Deliberately NOT existence-checked, unlike engine.mounts (and unlike
+    # what an earlier version of this function did). engine.mounts is
+    # identical host==container by construction, so checking it at load
+    # time is meaningful in EITHER context: on the host (before deploy) it
+    # confirms the source is there, and INSIDE the deployed container it
+    # confirms the mount actually landed -- both are the SAME path. prefix
+    # and prefix_host are asymmetric: prefix_host is only ever a real path
+    # on the HOST, and is NEVER visible inside the container (that is the
+    # whole reason it is a second field rather than one path serving both
+    # roles) -- CONFIRMED LIVE, 2026-09-23: loading this manifest inside
+    # the deployed container with an existence check here raised "engine.
+    # prefix_host '/opt/.../alphafold3_venv' does not exist on this host",
+    # even though the mount had correctly landed at prefix
+    # (/alphafold3_venv) and the server was running normally, because the
+    # container obviously never has prefix_host's OWN path inside it. Real
+    # existence verification for prefix_host happens exactly where
+    # engine.prefix's already does: scripts/container_run.py --check, run
+    # by the operator on the HOST before deploying -- see EngineSpec's own
+    # docstring.
+    return value
 
 
 def _parse_mounts(data: Any, name: str) -> tuple[str, ...]:
@@ -305,6 +405,7 @@ def _parse_engine(data: Any, name: str) -> EngineSpec:
     stage_subdir = _parse_stage_subdir(data.get("stage_subdir"), stage, name)
 
     env, prefix = _parse_env_or_prefix(data, name)
+    prefix_host = _parse_prefix_host(data, name, prefix)
     mounts = _parse_mounts(data.get("mounts"), name)
     env_vars = _parse_env_vars(data.get("env_vars"), name)
 
@@ -313,6 +414,7 @@ def _parse_engine(data: Any, name: str) -> EngineSpec:
         entry=tuple(entry),
         env=env,
         prefix=prefix,
+        prefix_host=prefix_host,
         stage=tuple(stage),
         stage_subdir=stage_subdir,
         mounts=mounts,

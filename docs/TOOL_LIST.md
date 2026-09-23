@@ -56,7 +56,7 @@ wrapper not written · 🟡 engine present, invocation confirmed but job not exe
 |---|---|---|---|
 | `run_boltz` | Boltz-2 2.2.1 | 🟢 | `boltz predict in.yaml --out_dir DIR`. ⚠ editable → **your fork** `~/projects/lightning-boltz-dev`. Affinity head not exposed |
 | `run_esmfold2` | ESMFold2 | 🟢 | Python API `EsmFold2Model.from_pretrained("biohub/ESMFold2")`. ⚠ **package shadowing**: plain `import esm` picks up the wrong `fair-esm 2.0.0` from `~/.local` instead of the env's real `esm 3.4.0`. Requires `PYTHONNOUSERSITE=1` |
-| `run_alphafold3` | AF3 (MMseqs2-GPU fork) | 🟡 | `~/projects/af3-mmseqs-gpu` + `/opt/alphafold3_data`. Own Docker recipe. ⚠ `models/` is **empty** despite the name; weights are at `weights/af3.bin` (1.1G). Non-commercial, no redistribution |
+| `run_alphafold3` | AF3 (MMseqs2-GPU fork) | ✅ | `~/projects/af3-mmseqs-gpu` + `/opt/alphafold3_data`. Dispatches via `EngineSpec.prefix` (`/alphafold3_venv`, extracted from `romerolabduke/alphafast:latest` with `docker create`+`docker cp`; no sibling container or Docker socket needed) -- task 16. ⚠ `models/` is **empty** despite the name; weights are at `weights/af3.bin` (1.1G). Non-commercial, no redistribution |
 | `run_chai1` | Chai-1 0.6.1 | ⬜ | **not on host** — Apache-2.0 code+weights. L40S is a supported SKU; lowest integration risk of the missing folders |
 | `run_protenix` | Protenix v1 | ⬜ | **not on host** — Apache-2.0. Pin v1; v2 weights proprietary |
 | `run_openfold3` | OpenFold3 | ⬜ | **not on host** — Apache-2.0 code+weights+data |

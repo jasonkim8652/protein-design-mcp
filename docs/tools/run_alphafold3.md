@@ -2,29 +2,32 @@
 
 **Category:** structure_prediction  
 **Engine:** `alphafold3`  
-**Environment:** `scoring`  
+**Environment:** `/alphafold3_venv`  
 **GPU required:** yes
 
 > This file is generated from `src/protein_design_mcp/manifests/run_alphafold3.yaml`. Edit the manifest, then run `python scripts/generate_tool_docs.py`.
 
 ## Summary
 
-Predict a multi-chain protein structure with AlphaFold 3, given an explicit alignment (or none) per chain. The heaviest tool in this server: runs as a SIBLING Docker container from AF3's own image, not a process in a mounted conda environment -- see the doc's "How this tool is dispatched" section, since that changes what an operator must configure for this one tool to work at all. MSA is optional and NEVER built by this tool (AF3's own alignment-search step is always disabled) -- pass run_mmseqs_search's unpaired_a3m/paired_a3m outputs, or null/null to run MSA-free. Protein chains only in this version -- no RNA, DNA, ligands, covalent bonds, or templates; see "Not exposed".
+Predict a multi-chain protein structure with AlphaFold 3, given an explicit alignment (or none) per chain. The heaviest tool in this server: dispatches through a mounted environment (EngineSpec.prefix) exactly like every other GPU engine here, extracted from AF3's own image rather than built by conda -- see the doc's "How this tool is dispatched" section for the one detail (a relocated mount) that differs from the rest. MSA is optional and NEVER built by this tool (AF3's own alignment-search step is always disabled) -- pass run_mmseqs_search's unpaired_a3m/paired_a3m outputs, or null/null to run MSA-free. Protein chains only in this version -- no RNA, DNA, ligands, covalent bonds, or templates; see "Not exposed".
 
 ## What this is
-AlphaFold 3, the current state-of-the-art structure predictor, run as a
-sibling Docker container from `romerolabduke/alphafast:latest` (the
-RomeroLab MMseqs2-GPU fork), covering the same "chains + optional
-per-chain MSA" job shape as `run_boltz`/`run_chai1`/`run_protenix`/
-`run_openfold3`, but from a genuinely different model. Ground truth for
-the `docker run` invocation SHAPE (GPU pinning, bind-mount pattern,
-in-container venv activation) is the user's own checkout,
-`~/projects/af3-mmseqs-gpu` (the reference inference script under its
-`benchmarks/` directory) -- but NOT for which entrypoint script executes
-inside the container: see "Which entrypoint script executes" below for
-why this tool uses the image's own baked-in copy instead of the one that
-script mounts from the host repo. `docs/input.md` for the AlphaFold 3
-JSON schema still applies either way (shared, package-level code, not
+AlphaFold 3, the current state-of-the-art structure predictor, covering
+the same "chains + optional per-chain MSA" job shape as
+`run_boltz`/`run_chai1`/`run_protenix`/`run_openfold3`, but from a
+genuinely different model. The engine itself -- its venv and its
+inference entrypoint script -- was extracted from
+`romerolabduke/alphafast:latest` (the RomeroLab MMseqs2-GPU fork) onto
+this host with `docker create` + `docker cp` (no sibling container ever
+runs; see "How this tool is dispatched" for why, and why that changed
+from an earlier `docker run` design). Ground truth for the invocation
+SHAPE (GPU pinning, bind-mount pattern, in-venv activation) is the user's
+own checkout, `~/projects/af3-mmseqs-gpu` (the reference inference script
+under its `benchmarks/` directory) -- but NOT for which entrypoint script
+executes: see "Which entrypoint script executes" below for why this tool
+uses the image's own baked-in copy instead of the one that script mounts
+from the host repo. `docs/input.md` for the AlphaFold 3 JSON schema still
+applies either way (shared, package-level code, not
 entrypoint-script-specific).
 
 ## Which entrypoint script executes -- confirmed live, not assumed
@@ -37,15 +40,16 @@ host script's top-level `from alphafold3.jax.attention import attention`
 image was built from) has no matching module in the `alphafold3` package
 this image actually bakes in (confirmed by listing the image's
 `alphafold3/jax/` directory: only a `geometry` subpackage). Instead, this
-tool runs the image's OWN baked-in inference entrypoint
-(`/app/alphafold/` inside the container) directly -- the same fork
-family, the same data-pipeline-disable flag and recycle/sample/MSA-
-overlap/flash-attention/bucket/conformer flags this tool's schema already
-covers below, built against `tokamax`/`ModelRunner` instead, and
-guaranteed self-consistent with the package actually installed in this
-image. This is a real, live-confirmed incompatibility between two
-snapshots of the same upstream fork, not a bug in either script on its
-own.
+tool runs the image's OWN baked-in inference entrypoint -- extracted
+alongside the venv itself, now under
+`/alphafold3_venv/app/alphafold/` (see "How this tool is
+dispatched") -- directly: the same fork family, the same
+data-pipeline-disable flag and recycle/sample/MSA-overlap/flash-
+attention/bucket/conformer flags this tool's schema already covers below,
+built against `tokamax`/`ModelRunner` instead, and guaranteed
+self-consistent with the package actually installed in this venv. This is
+a real, live-confirmed incompatibility between two snapshots of the same
+upstream fork, not a bug in either script on its own.
 
 This also changes the OUTPUT layout from what the official AlphaFold 3
 docs describe (see each `outputs:` entry's own comment in this manifest):
@@ -54,37 +58,43 @@ disabled -- this tool's own call shape -- this entrypoint writes
 DIRECTLY into `output_dir`, with no extra `<job_name>/` nesting.
 
 ## How this tool is dispatched -- read this before deploying it
-AF3 runs from its OWN Docker image (per the design spec, §4: "AF3 itself
-keeps running as its own container from its own image"), completely
-separate from every other engine in this server, which run as
-subprocesses inside conda environments mounted into THIS server's own
-container. This tool's wrapper script therefore shells out to `docker
-run` directly, launching a SIBLING container next to (not nested inside)
-this server's own container.
+**This changed in task 16.** AF3 used to run from its own Docker image as
+a SIBLING container: this tool's wrapper shelled out to `docker run
+romerolabduke/alphafast:latest` directly, which required this server's
+OWN container to have the `docker` CLI on PATH and the host's Docker
+socket bind-mounted in (`-v /var/run/docker.sock:/var/run/docker.sock`).
+That is a ROOT-EQUIVALENT capability -- bind-mounting the socket grants
+anything that can reach it full control of the host -- and this server's
+HTTP transport has no authentication (defect C9, still open), so Ruling 3
+forbade it as the default containerised path: `run_alphafold3` was
+HOST-SIDE ONLY (Ruling 4), `FileNotFoundError: 'docker'` in-container.
 
-This is a DEPLOYMENT requirement, stated explicitly rather than left
-implicit: for this tool to work, this server's OWN container needs (1)
-the `docker` CLI on PATH, and (2) the host's Docker socket bind-mounted
-in (e.g. `-v /var/run/docker.sock:/var/run/docker.sock`), so `docker run`
-here reaches the HOST's daemon and starts a sibling, not a nested,
-container -- neither of which any manifest or adapter can arrange; both
-are the operator's own container-runtime configuration, exactly like the
-read-only host mounts every other GPU engine already needs. See the wave
-report for what was and was not possible to verify about this from
-inside an actual deployed instance of this server's own container.
+AF3 only needed a sibling container because upstream SHIPS it as a Docker
+image, not because inference itself requires one. This server already
+mounts ~20 host conda environments and dispatches into them via
+`EngineSpec.prefix` (`micromamba run -p <prefix> <entry>`); AF3 is now
+the twenty-first, exactly the same way. `/alphafold3_venv` (this image's
+own venv, python 3.12) and `/alphafold3_venv/app/alphafold`
+(its inference entrypoint script plus the `alphafold3` package source)
+were extracted from `romerolabduke/alphafast:latest` with `docker create` + `docker cp`
+-- no container needs to run for that, only to exist locally -- onto this
+host, at `engine.prefix_host` (see this manifest's `engine:` block for
+the full reasoning, and `EngineSpec.prefix_host`'s own docstring for why
+a SECOND path is needed at all here and nowhere else). `docker.sock` is
+never mounted, the `docker` CLI is never needed inside this server's own
+container, and `scripts/container_run.py --check` (task 16) confirms
+zero socket mounts in the derived recipe.
 
-There is a SECOND, related deployment requirement: the dispatcher's
-scratch workdir (see `dispatch.env.EnvDispatcher`'s `scratch_root`) is
-bind-mounted into this tool's `docker run` call so AF3 can read the job
-JSON and write its output where this tool's `outputs:` patterns expect
-it. Docker resolves a bind-mount SOURCE path against the HOST's own
-filesystem, not this server's own container's filesystem -- so
-`scratch_root` must be a path that is ALSO valid, at the IDENTICAL path,
-on the host running the Docker daemon (the same "mount environments at
-their own host path" rule design §2.2 already applies to conda
-environments, applied here to the scratch directory instead). This
-wrapper does not, and cannot, detect or correct a mismatch here -- it
-trusts the path it is given.
+This tool's wrapper script (`scripts/engines/alphafold3.py`) now runs
+UNDER the mounted venv's own python (via `micromamba run -p
+/alphafold3_venv`) and invokes the entrypoint script under
+`/alphafold3_venv/app/alphafold/` as a plain local subprocess -- no
+docker involved anywhere in this call.
+GPU selection needs NO handling here any more either: the GPU is pinned
+at THIS server's own container boundary (design §2.1,
+`--device=nvidia.com/gpu=7`), the same as every other GPU engine, instead
+of needing its own `--gpus device=7` re-applied at a second, sibling
+container boundary the way the old design did.
 
 ## MSA is optional and NEVER built by this tool
 AlphaFold 3's own alignment-search flag is always passed as `false` --
@@ -117,11 +127,12 @@ cover the same "chains + optional per-chain MSA" job shape, each from a
 different model; comparing their outputs on the SAME `msa` input is
 exactly what this server's MSA-tool-first design exists to make possible
 -- do not change engines and alignment source in the same comparison.
-This tool is the heaviest and slowest of the family (a full sibling
-Docker container per call, see "How this tool is dispatched" above) and,
-unlike the others, is not a simple conda-mounted subprocess -- prefer a
-lighter structure predictor for routine screening and reserve this one
-for a candidate you already want AlphaFold 3's specific prediction on.
+This tool is the heaviest and slowest of the family -- a full AlphaFold 3
+inference pass per call, dispatched exactly like every other GPU engine
+here (see "How this tool is dispatched" above) but the most expensive one
+to run -- prefer a lighter structure predictor for routine screening and
+reserve this one for a candidate you already want AlphaFold 3's specific
+prediction on.
 `run_rf3` and `run_esmfold2` are the fastest members of this family
 (RF3 takes an optional MSA; ESMFold2 takes none at all) and are the
 better choice for a first-pass, high-throughput filter before spending
@@ -137,9 +148,9 @@ this tool's much larger cost on a shortlist.
   never a parameter -- see "MSA is optional" above and design §2.1/§7
   (the GPU is pinned at the container boundary, never a per-engine field).
 - `--jax_compilation_cache_dir`: an internal performance cache, pointed at
-  a scratch subdirectory inside the sibling container automatically, the
-  same way this project already handles HF_HOME/TORCH_HOME for
-  conda-mounted engines -- never a caller-facing knob.
+  a scratch subdirectory automatically, the same way this project already
+  handles HF_HOME/TORCH_HOME for conda-mounted engines -- never a
+  caller-facing knob.
 
 ## What you must supply
 `chains`: one entry per chain in the assembly, each
