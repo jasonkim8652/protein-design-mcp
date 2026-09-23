@@ -4,7 +4,10 @@ composite: false
 timeout_s: 21600
 
 engine:
-  repo: rfdiffusion2
+  # engine.repo must name the module that is actually importable under the
+  # prefix -- tests/test_mounts.py cross-checks it by importing. The engine's
+  # repository is called RFdiffusion2 but its package is rf_diffusion.
+  repo: rf_diffusion
   # Dispatches through its conda prefix like every other engine in this
   # server -- NOT through Docker by default. See `backend` in the schema
   # and the doc's "backend" section for why: this tool CAN also run the

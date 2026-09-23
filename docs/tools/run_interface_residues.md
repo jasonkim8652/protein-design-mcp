@@ -2,7 +2,7 @@
 
 **Category:** target_analysis  
 **Engine:** `protein_design_mcp`  
-**Environment:** `/home/jk661/.conda/envs/protein-design-mcp`  
+**Environment:** `server`  
 **GPU required:** no
 
 > This file is generated from `src/protein_design_mcp/manifests/run_interface_residues.yaml`. Edit the manifest, then run `python scripts/generate_tool_docs.py`.

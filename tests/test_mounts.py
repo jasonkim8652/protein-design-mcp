@@ -120,6 +120,18 @@ def test_declared_mounts_of_every_prefix_manifest_match_the_helper():
     module-resolution mount must still be present (that regression is
     still caught), and a manifest may declare additional mounts
     discover_mounts has no way to know about.
+
+    "Present" means REACHABLE, not string-identical. The invariant being
+    guarded is that every path the engine needs to resolve its imports
+    exists inside the container; a declared mount of a parent directory
+    satisfies it, because `-v /a:/a:ro` makes `/a/b` reachable too. So
+    run_rfdiffusion2 declaring `/home/jk661/projects/RFdiffusion2` covers
+    the derived `/home/jk661/projects/RFdiffusion2/rf_diffusion` -- the
+    package directory inside the checkout the manifest already mounts.
+    The containment is one-directional and checked on path components
+    (not string prefixes): a declared CHILD does not cover a discovered
+    PARENT, and `/a/bc` does not cover `/a/b`, so a genuinely absent
+    mount still fails.
     """
     from protein_design_mcp.manifest.loader import load_manifests
 
@@ -158,10 +170,17 @@ def test_declared_mounts_of_every_prefix_manifest_match_the_helper():
         derived = discover_mounts(
             manifest.engine.prefix, manifest.engine.repo, env=manifest.engine.env_vars
         )
-        missing = set(derived) - set(manifest.engine.mounts)
+        declared = [Path(m) for m in manifest.engine.mounts]
+        missing = sorted(
+            path
+            for path in derived
+            if not any(
+                Path(path) == mount or mount in Path(path).parents for mount in declared
+            )
+        )
         assert not missing, (
             f"{manifest.name}: declared mounts {manifest.engine.mounts} are "
-            f"missing module-resolution mount(s) {sorted(missing)} that "
+            f"missing module-resolution mount(s) {missing} that "
             "discover_mounts derives -- the environment was likely "
             "reinstalled non-editable or newly editable; regenerate with "
             f"`python -m protein_design_mcp.mounts {manifest.engine.prefix} "
