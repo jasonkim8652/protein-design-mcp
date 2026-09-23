@@ -153,7 +153,13 @@ def build_command(
     if gid is None:
         gid = os.getgid()
     argv = [
-        "docker", "run", "--rm", "-it",
+        # -i (keep stdin open) but NOT -t: the image's default command is the
+        # MCP server speaking JSON-RPC over stdio, and a client pipes into it.
+        # With -t docker refuses outright ("cannot attach stdin to a
+        # TTY-enabled container because stdin is not a terminal"), so this
+        # command could not be used as the `mcpServers` entry it exists to
+        # produce. -t only ever suited running a proof script in a terminal.
+        "docker", "run", "--rm", "-i",
         f"--device=nvidia.com/gpu={gpu}",
         f"--user={uid}:{gid}",
         "-e", f"HOME={CONTAINER_HOME}",
