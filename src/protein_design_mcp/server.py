@@ -8,8 +8,11 @@ import argparse
 import asyncio
 import logging
 import os
+import re
+from collections.abc import Mapping
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _dist_version
+from pathlib import Path
 from typing import Any
 
 from mcp.server import Server
@@ -40,16 +43,46 @@ except PackageNotFoundError:  # a source tree that was never installed
 
 server = Server("protein-design-mcp", version=_VERSION)
 
-# Device detection: "auto" checks for CUDA availability, "cpu" forces CPU mode
-_DEVICE_ENV = os.environ.get("DEVICE", "auto").lower()
-if _DEVICE_ENV == "auto":
+#: Where the NVIDIA character devices appear. Overridable for testing only.
+DEV_DIR = Path("/dev")
+
+#: A GPU assigned to this container/host, e.g. ``nvidia0``, ``nvidia7``.
+#: Deliberately NOT ``nvidiactl``/``nvidia-uvm``/``nvidia-modeset``, which are
+#: control nodes that can exist with no GPU attached.
+_GPU_NODE = re.compile(r"^nvidia\d+$")
+
+
+def detect_device(env: Mapping[str, str] | None = None, dev_dir: Path | None = None) -> str:
+    """Resolve ``DEVICE``: an explicit value, else detect from device nodes.
+
+    Detection asks "is a GPU attached to this container", not "can I run CUDA
+    from this interpreter". Those came apart in v2: this server never runs
+    CUDA itself -- every engine runs in its own environment with its own torch
+    -- and the image's ``server`` environment has no torch at all, by design.
+    The old ``import torch; torch.cuda.is_available()`` probe therefore hit
+    ``ImportError`` and reported ``cpu`` on a correctly GPU-pinned container,
+    silently excluding 27 of 39 tools.
+
+    A numbered node under ``/dev`` is the fact we can actually observe, needs
+    no dependency, and matches the pinning: ``--device=nvidia.com/gpu=7``
+    yields exactly ``/dev/nvidia7``. ``/proc/driver/nvidia/gpus`` is not
+    usable -- it is the host driver's procfs and lists every GPU on the
+    machine even inside a container pinned to one.
+    """
+    env = os.environ if env is None else env
+    requested = (env.get("DEVICE") or "auto").strip().lower()
+    if requested != "auto":
+        return requested
+
+    dev_dir = DEV_DIR if dev_dir is None else dev_dir
     try:
-        import torch
-        DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-    except ImportError:
-        DEVICE = "cpu"
-else:
-    DEVICE = _DEVICE_ENV
+        return "cuda" if any(_GPU_NODE.match(p.name) for p in dev_dir.iterdir()) else "cpu"
+    except OSError:
+        # No /dev to read (an unusual sandbox, or the path does not exist).
+        return "cpu"
+
+
+DEVICE = detect_device()
 
 logger.info(f"Device mode: {DEVICE} (GPU-only tools {'enabled' if DEVICE != 'cpu' else 'disabled'})")
 

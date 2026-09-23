@@ -111,6 +111,20 @@ def test_the_command_pins_exactly_one_gpu(container_run, derived):
     assert not any(a.startswith("--gpus") for a in argv)
 
 
+def test_the_command_keeps_stdin_open_without_allocating_a_tty(container_run, derived):
+    """The image's default command is the MCP server speaking JSON-RPC over
+    stdio, so the client pipes into stdin. ``-t`` makes docker refuse that
+    outright -- verified: ``echo '{}' | docker run -it --rm <image> true``
+    answers ``cannot attach stdin to a TTY-enabled container because stdin is
+    not a terminal``. ``-t`` was harmless while this command existed to run a
+    proof script in a terminal; it makes the command unusable as the MCP
+    server invocation an ``mcpServers`` entry copies verbatim."""
+    prefixes, mounts = derived
+    argv = container_run.build_command(prefixes, mounts, "img", "0")
+    assert "-i" in argv
+    assert "-t" not in argv and "-it" not in argv
+
+
 def test_the_default_gpu_index_is_not_this_machines_constraint(monkeypatch, container_run):
     """Index 7 is the only GPU that is ours on the development host. That is a
     fact about this machine, not about the software, and a published release
