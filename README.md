@@ -103,7 +103,7 @@ here disagree about torch, CUDA and numpy in ways no single environment resolves
 ### Quick start — no mounts
 
 ```bash
-docker run -i --rm jasonkim8652/protein-design-mcp:2.1.0
+docker run -i --rm jasonkim8652/protein-design-mcp:2.2.0
 ```
 
 This speaks MCP over stdio immediately and gives you **7 tools**: the five engines baked
@@ -145,7 +145,7 @@ and combined with an exposed HTTP port it would be an unauthenticated path to ro
       "command": "docker",
       "args": ["run", "-i", "--rm",
                "--device=nvidia.com/gpu=0",
-               "jasonkim8652/protein-design-mcp:2.1.0"]
+               "jasonkim8652/protein-design-mcp:2.2.0"]
     }
   }
 }
