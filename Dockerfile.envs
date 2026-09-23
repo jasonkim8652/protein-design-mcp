@@ -220,4 +220,15 @@ RUN micromamba run -n server pip install --no-cache-dir . \
          print('manifests found:', files); \
          assert 'run_prodigy.yaml' in files, 'run_prodigy.yaml missing from installed package data'"
 
-CMD ["micromamba", "run", "-n", "server", "python", "scripts/live_proof.py"]
+# The default command MUST be the MCP server speaking stdio, because that is
+# what an MCP client launches: `mcp_docker.json` runs `docker run -i <image>`
+# and immediately expects the initialize handshake on stdin/stdout. This was
+# `python scripts/live_proof.py` while the image existed only to verify the
+# engines in-container; publishing it that way would have handed every client
+# the proof driver's output instead of an MCP session.
+#
+# live_proof.py is still there and still runs -- as an explicit override,
+# which is the correct relationship between a server image and its own
+# verification harness:
+#   docker run --rm <image> micromamba run -n server python scripts/live_proof.py
+CMD ["micromamba", "run", "-n", "server", "protein-design-mcp"]
