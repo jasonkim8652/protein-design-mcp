@@ -57,7 +57,7 @@ _CONF_RE = re.compile(r"\boverall_confidence=([\d.]+)")
 def build_args(manifest: Manifest, params: dict[str, Any]) -> list[str]:
     """Translate validated parameters into the engine's argv."""
     del manifest
-    return [
+    argv = [
         "--model_type",
         CHECKPOINT_FOR[str(params["model_type"])],
         "--pdb_path",
@@ -71,6 +71,23 @@ def build_args(manifest: Manifest, params: dict[str, Any]) -> list[str]:
         "--seed",
         str(params["seed"]),
     ]
+
+    # Appended only when set. An empty string is NOT the same as omission --
+    # LigandMPNN reads an empty --chains_to_design as a named-nothing selection
+    # rather than "design everything", so passing one silently changes what the
+    # run means. Without any of these the engine designs every chain in the
+    # file, which for a generator's two-chain complex redesigns the target
+    # alongside the binder (observed: a 504-residue target plus an 80-residue
+    # design returned as one 585-residue sequence).
+    for field in ("chains_to_design", "fixed_residues", "redesigned_residues"):
+        value = params.get(field)
+        if value is None:
+            continue
+        value = str(value).strip()
+        if value:
+            argv += [f"--{field}", value]
+
+    return argv
 
 
 def _records(text: str) -> list[tuple[str, str]]:

@@ -100,12 +100,22 @@ outputs:
     # task-14-report.md).
     pattern: "inference/*/*/*.pdb"
     description: >-
-      One PDB per generated sample. Chain order follows Proteina-Complexa's
-      own convention confirmed in generate.py's save_predictions: the
-      target chain(s) come first, the newly generated binder chain last.
-      Verify this holds for your target before relying on an automated
-      target/binder split -- this is the exact "binder is the last chain"
-      convention documents/TOOLS.md flags as a historical source of bugs.
+      One PDB per generated sample. CHAIN ORDER: the target chain(s) come
+      first and the newly generated binder chain last -- for a single-chain
+      target that means the TARGET is chain A and the DESIGN is chain B.
+      Confirmed by reading a real run's output (02_PDL1, 2026-09-23): chain A
+      115 residues = the target, chain B 147 residues = the design. Note this
+      is the OPPOSITE of run_rfdiffusion3_binder and run_genie3_binder, which
+      put the design in chain A, so an assumption carried between generators
+      will be wrong. Verify it holds for a multi-chain target before relying
+      on an automated split -- "binder is the last chain" is the exact
+      convention docs/TOOLS.md flags as a historical source of bugs.
+
+      This model CO-GENERATES A REAL SEQUENCE: the design came back with 17
+      distinct residue types and roughly 8 atoms per residue, i.e. all-atom
+      with side chains, not the poly-alanine or poly-glycine placeholder that
+      run_rfdiffusion2 and run_protpardelle emit. Read the sequence off chain
+      B rather than running a sequence designer to invent one.
     multiple: true
   - name: rewards_csv
     pattern: "inference/*/rewards_*.csv"

@@ -58,10 +58,17 @@ outputs:
   - name: structures
     pattern: "out/design_*.pdb"
     description: >-
-      One backbone PDB per design. Backbone only -- diffused (binder)
-      residues carry no real sequence; the target's real residue
-      identities are preserved. Feed a structure here to run_mpnn to
-      design an actual sequence.
+      One backbone PDB per design. CHAIN ORDER, confirmed by reading a real
+      run's output (2026-09-23): the TARGET is chain A and the GENERATED
+      binder is chain B. This is the OPPOSITE of run_genie3_binder and
+      run_rfdiffusion3_binder, which put the design in chain A -- do not
+      carry an assumption between them. Backbone only: the diffused (binder)
+      residues come back as poly-alanine, a placeholder and not a designed
+      sequence, while the target's real residue identities are preserved.
+      Design a sequence for chain B before folding or scoring it --
+      run_mpnn's `chains_to_design` exists so you can say which chain, since
+      redesigning the target as well produces a sequence that is neither the
+      binder nor the target.
     multiple: true
   - name: metadata_trb
     pattern: "out/design_*.trb"

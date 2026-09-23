@@ -50,6 +50,9 @@ experimental success.
 
 | Parameter | Type | Required | Default | Constraints | Description |
 |---|---|---|---|---|---|
+| `chains_to_design` | string | no | `None` | pattern: `^[A-Za-z0-9]( [A-Za-z0-9])*$` | Which chain(s) to design, space-separated (e.g. "B", or "A B"). LEAVING THIS UNSET DESIGNS EVERY CHAIN IN THE FILE, including a target you meant to keep -- a 504-residue target plus an 80-residue binder came back as one 585-residue sequence that is neither. Every binder generator here returns a two-chain complex, so for binder design you almost always want to name the design chain. Which chain that is differs per generator: run_rfdiffusion3_binder and run_genie3_binder put it in chain A, run_rfdiffusion2, run_protpardelle and run_proteina_complexa_generate in chain B. Read the generator's own output description rather than assuming. |
+| `fixed_residues` | string | no | `None` | — | Individual residues to hold fixed, space-separated `{chain}{number}` tags (e.g. "A12 A13 B2"). Finer-grained than chains_to_design and combinable with it: use this to keep an interface motif while redesigning the rest of the same chain. |
+| `redesigned_residues` | string | no | `None` | — | The inverse of fixed_residues -- design ONLY these residues and hold everything else fixed, same `{chain}{number}` tag format. Use whichever of the two is shorter to write; naming both is accepted by the engine but makes the intent hard to read. |
 | `backbone_pdb` | string | yes | `—` | pattern: `\.(pdb\|cif)$` | Backbone structure to design a sequence for. |
 | `model_type` | string | no | `protein` | enum: `['protein', 'soluble', 'ligand']` | Which trained variant to use. |
 | `num_sequences` | integer | no | `8` | minimum: `1`<br>maximum: `128` | How many sequences to sample. |

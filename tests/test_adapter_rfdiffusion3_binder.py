@@ -149,3 +149,60 @@ def test_validation_fills_diffusion_defaults():
     assert params["diffusion_batch_size"] == 8
     assert params["num_timesteps"] == 200
     assert params["step_scale"] == 1.5
+
+
+# --- the co-generated sequence must reach the caller -------------------------
+
+
+def test_parse_output_returns_the_sequence_rfdiffusion3_generated(tmp_path):
+    """RFdiffusion3 co-generates a real sequence, not a poly-alanine
+    placeholder -- confirmed by reading a run's output, where the designed
+    chain A came back with 18 distinct residue types. It was buried in a
+    gzipped CIF that the result never mentioned, so a caller could not tell it
+    existed and the predictable next move was to run run_mpnn for one --
+    discarding a sequence the model had already produced, and (without
+    chains_to_design) redesigning the target along with it.
+    """
+    import gzip, json
+    from pathlib import Path
+    from protein_design_mcp.adapters.rfdiffusion3_binder import parse_output
+    from protein_design_mcp.dispatch.env import CompletedRun
+
+    cif = tmp_path / "m0.cif.gz"
+    rows = [
+        ("ATOM", "N", "N", ".", "GLY", "A", "1", "1"),
+        ("ATOM", "C", "CA", ".", "GLY", "A", "1", "1"),
+        ("ATOM", "C", "CA", ".", "TRP", "A", "1", "2"),
+        ("ATOM", "C", "CA", ".", "LYS", "B", "1", "1"),
+    ]
+    header = ["group_PDB", "type_symbol", "label_atom_id", "label_alt_id",
+              "label_comp_id", "label_asym_id", "label_entity_id", "label_seq_id"]
+    body = "loop_\n" + "".join(f"_atom_site.{h}\n" for h in header)
+    body += "".join(" ".join(r) + "\n" for r in rows)
+    gzip.open(cif, "wt").write("data_x\n" + body + "#\n")
+
+    meta = tmp_path / "m0.json"
+    meta.write_text(json.dumps({"metrics": {}, "ckpt_path": "c", "diffused_index_map": {}}))
+
+    run = CompletedRun(returncode=0, stdout="", stderr="", workdir=tmp_path,
+                       outputs={"metadata_json": [str(meta)], "structure_cif": [str(cif)]})
+    out = parse_output(None, run)
+    assert out["sequences"] == [{"A": "GW", "B": "K"}], out.get("sequences")
+
+
+def test_parse_output_survives_a_cif_it_cannot_read(tmp_path):
+    """A sequence is a bonus on top of the structure. Failing the whole call
+    because one CIF did not parse would throw away a finished GPU run."""
+    import json
+    from protein_design_mcp.adapters.rfdiffusion3_binder import parse_output
+    from protein_design_mcp.dispatch.env import CompletedRun
+
+    bad = tmp_path / "bad.cif.gz"
+    bad.write_bytes(b"not gzip at all")
+    meta = tmp_path / "m.json"
+    meta.write_text(json.dumps({"metrics": {}, "ckpt_path": "c", "diffused_index_map": {}}))
+    run = CompletedRun(returncode=0, stdout="", stderr="", workdir=tmp_path,
+                       outputs={"metadata_json": [str(meta)], "structure_cif": [str(bad)]})
+    out = parse_output(None, run)
+    assert out["num_structures"] == 1
+    assert out["sequences"] == [None]
