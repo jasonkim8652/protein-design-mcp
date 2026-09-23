@@ -139,12 +139,22 @@ def parse_output(manifest: Manifest, run: CompletedRun) -> dict[str, Any]:
     )
 
     return {
-        "aggregate_score": float(scores["aggregate_score"]),
-        "ptm": float(scores["ptm"]),
-        "iptm": float(scores["iptm"]),
+        # .item() -- not float()/bool() -- on purpose: chai_lab's own
+        # scores.model_idx_*.npz stores these as size-1 (not 0-d) arrays.
+        # float()/bool() on a non-0-d array is numpy's own long-deprecated
+        # implicit scalar conversion (DeprecationWarning since numpy 1.25);
+        # numpy 2.4.6 (this image's unpinned `pip install .` resolves) turns
+        # that into a hard TypeError, while numpy 2.2.6 (the host dev env)
+        # still only warns -- see task-13-report.md. .item() is the
+        # version-stable, explicitly-supported way to pull a single element
+        # out of an array regardless of whether it is 0-d or size-1, and
+        # works identically on every numpy version.
+        "aggregate_score": scores["aggregate_score"].item(),
+        "ptm": scores["ptm"].item(),
+        "iptm": scores["iptm"].item(),
         "per_chain_ptm": scores["per_chain_ptm"].tolist(),
         "per_chain_pair_iptm": scores["per_chain_pair_iptm"].tolist(),
-        "has_inter_chain_clashes": bool(scores["has_inter_chain_clashes"]),
+        "has_inter_chain_clashes": bool(scores["has_inter_chain_clashes"].item()),
         "num_structures": num_structures,
         "caveat": (
             "Chai-1's CLI does not write a PAE matrix to disk, so run_ipsae "

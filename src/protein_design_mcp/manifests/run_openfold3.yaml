@@ -8,9 +8,26 @@ engine:
   # Plain PyPI install (`pip install openfold3` -> 0.5.0 today), not
   # editable -- confirmed live via `python -m protein_design_mcp.mounts
   # /home/jk661/.conda/envs/openfold3 openfold3`, which returned no extra
-  # mounts. No `mounts:` needed.
+  # IMPORT-TIME mounts. The checkpoint cache below is a separate,
+  # runtime-only need discovered in-container (task-13-report.md): once
+  # the libXrender/libXext import-chain defect was fixed, the next real
+  # error was `pydantic_core...ValidationError: Default checkpoint
+  # openbind-2025-06-30-174k not found in /tmp/.openfold3` -- the same
+  # "$HOME mismatch" root cause as promera/rf3/rfd3 (openfold3's own
+  # `entry_points/parameters.py` defaults its cache path to
+  # `Path("~/.openfold3/").expanduser()`, i.e. Path.home()-based), but
+  # fixed here with openfold3's OWN explicit override
+  # (`os.environ.get("OPENFOLD_CACHE") or DEFAULT_CACHE_PATH`) rather than
+  # the blanket dispatcher-level $HOME override (_HOME_OVERRIDE_REPOS in
+  # dispatch/env.py) -- narrower, and avoids the exact class of collision
+  # that redirecting $HOME caused for rf3/rfd3's triton cache (see that
+  # module's own comment).
   prefix: /home/jk661/.conda/envs/openfold3
   entry: ["python", "/app/scripts/engines/openfold3.py"]
+  mounts:
+    - /home/jk661/.openfold3
+  env_vars:
+    OPENFOLD_CACHE: /home/jk661/.openfold3
 
 requires:
   gpu: true

@@ -1,4 +1,5 @@
 import json
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -92,13 +93,27 @@ def test_build_args_rejects_too_many_copies():
 
 # --- parse_output ---
 
+# SHAPE-(1,) arrays, not 0-d -- this is what the real chai_lab CLI's own
+# scores.model_idx_*.npz actually stores for these fields (confirmed by the
+# in-container proof, task-13-report.md: the real in-container error was
+# `TypeError: only 0-dimensional arrays can be converted to Python scalars`
+# from `float(scores["aggregate_score"])`, which a 0-d fixture like
+# ``np.array(0.5)`` cannot reproduce -- ``float()``/``bool()`` on a true 0-d
+# array works in every numpy version). numpy 2.2.6 (this project's host dev
+# env) still only *warns* (DeprecationWarning) on ``float()``/``bool()`` of
+# a size-1 non-0-d array; numpy 2.4.6 (the container image's unpinned
+# ``pip install .``) turns that same warning into a hard TypeError. Fixed
+# by reading these fields with ``.item()`` instead of ``float()``/``bool()``
+# -- see ``test_parse_output_does_not_rely_on_implicit_array_to_scalar_conversion``
+# below, which pins this down independently of which numpy version happens
+# to be installed wherever the suite runs.
 SCORE_FIELDS_MODEL_0 = dict(
-    aggregate_score=np.array(0.5),
-    ptm=np.array(0.4),
-    iptm=np.array(0.1),
+    aggregate_score=np.array([0.5]),
+    ptm=np.array([0.4]),
+    iptm=np.array([0.1]),
     per_chain_ptm=np.array([0.4]),
     per_chain_pair_iptm=np.array([[0.1]]),
-    has_inter_chain_clashes=np.array(False),
+    has_inter_chain_clashes=np.array([False]),
     chain_chain_clashes=np.array([[0]]),
 )
 
@@ -111,7 +126,7 @@ def _run_with_outputs(tmp_path: Path, n: int) -> CompletedRun:
         structures.append(str(struct))
         score_path = tmp_path / f"scores.model_idx_{i}.npz"
         fields = dict(SCORE_FIELDS_MODEL_0)
-        fields["ptm"] = np.array(0.1 * (i + 1))
+        fields["ptm"] = np.array([0.1 * (i + 1)])
         np.savez(score_path, **fields)
         scores.append(str(score_path))
     return CompletedRun(
@@ -136,3 +151,26 @@ def test_parse_output_raises_when_scores_missing(tmp_path):
     run = CompletedRun(returncode=0, stdout="", stderr="", workdir=tmp_path, outputs={})
     with pytest.raises(ValueError, match="scores"):
         parse_output(_manifest(), run)
+
+
+def test_parse_output_does_not_rely_on_implicit_array_to_scalar_conversion(tmp_path):
+    """Regression for task-13-report.md's run_chai1 defect: the engine
+    itself succeeded, but the adapter's own ``float(scores["aggregate_score"])``
+    /``float(scores["ptm"])``/``float(scores["iptm"])``/
+    ``bool(scores["has_inter_chain_clashes"])`` calls raised in-container,
+    where numpy 2.4.6 turned numpy's long-deprecated implicit
+    non-0-d-array-to-scalar conversion into a hard TypeError (numpy 2.2.6 on
+    the host dev env only warned). Rather than requiring a specific numpy
+    version installed to observe the failure, this promotes that
+    DeprecationWarning to an error locally, simulating numpy 2.4.6's
+    stricter behavior on ANY numpy 2.x -- the fixed adapter (using
+    ``.item()``) must not trigger it at all.
+    """
+    run = _run_with_outputs(tmp_path, 1)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        result = parse_output(_manifest(), run)
+    assert result["aggregate_score"] == pytest.approx(0.5)
+    assert result["ptm"] == pytest.approx(0.1)
+    assert result["iptm"] == pytest.approx(0.1)
+    assert result["has_inter_chain_clashes"] is False

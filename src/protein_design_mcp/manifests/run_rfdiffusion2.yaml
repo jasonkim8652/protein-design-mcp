@@ -25,8 +25,28 @@ engine:
   entry: ["python", "/app/scripts/engines/rfdiffusion2.py"]
   mounts:
     - /home/jk661/projects/RFdiffusion2
+    # HAND-DECLARED, not discover_mounts output -- discover_mounts walks
+    # Python's own import machinery (sys.path / site-packages), so it can
+    # never see a shared library the dynamic linker loads underneath an
+    # already-imported C++ extension. dgl's `graphbolt` extension (an
+    # import-time dependency of rf_diffusion) dlopen()s libnvrtc.so.12 at
+    # runtime and fails with `OSError: libnvrtc.so.12: cannot open shared
+    # object file` in-container (task-13-report.md) -- CONFIRMED the file
+    # is NOT on the dynamic linker's default search path anywhere in this
+    # image. A copy also exists inside rfd2_fixed's own mounted
+    # site-packages (nvidia-cuda-nvrtc-cu12's wheel, under
+    # nvidia/cuda_nvrtc/lib/) but isn't found either, for the same reason
+    # (no RPATH pointing there) -- this mounts the HOST's system CUDA
+    # toolkit install instead, matched with LD_LIBRARY_PATH below.
+    # DO NOT DELETE THIS AS "SPURIOUS" ON RE-DERIVATION -- discover_mounts
+    # will never produce it, by design (see above); it is needed anyway.
+    # This exact directory is shared with run_protenix.yaml, which needs
+    # nvcc/headers from the same install (CUDA_HOME) -- container_run.py
+    # dedupes identical mount paths across manifests into one `-v`.
+    - /usr/local/cuda-12.6
   env_vars:
     PYTHONPATH: /home/jk661/projects/RFdiffusion2
+    LD_LIBRARY_PATH: /usr/local/cuda-12.6/targets/x86_64-linux/lib
 
 requires:
   gpu: true

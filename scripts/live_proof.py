@@ -57,6 +57,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import dataclass
 from typing import Any
 
 from mcp import types
@@ -1021,38 +1022,90 @@ def _check_coverage() -> None:
             )
 
 
-async def _run_case(case: dict) -> None:
+@dataclass(frozen=True)
+class CaseOutcome:
+    """One case's result -- collected, never raised.
+
+    ``_run_case`` used to ``raise SystemExit`` the instant a case's outcome
+    didn't match its expectation, which ``main()`` never caught. That is a
+    real defect (see task-13-report.md): a hard exit on the FIRST mismatch
+    means this script can never produce a complete picture once any one
+    case's real-world outcome differs from what was true when the case was
+    written -- which is exactly what an in-container run exists to find,
+    and is close to inevitable the first time every case is actually
+    executed somewhere new. ``_run_case`` now returns a ``CaseOutcome``
+    instead of raising, so ``main()`` can run every case, print a full
+    table, and only THEN decide the process exit code -- non-zero if
+    anything failed, but only after every case has actually run.
+    """
+
+    tool: str
+    device: str
+    ok: bool
+    detail: str = ""
+
+
+async def _run_case(case: dict) -> CaseOutcome:
     tool = case["tool"]
     device = case["device"]
     expect_keys = case["expect_keys"]
     expect_error = expect_keys == ["error"]
 
-    result = await call_tool(tool, case["arguments"], device)
+    try:
+        result = await call_tool(tool, case["arguments"], device)
+    except Exception as exc:  # noqa: BLE001 - one case crashing must not stop the rest
+        print(f"\n=== {tool} (device={device}) ===")
+        print(f"CRASHED before a result was returned: {exc!r}")
+        return CaseOutcome(tool, device, ok=False, detail=f"crashed: {exc!r}")
+
     _print_result(f"{tool} (device={device})", result)
 
     if expect_error:
         if not result.isError:
-            raise SystemExit(f"FATAL: expected {tool!r} to fail, it did not")
-    else:
-        if result.isError:
-            raise SystemExit(f"FATAL: expected {tool!r} to succeed, it did not")
+            return CaseOutcome(tool, device, ok=False, detail="expected to fail, it did not")
+        return CaseOutcome(tool, device, ok=True)
+
+    if result.isError:
+        return CaseOutcome(tool, device, ok=False, detail="expected to succeed, it did not")
 
     payload = json.loads(result.content[0].text)
     missing_keys = [key for key in expect_keys if key not in payload]
     if missing_keys:
-        raise SystemExit(
-            f"FATAL: {tool!r} result missing expected key(s) {missing_keys}: {payload}"
+        return CaseOutcome(
+            tool, device, ok=False,
+            detail=f"result missing expected key(s) {missing_keys}",
         )
+    return CaseOutcome(tool, device, ok=True)
 
 
-async def main() -> None:
+def _print_summary(outcomes: list[CaseOutcome]) -> None:
+    passed = [o for o in outcomes if o.ok]
+    failed = [o for o in outcomes if not o.ok]
+    print(f"\n=== SUMMARY: {len(passed)}/{len(outcomes)} passed ===")
+    for outcome in outcomes:
+        mark = "PASS" if outcome.ok else "FAIL"
+        suffix = f" -- {outcome.detail}" if outcome.detail else ""
+        print(f"  [{mark}] {outcome.tool} (device={outcome.device}){suffix}")
+    if failed:
+        print(f"\n{len(failed)} case(s) did not match their expectation:")
+        for outcome in failed:
+            print(f"  - {outcome.tool} (device={outcome.device}): {outcome.detail}")
+
+
+async def main() -> int:
+    """Run every case, print a full table, and return the process exit
+    code -- 0 only if every case matched its expectation. Every case runs
+    regardless of earlier failures (see ``CaseOutcome``'s docstring)."""
     _check_coverage()
 
-    for case in CASES:
-        await _run_case(case)
+    outcomes = [await _run_case(case) for case in CASES]
+    _print_summary(outcomes)
 
-    print("\n=== ALL CHECKS PASSED ===")
+    if all(o.ok for o in outcomes):
+        print("\n=== ALL CHECKS PASSED ===")
+        return 0
+    return 1
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    raise SystemExit(asyncio.run(main()))

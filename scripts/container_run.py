@@ -20,6 +20,26 @@ Three things this encodes, each established by experiment (see
    environment mounted, ``import boltz`` raises ``ModuleNotFoundError`` while the
    interpreter runs fine and ``import torch`` succeeds. Half the engine
    environments on this host are editable.
+4. **The container runs AS the invoking host user, not the image's default
+   user.** Established in-container (task-13-report.md): some mounted host
+   files (e.g. ``run_protpardelle``'s ``model_params/configs/*.yaml``) are
+   mode 640, readable only via the host user's own group membership
+   (``ldapusers``). The image's default user (``$MAMBA_USER``, an arbitrary
+   fixed uid/gid baked at build time) is in no such group, so a correctly
+   *mounted* file is still unreadable. Chmod'ing the user's own files, or
+   granting the mount group-world-readable, are both worse than mapping the
+   container's own uid/gid onto the invoking user's — every file already
+   readable on the host (which is everything this recipe mounts, since the
+   invoking user owns or group-reads all of it) is then readable identically
+   in-container, with no broader exposure than the host already has. ``-e
+   HOME=/tmp`` goes with it: the image's own baked-in directories (e.g.
+   ``/home/mambauser``) are NOT world-writable, so an arbitrary uid has
+   nowhere to put micromamba's own runtime lockfile (``$HOME/.cache/mamba/proc``)
+   unless $HOME is pointed at something that is (``/tmp``, always
+   world-writable). Engine-specific $HOME needs (e.g. the promera/rf3/rfd3
+   checkpoint-path fix) are handled separately, per-subprocess, by
+   ``EnvDispatcher`` — see its own ``_HOST_HOME`` — and are unaffected by
+   this container-wide default.
 
 Usage::
 
@@ -31,6 +51,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import os
 import shlex
 import sys
 from pathlib import Path
@@ -42,6 +63,11 @@ from protein_design_mcp.manifest.loader import load_manifests_resilient  # noqa:
 
 DEFAULT_IMAGE = "protein-design-mcp:envs"
 DEFAULT_GPU = "7"
+# See point 4 in this module's own docstring: micromamba's own runtime
+# lockfile needs A writable $HOME regardless of which uid the container
+# runs as, and /tmp is world-writable (sticky bit) in any ordinary Linux
+# image, unlike the image's baked-in /home/$MAMBA_USER.
+CONTAINER_HOME = "/tmp"
 
 
 def collect_paths(manifest_dir: Path) -> tuple[set[str], set[str], list[str]]:
@@ -64,8 +90,28 @@ def collect_paths(manifest_dir: Path) -> tuple[set[str], set[str], list[str]]:
     return prefixes, mounts, problems
 
 
-def build_command(prefixes: set[str], mounts: set[str], image: str, gpu: str) -> list[str]:
-    argv = ["docker", "run", "--rm", "-it", f"--device=nvidia.com/gpu={gpu}"]
+def build_command(
+    prefixes: set[str],
+    mounts: set[str],
+    image: str,
+    gpu: str,
+    *,
+    uid: int | None = None,
+    gid: int | None = None,
+) -> list[str]:
+    # Default to the process actually invoking this script — see point 4 of
+    # this module's own docstring. Overridable (uid/gid params) only so
+    # tests can assert on a fixed value instead of the test runner's own.
+    if uid is None:
+        uid = os.getuid()
+    if gid is None:
+        gid = os.getgid()
+    argv = [
+        "docker", "run", "--rm", "-it",
+        f"--device=nvidia.com/gpu={gpu}",
+        f"--user={uid}:{gid}",
+        "-e", f"HOME={CONTAINER_HOME}",
+    ]
     # Identical-path, read-only. Sorted so the command is stable between runs and
     # a diff of two invocations is meaningful.
     for path in sorted(prefixes | mounts):

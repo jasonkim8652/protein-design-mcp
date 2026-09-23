@@ -8,9 +8,29 @@ engine:
   # Plain PyPI install (`pip install protenix` -> 2.0.0 today), not
   # editable -- confirmed live via `python -m protein_design_mcp.mounts
   # /home/jk661/.conda/envs/protenix protenix`, which returned no extra
-  # mounts. No `mounts:` needed.
+  # import-time mounts. `mounts:`/`env_vars:` below are for a RUNTIME JIT
+  # compile, invisible to discover_mounts (see its comment on
+  # run_rfdiffusion2.yaml, which shares this same mount).
   prefix: /home/jk661/.conda/envs/protenix
   entry: ["python", "/app/scripts/engines/protenix.py"]
+  # HAND-DECLARED, not discover_mounts output -- Protenix's fused LayerNorm
+  # kernel is JIT-compiled on first use via
+  # torch.utils.cpp_extension.load(), which needs a full CUDA toolkit
+  # (nvcc + headers), not just an importable Python module: in-container
+  # this failed with `OSError: CUDA_HOME environment variable is not set`
+  # (task-13-report.md) -- no manifest set CUDA_HOME for any engine, and
+  # this env's own nvidia-* pip packages (cublas/cudnn/cufft/...) do NOT
+  # include nvidia-cuda-nvcc, so there is no nvcc anywhere inside the
+  # protenix env itself to fall back to. Mounts the host's system CUDA
+  # toolkit install (has bin/nvcc, include/, lib64/) and points CUDA_HOME
+  # at it -- torch.utils.cpp_extension._find_cuda_home resolves nvcc as
+  # exactly `os.path.join(CUDA_HOME, "bin", "nvcc")`, so PATH does not also
+  # need updating. DO NOT DELETE ON RE-DERIVATION: discover_mounts will
+  # never produce this (see run_rfdiffusion2.yaml's identical note).
+  mounts:
+    - /usr/local/cuda-12.6
+  env_vars:
+    CUDA_HOME: /usr/local/cuda-12.6
 
 requires:
   gpu: true

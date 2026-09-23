@@ -48,10 +48,29 @@ FROM mambaorg/micromamba:2.9.0-ubuntu22.04
 USER root
 # freesasa (a prodigy-prot dependency) ships no manylinux wheel on PyPI, so
 # pip builds it from source on Linux; a C/C++ toolchain must be present for
-# that one build step. Nothing else here needs it.
+# that one build step.
+#
+# libxrender1 (provides libXrender.so.1) and libxext6 (provides
+# libXext.so.6): runtime dependencies of rdkit.Chem.Draw, which openfold3
+# imports transitively -- CONFIRMED in-container (task-13-report.md):
+# `ImportError: libXrender.so.1: cannot open shared object file`, then,
+# after adding libxrender1 alone and rebuilding, `ImportError:
+# libXext.so.6: cannot open shared object file` -- the dynamic linker
+# reports only the FIRST missing DT_NEEDED entry it hits, not every one at
+# once, so fixing one can reveal the next. Both are system X11 libraries
+# this image never installed (neither is a pip/conda package; rdkit's own
+# wheel does not bundle either, since they are normally provided by the
+# host's desktop/X11 stack). This is the "belongs in the image" half of
+# that finding -- unlike run_rfdiffusion2/run_protenix's CUDA libraries,
+# nothing HOST-side should be mounted for this: these are small, generic
+# system packages with no host-specific version pinning at stake, so they
+# are baked into the image instead, same as build-essential/ca-certificates
+# above.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         ca-certificates \
+        libxrender1 \
+        libxext6 \
     && rm -rf /var/lib/apt/lists/*
 
 USER $MAMBA_USER
