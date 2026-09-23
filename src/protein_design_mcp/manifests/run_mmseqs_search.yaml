@@ -1,0 +1,358 @@
+name: run_mmseqs_search
+category: msa
+composite: false
+timeout_s: 7200
+
+engine:
+  repo: mmseqs
+  env: mmseqs
+  entry: ["python", "/app/scripts/engines/run_mmseqs_search.py"]
+  # This engine needs no Python package beyond the standard library (it only
+  # shells out to the standalone `mmseqs` binary), so it needs no `prefix` /
+  # `python -m protein_design_mcp.mounts` module-resolution mount (that
+  # machinery — see EngineSpec.mounts' own docstring and
+  # protein_design_mcp.mounts — is for an editable install's source checkout
+  # or a leaked user-site directory, discovered by IMPORTING a module under
+  # the target environment; there is no module here to import). What it does
+  # need, and what `mounts` is used for here instead, is two plain host
+  # paths this engine reads from directly: the mmseqs binary itself (not
+  # baked into this environment) and the local database root. Both are
+  # read-only and validated to exist on this host at manifest-load time.
+  mounts:
+    - /usr/local/bin/mmseqs
+    - /opt/alphafold3_data/mmseqs_db
+
+requires:
+  gpu: true
+  # Confirmed live: these are GPU-PADDED databases (`mmseqs makepaddedseqdb`).
+  # A CPU-mode search (`--gpu` omitted) against small_bfd_padded (16.8GB, the
+  # smallest of the four) was still running after 2+ minutes wall / 34+ CPU-
+  # minutes and had grown to >80GB resident memory before being killed --
+  # against a GPU search of the same database and query that took 43s total.
+  # The MMseqs2 manual's own "GPU vs CPU mode" table implies CPU mode is a
+  # normal fallback for a padded database; on THESE databases, on this host,
+  # it is not practical. This is the divergence from the manual the task
+  # brief asked to be noted, not a guess.
+
+outputs:
+  - name: unpaired_a3m
+    pattern: unpaired.a3m
+    description: >-
+      Unpaired MSA: every selected `unpaired_databases` entry, searched
+      separately then merged and deduplicated by exact aligned sequence.
+      Valid as the plain single-a3m `msa` input for RoseTTAFold3, Promera,
+      and the Chai-1/Boltz-2/Protenix/OpenFold3 family (none implemented in
+      this server yet). Together with paired_a3m, valid as AlphaFold 3's
+      `unpairedMsa`.
+  - name: paired_a3m
+    pattern: paired.a3m
+    description: >-
+      UniProt search, NOT deduplicated. Valid only as AlphaFold 3's
+      `pairedMsa` (fed to its own cross-chain taxonomy pairing) -- no other
+      consumer here uses a paired alignment. Always written, even when
+      `pair` is false or the search finds nothing: in both cases this file
+      holds a single query-only a3m record (see the tool's own doc for why
+      "not searched" and "searched, zero hits" are deliberately the same
+      shape). AlphaFold 3 requires `unpairedMsa` and `pairedMsa` to be
+      either both set or both null -- this file existing is what lets a
+      caller satisfy "both set" even for a chain it does not intend to pair.
+  - name: templates_a3m
+    pattern: templates.a3m
+    description: >-
+      pdb_seqres search for structural templates, written whenever
+      `search_templates` is true (and as a query-only record otherwise).
+      Headers are mmseqs' own raw shape (`>101m_A mol:protein
+      length:154`), NOT AlphaFold 3's internal templates.py hit-parser
+      shape (`.../1-END [subseq from] ...`, which needs mmseqs'
+      `convertalis` for alignment coordinates) -- a caller feeding this to
+      AF3's own template parser must reformat it first.
+  - name: search_summary
+    pattern: search_summary.json
+    description: >-
+      Machine-readable counts and settings for this run: query_length,
+      unpaired_hit_count, paired_hit_count, template_hit_count,
+      unpaired_databases_searched, pair_searched, templates_searched,
+      used_gpu, elapsed_seconds. This is what the tool's own JSON reply is
+      built from.
+
+summary: >-
+  Search the local MMseqs2 databases and build the alignment AlphaFold 3 and
+  every other structure-prediction tool here needs, so a folding tool never
+  builds its own. Emits an unpaired a3m (valid for every co-folding tool's
+  plain `msa` input), a paired a3m (AlphaFold 3's cross-chain pairing input
+  only), and a templates a3m. Every search knob MMseqs2 exposes -- which
+  databases, sensitivity, e-value, coverage, identity, iterations, max hits
+  -- is a parameter here, not a fixed default.
+
+doc: |
+  ## What this is
+  A wrapper around the standalone `mmseqs` binary (`/usr/local/bin/mmseqs`)
+  against the local, pre-padded (`mmseqs makepaddedseqdb`) databases under
+  `/opt/alphafold3_data/mmseqs_db/mmseqs`. Runs `search` -> `result2msa` ->
+  `unpackdb` once per selected database (this is the exact sequence the
+  user's own working AlphaFold 3 + MMseqs2-GPU fork uses --
+  `~/projects/af3-mmseqs-gpu/src/alphafold3/data/tools/mmseqs.py` -- not a
+  reimplementation from the MMseqs2 manual).
+
+  ## What it is for
+  This is one of two alignment-producing tools in this server (the other is
+  `run_colabfold_search`, which searches a *different* sequence universe --
+  UniRef30/envDB, not these databases -- and whose a3m is NOT interchangeable
+  with this one; see "When to use this instead of the alternatives" below).
+  No structure-prediction tool here builds its own alignment: hiding that
+  step would make model-to-model comparison meaningless and would silently
+  send novel design sequences to whichever MSA source a folding tool
+  defaulted to. Call this first, then pass its output into the folding
+  tool's `msa` parameter.
+
+  ## Which output goes where
+  - `unpaired_a3m`: every planned consumer that takes one plain a3m --
+    RoseTTAFold3, Promera, and the Chai-1/Boltz-2/Protenix/OpenFold3 family
+    (none implemented in this server yet). Also AlphaFold 3's
+    `unpairedMsa`.
+  - `paired_a3m`: AlphaFold 3's `pairedMsa` only. Meaningless on its own;
+    AlphaFold 3's featurisation pairs rows across chains sharing UniProt
+    taxonomy. For a single chain that will be folded as (or as part of) a
+    prediction you intend to pair, call this once per chain and pass each
+    chain's own `paired_a3m` -- pairing happens downstream, not here.
+  - `templates_a3m`: template-aware predictors. Raw mmseqs headers -- see
+    the output's own description for the AlphaFold-3-parser caveat.
+
+  ## Single-chain queries and the `pair` parameter
+  This tool always takes one sequence per call, so "pairing" here can only
+  ever mean "search UniProt so a LATER cross-chain step has this chain's
+  candidates" -- it never performs the pairing itself. Set `pair: false` for
+  a chain you already know is going into a monomer prediction, to skip the
+  ~78GB UniProt search; leave it `true` (the default) whenever this chain
+  might end up in a multimer, including when you are not yet sure. Either
+  way `paired_a3m` is always written (see that output's own description).
+
+  ## When to use this instead of the alternatives
+  - `run_colabfold_search` runs MMseqs2 against ColabFold's OWN database set
+    (UniRef30/envDB) instead of these AlphaFold-3-oriented databases -- a
+    different sequence universe with different filtering defaults. Prefer
+    THIS tool (`run_mmseqs_search`) by default: it is the alignment every
+    other tool in this server was built and verified against, and its
+    `unpaired_a3m`/`paired_a3m`/`templates_a3m` split matches what
+    `run_alphafold3` and the rest of the structure-prediction family expect.
+    Prefer `run_colabfold_search` only when a specific downstream consumer
+    documents that it wants ColabFold's own alignment shape instead.
+  - Never mix the two on the same prediction, or hand one tool's a3m to a
+    consumer built for the other's -- both search different sequence
+    universes, so a consumer built against one and handed the other's a3m
+    usually returns WORSE results, not an error.
+
+  ## Important caveats
+  - MMseqs2 against these local databases, and `run_colabfold_search`
+    against UniRef30/envDB via `colabfold_search`, search different
+    sequence universes. A consumer built against one and handed the other's
+    a3m usually returns WORSE results, not an error -- state which producer
+    a folding tool's `msa` parameter expects before mixing them.
+  - `sequence` is validated against the standard 20 amino acids plus the
+    common ambiguity codes (X, B, Z, J, U, O), uppercase only, BEFORE
+    mmseqs ever sees it. This was checked live: mmseqs' own `createdb`
+    accepts digits, lowercase, spaces and `*` without complaint and encodes
+    them anyway, which is worse than a clean rejection -- it would search
+    silently on a malformed query rather than fail loudly.
+  - A search that finds nothing is a normal, valid result, not an error:
+    confirmed live that `result2msa`/`unpackdb` against a padded database
+    with zero passing hits still emit a single query-only a3m record. Check
+    `unpaired_hit_count` / `paired_hit_count` / `template_hit_count` in the
+    reply rather than inferring "no hits" from file size or content shape.
+
+  ## What you must supply
+  `sequence` -- one protein chain's amino acid sequence.
+
+  ## What you get back
+  `query_length`, `unpaired_hit_count`, `paired_hit_count`,
+  `template_hit_count`, `unpaired_databases_searched`, `pair_searched`,
+  `templates_searched`, `used_gpu`, `elapsed_seconds`, and under `outputs`
+  the paths to `unpaired_a3m`, `paired_a3m`, `templates_a3m` and
+  `search_summary` (this same data, as a file).
+
+schema:
+  sequence:
+    type: string
+    pattern: '^[ACDEFGHIKLMNPQRSTVWYXBZJUO]+$'
+    required: true
+    description: >-
+      One protein chain's amino acid sequence, uppercase single-letter
+      codes only (the standard 20 plus the ambiguity codes X/B/Z/J/U/O).
+      Anything else -- digits, lowercase, whitespace, `*`, a `>` that would
+      corrupt the FASTA record this tool writes internally -- is rejected
+      here rather than silently accepted by mmseqs (verified live: mmseqs'
+      own createdb does not reject them itself).
+    example: MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
+  unpaired_databases:
+    type: array
+    items:
+      type: string
+      enum: ["uniref90", "mgnify", "small_bfd"]
+    minItems: 1
+    default: ["uniref90", "mgnify", "small_bfd"]
+    description: >-
+      Which unpaired protein databases to search and merge into
+      `unpaired_a3m`. uniref90: UniRef90 clusters, the primary broad-coverage
+      database. mgnify: MGnify environmental metagenomic proteins, adds
+      diversity a UniProt-derived database misses. small_bfd: a reduced
+      BFD (Big Fantastic Database) subset, deep coverage for hard/orphan
+      targets. Dropping a database speeds up the call and narrows the
+      alignment; the default searches all three, matching the reference
+      pipeline this tool is built from.
+    example: ["uniref90", "mgnify", "small_bfd"]
+  pair:
+    type: boolean
+    default: true
+    description: >-
+      Whether to search UniProt (no deduplication) for `paired_a3m`. True
+      (the default) is the safe choice when you are not certain this chain
+      will end up folded alone -- it costs one extra ~78GB search. Set to
+      false only when you already know this chain is going into a monomer
+      prediction, where a paired alignment is meaningless (see the tool doc
+      for what "paired" means at this tool's single-sequence granularity).
+    example: true
+  search_templates:
+    type: boolean
+    default: true
+    description: >-
+      Whether to search pdb_seqres for `templates_a3m`. False skips the
+      search and writes a query-only placeholder instead, for a caller
+      whose folding tool ignores templates entirely.
+    example: true
+  sensitivity:
+    type: number
+    minimum: 1.0
+    maximum: 7.5
+    default: 7.5
+    description: >-
+      MMseqs2 `-s`. Higher finds more remote homologues and costs more
+      time; 1.0 is fast and shallow, 7.5 is the deep default this tool
+      inherits from the reference pipeline and is recommended for remote
+      homology detection. Applies to every search this call makes
+      (unpaired, paired, templates).
+    example: 7.5
+  e_value:
+    type: number
+    minimum: 0.0
+    default: 0.0001
+    description: >-
+      MMseqs2 `-e` for the unpaired and paired searches: only hits with an
+      E-value below this are kept. Lower is more stringent (fewer, more
+      confident hits); higher admits more distant, noisier matches. The
+      reference pipeline's default (1e-4) is noticeably stricter than
+      mmseqs' own built-in default (1e-3). Template search uses the
+      separate `template_e_value` instead, since broad template discovery
+      wants a much looser threshold than a confident MSA does.
+    example: 0.0001
+  max_sequences:
+    type: integer
+    minimum: 1
+    maximum: 1000000
+    default: 5000
+    description: >-
+      MMseqs2 `--max-seqs`: the maximum number of hits the prefilter is
+      allowed to pass through per database, before the e-value/coverage/
+      identity thresholds are even applied -- set it too low and a real hit
+      can be dropped before those thresholds get a chance to keep it. 5000
+      matches the reference pipeline. Raising it finds more hits at the
+      cost of a slower align step; lowering it speeds up a call where you
+      only need a handful of confident sequences.
+    example: 5000
+  coverage:
+    type: number
+    minimum: 0.0
+    maximum: 1.0
+    default: 0.0
+    description: >-
+      MMseqs2 `-c`: keep only hits covering at least this fraction of
+      residues, as `coverage_mode` defines "covered". 0.0 (mmseqs' own
+      default, kept here) applies no coverage filter at all, which is why
+      the reference pipeline never had to set it explicitly. Raise it
+      (e.g. 0.5-0.8) to exclude short, partial-domain hits from the
+      alignment.
+    example: 0.0
+  coverage_mode:
+    type: integer
+    enum: [0, 1, 2, 3, 4, 5]
+    default: 0
+    description: >-
+      MMseqs2 `--cov-mode`, which residues `coverage` measures against: 0
+      query AND target coverage, 1 target coverage only, 2 query coverage
+      only, 3 target must be at least `coverage` fraction of query length,
+      4 query must be at least `coverage` fraction of target length, 5 the
+      shorter sequence must cover `coverage` of the longer. 0 is mmseqs'
+      own default and only matters once `coverage` is raised above 0.0.
+    example: 0
+  min_seq_id:
+    type: number
+    minimum: 0.0
+    maximum: 1.0
+    default: 0.0
+    description: >-
+      MMseqs2 `--min-seq-id`: keep only hits at or above this fractional
+      sequence identity to the query. 0.0 (mmseqs' own default, and the
+      reference pipeline's, since it never set this) applies no identity
+      filter. Raise it to force a shallower, higher-identity alignment --
+      useful when a distant/noisy hit is hurting a downstream predictor
+      more than helping it.
+    example: 0.0
+  num_iterations:
+    type: integer
+    minimum: 1
+    maximum: 10
+    default: 1
+    description: >-
+      MMseqs2 `--num-iterations`: how many rounds of profile-based search
+      to run (PSI-BLAST-style). 1 (mmseqs' own default, and the reference
+      pipeline's) is a single-pass sequence search. Raising it builds a
+      profile from round N's hits and searches again, finding more remote
+      homologues at a real cost in time -- each extra round is close to
+      another full search.
+    example: 1
+  threads:
+    type: integer
+    minimum: 1
+    maximum: 64
+    default: 8
+    description: >-
+      MMseqs2 `--threads`: CPU threads for the parts of the search that
+      are not GPU-accelerated (index loading, alignment, result2msa,
+      unpackdb). 8 matches the reference pipeline. Raising it speeds up
+      those stages on a host with spare cores; it does not change the
+      alignment's content.
+    example: 8
+  use_gpu:
+    type: boolean
+    default: true
+    description: >-
+      Whether to pass MMseqs2 `--gpu 1` for the search stage. True (the
+      default, matching the reference pipeline) is the only practical
+      choice against these particular databases: they are GPU-padded
+      (`makepaddedseqdb`), and a CPU-mode search against even the smallest
+      of them was confirmed live to still be running after 2+ minutes and
+      over 80GB resident memory, against 43 seconds on GPU. Exposed anyway
+      because it is a genuine mmseqs knob and this tool's policy is never
+      to hide one behind a default that "usually works" -- but leaving it
+      false here is not expected to finish in practice.
+    example: true
+  template_e_value:
+    type: number
+    minimum: 0.0
+    default: 100.0
+    description: >-
+      E-value threshold for the templates search only (separate from
+      `e_value`, which governs the unpaired/paired searches). 100.0
+      matches the reference pipeline's choice to mirror hmmsearch's own
+      broad, permissive template discovery -- structural templates are
+      useful even from a distant hit, unlike MSA rows used for
+      co-evolutionary signal.
+    example: 100.0
+  max_template_hits:
+    type: integer
+    minimum: 1
+    maximum: 100000
+    default: 1000
+    description: >-
+      MMseqs2 `--max-seqs` for the templates search only (separate from
+      `max_sequences`). 1000 matches the reference pipeline.
+    example: 1000

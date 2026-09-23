@@ -1,0 +1,3 @@
+pdb_path,pdb_index,aatype,total_reward,i_pae,plddt
+tests/fixtures/test_pdbs/mini_protein.pdb,0,MKTAYIAKQRQISFVK,2.5,-4.0,0.8
+tests/fixtures/test_pdbs/two_chain_complex.pdb,1,MKTAYIAKQRQISFVL,1.1,-2.0,0.6

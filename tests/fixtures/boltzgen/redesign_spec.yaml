@@ -1,0 +1,15 @@
+entities:
+  # Redesign chain A (the designed binder run_boltzgen_design produced) of
+  # a real backbone this same wave generated live -- chain B (the target,
+  # unmarked) is held fixed. --only_inverse_fold needs a fully specified
+  # structure; this file has real backbone coordinates for every residue.
+  - file:
+      path: backbone_for_redesign.cif
+      include:
+        - chain:
+            id: A
+        - chain:
+            id: B
+      design:
+        - chain:
+            id: A

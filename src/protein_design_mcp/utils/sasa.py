@@ -151,7 +151,12 @@ def calculate_sasa(pdb_path: str) -> SASAResult:
             for atom in residue.atoms:
                 if "x" in atom and "y" in atom and "z" in atom:
                     coords = (atom["x"], atom["y"], atom["z"])
-                    atom_name = atom.get("atom_name", "C")
+                    # parse_pdb emits the PDB atom name under "name" (utils/pdb.py:109).
+                    # This read used "atom_name", a key that never exists, so the
+                    # default fired for EVERY atom and every radius was carbon's.
+                    # Ranking survived that (the error was uniform) but absolute
+                    # SASA values did not.
+                    atom_name = atom.get("name", "C")
                     radius = _get_atom_radius(atom_name)
                     all_atoms.append((coords, radius, res_id, atom_name))
                     atom_to_residue[len(all_atoms) - 1] = res_id

@@ -4,1135 +4,112 @@ Protein Binder Design MCP Server
 Main entry point for the MCP server that exposes protein design tools.
 """
 
+import argparse
 import asyncio
-import json
 import logging
+import ipaddress
 import os
+import re
+import secrets
+from collections.abc import Mapping
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _dist_version
+from pathlib import Path
 from typing import Any
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import (
-    Tool,
-    TextContent,
-    Resource,
     ResourceTemplate,
+    Tool,
 )
+
+from protein_design_mcp.app import ServerApp, build_registry
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Create server instance
-server = Server("protein-design-mcp")
+# Create server instance.
+#
+# The version is read from the installed distribution rather than written
+# here, so exactly one place (pyproject.toml) states it. Passing it matters:
+# without it the SDK reports ITS OWN version in the initialize handshake -- a
+# live probe of the built image answered `version: '1.30.0'`, the `mcp`
+# library's version, which tells a client nothing about whether it is talking
+# to v1's composite tools or v2's atomistic ones.
+try:
+    _VERSION = _dist_version("protein-design-mcp")
+except PackageNotFoundError:  # a source tree that was never installed
+    _VERSION = "0+unknown"
 
-# Device detection: "auto" checks for CUDA availability, "cpu" forces CPU mode
-_DEVICE_ENV = os.environ.get("DEVICE", "auto").lower()
-if _DEVICE_ENV == "auto":
+server = Server("protein-design-mcp", version=_VERSION)
+
+#: Where the NVIDIA character devices appear. Overridable for testing only.
+DEV_DIR = Path("/dev")
+
+#: A GPU assigned to this container/host, e.g. ``nvidia0``, ``nvidia7``.
+#: Deliberately NOT ``nvidiactl``/``nvidia-uvm``/``nvidia-modeset``, which are
+#: control nodes that can exist with no GPU attached.
+_GPU_NODE = re.compile(r"^nvidia\d+$")
+
+
+def detect_device(env: Mapping[str, str] | None = None, dev_dir: Path | None = None) -> str:
+    """Resolve ``DEVICE``: an explicit value, else detect from device nodes.
+
+    Detection asks "is a GPU attached to this container", not "can I run CUDA
+    from this interpreter". Those came apart in v2: this server never runs
+    CUDA itself -- every engine runs in its own environment with its own torch
+    -- and the image's ``server`` environment has no torch at all, by design.
+    The old ``import torch; torch.cuda.is_available()`` probe therefore hit
+    ``ImportError`` and reported ``cpu`` on a correctly GPU-pinned container,
+    silently excluding 27 of 39 tools.
+
+    A numbered node under ``/dev`` is the fact we can actually observe, needs
+    no dependency, and matches the pinning: ``--device=nvidia.com/gpu=7``
+    yields exactly ``/dev/nvidia7``. ``/proc/driver/nvidia/gpus`` is not
+    usable -- it is the host driver's procfs and lists every GPU on the
+    machine even inside a container pinned to one.
+    """
+    env = os.environ if env is None else env
+    requested = (env.get("DEVICE") or "auto").strip().lower()
+    if requested != "auto":
+        return requested
+
+    dev_dir = DEV_DIR if dev_dir is None else dev_dir
     try:
-        import torch
-        DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-    except ImportError:
-        DEVICE = "cpu"
-else:
-    DEVICE = _DEVICE_ENV
+        return "cuda" if any(_GPU_NODE.match(p.name) for p in dev_dir.iterdir()) else "cpu"
+    except OSError:
+        # No /dev to read (an unusual sandbox, or the path does not exist).
+        return "cpu"
 
-# Tools that require GPU (RFdiffusion dependency or CUDA-based models)
-GPU_ONLY_TOOLS = {"design_binder", "design_fold", "generate_backbone", "predict_structure_boltz", "predict_affinity_boltz"}
 
-# Composite tools hidden in benchmark mode (agents must orchestrate atomic tools)
-COMPOSITE_TOOL_NAMES = {"design_binder", "design_sequence", "optimize_sequence", "rosetta_design"}
+DEVICE = detect_device()
 
 logger.info(f"Device mode: {DEVICE} (GPU-only tools {'enabled' if DEVICE != 'cpu' else 'disabled'})")
 
 
 # =============================================================================
-# Tool Definitions
+# Manifest-driven tool registry
 # =============================================================================
 
-TOOLS = [
-    Tool(
-        name="design_binder",
-        description=(
-            "Design protein binders for a target protein. Runs complete pipeline: "
-            "RFdiffusion (backbone generation) → ProteinMPNN (sequence design) → "
-            "ESMFold (structure validation). Returns ranked designs with quality metrics."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "target_pdb": {
-                    "type": "string",
-                    "description": "Path to target protein PDB file",
-                },
-                "hotspot_residues": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": (
-                        "Residues on target for binder interface, e.g., ['A45', 'A46', 'A49']"
-                    ),
-                },
-                "num_designs": {
-                    "type": "integer",
-                    "description": "Number of designs to generate (default: 10)",
-                    "default": 10,
-                },
-                "binder_length": {
-                    "type": "integer",
-                    "description": "Length of binder in residues (default: 80)",
-                    "default": 80,
-                },
-            },
-            "required": ["target_pdb", "hotspot_residues"],
-        },
-    ),
-    Tool(
-        name="design_fold",
-        description=(
-            "End-to-end de novo fold design pipeline: RFdiffusion (unconditional backbone) → "
-            "ProteinMPNN (sequence design) → AlphaFold2 (structure validation). "
-            "Returns ranked designs with quality metrics."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "length": {
-                    "type": "integer",
-                    "description": "Backbone length in residues",
-                },
-                "num_designs": {
-                    "type": "integer",
-                    "description": "Number of backbone designs to generate (default: 10)",
-                    "default": 10,
-                },
-                "num_sequences_per_backbone": {
-                    "type": "integer",
-                    "description": "ProteinMPNN sequences per backbone (default: 4)",
-                    "default": 4,
-                },
-                "sampling_temp": {
-                    "type": "number",
-                    "description": "ProteinMPNN sampling temperature (default: 0.1)",
-                    "default": 0.1,
-                },
-            },
-            "required": ["length"],
-        },
-    ),
-    Tool(
-        name="analyze_interface",
-        description=(
-            "Analyze protein-protein interface properties including buried surface area, "
-            "hydrogen bonds, salt bridges, and shape complementarity."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "complex_pdb": {
-                    "type": "string",
-                    "description": "Path to protein complex PDB file",
-                },
-                "chain_a": {
-                    "type": "string",
-                    "description": "Chain ID of first protein",
-                },
-                "chain_b": {
-                    "type": "string",
-                    "description": "Chain ID of second protein",
-                },
-            },
-            "required": ["complex_pdb", "chain_a", "chain_b"],
-        },
-    ),
-    Tool(
-        name="validate_design",
-        description=(
-            "Validate a designed protein sequence by predicting its structure with ESMFold "
-            "or AlphaFold2 and calculating quality metrics (pLDDT, pTM)."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "sequence": {
-                    "type": "string",
-                    "description": "Amino acid sequence to validate",
-                },
-                "expected_structure": {
-                    "type": "string",
-                    "description": "Optional path to expected structure PDB for RMSD comparison",
-                },
-                "predictor": {
-                    "type": "string",
-                    "enum": ["esmfold", "alphafold2"],
-                    "default": "esmfold",
-                    "description": (
-                        "Structure predictor to use. ESMFold is faster, AlphaFold2 may be more accurate."
-                    ),
-                },
-            },
-            "required": ["sequence"],
-        },
-    ),
-    Tool(
-        name="design_sequence",
-        description=(
-            "Design amino acid sequences for a protein backbone using ProteinMPNN. "
-            "Use this for de novo design when you have a backbone structure (e.g., from "
-            "generate_backbone) but no sequence. Returns multiple diverse sequences."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "backbone_pdb": {
-                    "type": "string",
-                    "description": "Path to backbone PDB file",
-                },
-                "num_sequences": {
-                    "type": "integer",
-                    "description": "Number of sequences to design (default: 8)",
-                    "default": 8,
-                },
-                "sampling_temp": {
-                    "type": "number",
-                    "description": (
-                        "ProteinMPNN sampling temperature (default: 0.1). "
-                        "Lower = more conservative, higher = more diverse."
-                    ),
-                    "default": 0.1,
-                },
-                "fixed_positions": {
-                    "type": "array",
-                    "items": {"type": "integer"},
-                    "description": "Positions to keep fixed (1-indexed)",
-                },
-                "validate": {
-                    "type": "boolean",
-                    "description": "Validate designs with ESMFold (default: true)",
-                    "default": True,
-                },
-            },
-            "required": ["backbone_pdb"],
-        },
-    ),
-    Tool(
-        name="optimize_sequence",
-        description=(
-            "Optimize an existing binder sequence for improved stability and/or binding affinity."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "current_sequence": {
-                    "type": "string",
-                    "description": "Starting amino acid sequence",
-                },
-                "target_pdb": {
-                    "type": "string",
-                    "description": "Path to target protein PDB",
-                },
-                "optimization_target": {
-                    "type": "string",
-                    "enum": ["stability", "affinity", "both"],
-                    "description": "What to optimize (default: both)",
-                    "default": "both",
-                },
-                "fixed_positions": {
-                    "type": "array",
-                    "items": {"type": "integer"},
-                    "description": "Positions to keep fixed (1-indexed)",
-                },
-                "temperature": {
-                    "type": "number",
-                    "description": (
-                        "Sampling temperature for position selection (default: 0.0). "
-                        "Higher values add randomness to which positions are mutated, "
-                        "producing more diverse optimization trajectories."
-                    ),
-                    "default": 0.0,
-                },
-            },
-            "required": ["current_sequence", "target_pdb"],
-        },
-    ),
-    Tool(
-        name="suggest_hotspots",
-        description=(
-            "Analyze a target protein and suggest potential binding hotspots. "
-            "Can fetch structures automatically - just provide a protein name like 'EGFR', "
-            "a UniProt ID like 'P00533', a PDB ID like '1IVO', or a local PDB file path. "
-            "Integrates UniProt annotations, conservation, and literature for evidence-based suggestions."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "target": {
-                    "type": "string",
-                    "description": (
-                        "Target protein - can be a protein name (e.g., 'EGFR'), "
-                        "UniProt ID (e.g., 'P00533'), PDB ID (e.g., '1IVO'), "
-                        "or path to a local PDB file"
-                    ),
-                },
-                "chain_id": {
-                    "type": "string",
-                    "description": "Specific chain to analyze (default: first chain)",
-                },
-                "criteria": {
-                    "type": "string",
-                    "enum": ["druggable", "exposed", "conserved"],
-                    "description": "Hotspot selection criteria (default: exposed)",
-                    "default": "exposed",
-                },
-                "include_literature": {
-                    "type": "boolean",
-                    "description": "Search PubMed for known binding partners (default: false)",
-                    "default": False,
-                },
-            },
-            "required": ["target"],
-        },
-    ),
-    Tool(
-        name="get_design_status",
-        description="Check status of running design jobs for long-running operations.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "job_id": {
-                    "type": "string",
-                    "description": "Job ID from design_binder call",
-                },
-            },
-            "required": ["job_id"],
-        },
-    ),
-    Tool(
-        name="predict_complex",
-        description=(
-            "Predict the structure of a protein complex using AlphaFold2-Multimer. "
-            "Use this to validate binder-target complexes and assess interface quality."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "sequences": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": (
-                        "List of amino acid sequences, one per chain. "
-                        "E.g., [binder_sequence, target_sequence]"
-                    ),
-                },
-                "chain_names": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Optional chain identifiers (default: A, B, C, ...)",
-                },
-            },
-            "required": ["sequences"],
-        },
-    ),
-    Tool(
-        name="predict_structure",
-        description=(
-            "Predict the 3D structure of a single protein chain using ESMFold or AlphaFold2. "
-            "Returns predicted PDB file path, mean pLDDT, pTM, and per-residue pLDDT scores."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "sequence": {
-                    "type": "string",
-                    "description": "Amino acid sequence to predict structure for",
-                },
-                "predictor": {
-                    "type": "string",
-                    "enum": ["esmfold", "alphafold2"],
-                    "default": "esmfold",
-                    "description": (
-                        "Structure predictor to use. ESMFold is faster, "
-                        "AlphaFold2 may be more accurate."
-                    ),
-                },
-            },
-            "required": ["sequence"],
-        },
-    ),
-    Tool(
-        name="score_stability",
-        description=(
-            "Score protein stability using ESM2 pseudo-log-likelihood. "
-            "Higher scores indicate more thermodynamically favorable sequences. "
-            "Optionally compute per-mutation delta log-likelihood to assess the effect "
-            "of point mutations on stability."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "sequence": {
-                    "type": "string",
-                    "description": "Amino acid sequence to score",
-                },
-                "mutations": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": (
-                        "Optional list of mutations in 'X42Y' format "
-                        "(e.g., ['A42G', 'L55V']) for delta scoring"
-                    ),
-                },
-                "reference_sequence": {
-                    "type": "string",
-                    "description": (
-                        "Optional wild-type sequence for mutation scoring. "
-                        "Inferred from mutations if not provided."
-                    ),
-                },
-            },
-            "required": ["sequence"],
-        },
-    ),
-    Tool(
-        name="energy_minimize",
-        description=(
-            "Energy-minimize a protein structure using OpenMM with AMBER14 force field "
-            "and optional implicit solvent (GBn2). Returns minimized PDB, energy change, "
-            "and RMSD from initial structure."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "pdb_path": {
-                    "type": "string",
-                    "description": "Path to input PDB file to minimize",
-                },
-                "force_field": {
-                    "type": "string",
-                    "default": "amber14-all.xml",
-                    "description": "OpenMM force field XML file",
-                },
-                "num_steps": {
-                    "type": "integer",
-                    "default": 500,
-                    "description": "Maximum minimization iterations",
-                },
-                "solvent": {
-                    "type": "string",
-                    "enum": ["implicit", "none"],
-                    "default": "implicit",
-                    "description": "Solvent model: implicit (GBn2) or none (vacuum)",
-                },
-            },
-            "required": ["pdb_path"],
-        },
-    ),
-    Tool(
-        name="generate_backbone",
-        description=(
-            "Generate de novo protein backbones using RFdiffusion. "
-            "Supports unconditional generation (no target) and conditional generation "
-            "(binder scaffold for a target protein). "
-            "For conditional mode, provide target_pdb and optionally hotspot_residues."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "length": {
-                    "type": "integer",
-                    "description": "Backbone length in residues",
-                },
-                "num_designs": {
-                    "type": "integer",
-                    "description": "Number of designs to generate (default: 10)",
-                    "default": 10,
-                },
-                "target_pdb": {
-                    "type": "string",
-                    "description": (
-                        "Path to target protein PDB for conditional (binder) generation. "
-                        "Omit for unconditional fold generation."
-                    ),
-                },
-                "hotspot_residues": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": (
-                        "Target residues for binder interface, e.g. ['A45', 'A46']. "
-                        "Only used with target_pdb."
-                    ),
-                },
-            },
-            "required": ["length"],
-        },
-    ),
-    # ----- PyRosetta tools -----
-    Tool(
-        name="rosetta_score",
-        description=(
-            "Score a protein structure using Rosetta energy function (ref2015). "
-            "Returns total score, per-residue energies, and energy component breakdown."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "pdb_path": {
-                    "type": "string",
-                    "description": "Path to input PDB file",
-                },
-                "score_function": {
-                    "type": "string",
-                    "default": "ref2015",
-                    "description": "Rosetta score function name (default: ref2015)",
-                },
-            },
-            "required": ["pdb_path"],
-        },
-    ),
-    Tool(
-        name="rosetta_relax",
-        description=(
-            "Relax a protein structure using Rosetta FastRelax protocol. "
-            "Finds a low-energy conformation. Returns relaxed PDB, energy change, and CA-RMSD."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "pdb_path": {
-                    "type": "string",
-                    "description": "Path to input PDB file",
-                },
-                "nstruct": {
-                    "type": "integer",
-                    "default": 1,
-                    "description": "Number of relaxation trajectories (best is kept)",
-                },
-                "score_function": {
-                    "type": "string",
-                    "default": "ref2015",
-                    "description": "Rosetta score function name",
-                },
-            },
-            "required": ["pdb_path"],
-        },
-    ),
-    Tool(
-        name="rosetta_interface_score",
-        description=(
-            "Compute interface energy metrics for a protein complex using Rosetta. "
-            "Returns binding energy (dG_separated), buried surface area (dSASA), "
-            "interface hydrogen bonds, and packing statistics."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "pdb_path": {
-                    "type": "string",
-                    "description": "Path to complex PDB file",
-                },
-                "chains": {
-                    "type": "string",
-                    "default": "A_B",
-                    "description": "Chain grouping, e.g. 'A_B' or 'AB_C'",
-                },
-                "score_function": {
-                    "type": "string",
-                    "default": "ref2015",
-                    "description": "Rosetta score function name",
-                },
-            },
-            "required": ["pdb_path"],
-        },
-    ),
-    Tool(
-        name="rosetta_design",
-        description=(
-            "Fixed-backbone sequence design using Rosetta PackRotamers + MinMover. "
-            "Composite convenience tool: score → PackRotamers → minimize → score. "
-            "Returns designed sequence, mutations, and energy change."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "pdb_path": {
-                    "type": "string",
-                    "description": "Path to input PDB file",
-                },
-                "chains": {
-                    "type": "string",
-                    "default": "A_B",
-                    "description": "Chain grouping for interface detection",
-                },
-                "fixed_positions": {
-                    "type": "array",
-                    "items": {"type": "integer"},
-                    "description": "1-indexed positions to keep fixed",
-                },
-                "score_function": {
-                    "type": "string",
-                    "default": "ref2015",
-                    "description": "Rosetta score function name",
-                },
-            },
-            "required": ["pdb_path"],
-        },
-    ),
-    # ----- Boltz tools -----
-    Tool(
-        name="predict_structure_boltz",
-        description=(
-            "Predict the 3D structure of a protein using Boltz (fast alternative to "
-            "AlphaFold2/ESMFold). Returns predicted PDB, pLDDT, and pTM scores."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "sequence": {
-                    "type": "string",
-                    "description": "Amino acid sequence to predict structure for",
-                },
-                "model": {
-                    "type": "string",
-                    "default": "boltz2",
-                    "description": "Model name (default: boltz2)",
-                },
-                "num_samples": {
-                    "type": "integer",
-                    "default": 1,
-                    "description": "Number of structure samples to generate",
-                },
-            },
-            "required": ["sequence"],
-        },
-    ),
-    Tool(
-        name="predict_affinity_boltz",
-        description=(
-            "Predict binding affinity for a protein complex using Boltz. "
-            "Returns affinity score, predicted complex structure, and confidence metrics."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "sequences": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "List of amino acid sequences, one per chain",
-                },
-                "model": {
-                    "type": "string",
-                    "default": "boltz2",
-                    "description": "Model name (default: boltz2)",
-                },
-            },
-            "required": ["sequences"],
-        },
-    ),
-]
+_app = ServerApp(build_registry(device=DEVICE))
 
 
 @server.list_tools()
 async def list_tools() -> list[Tool]:
-    """Return list of available tools, filtering out GPU-only tools in CPU mode."""
-    if DEVICE == "cpu":
-        return [t for t in TOOLS if t.name not in GPU_ONLY_TOOLS]
-    return TOOLS
-
-
-@server.call_tool()
-async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
-    """Handle tool calls."""
-    logger.info(f"Tool called: {name} with arguments: {arguments}")
-
-    # Block GPU-only tools in CPU mode
-    if DEVICE == "cpu" and name in GPU_ONLY_TOOLS:
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps(
-                    {
-                        "error": f"Tool '{name}' requires GPU. "
-                        f"Current device: cpu. Set DEVICE=cuda or use the GPU Docker image.",
-                        "tool": name,
-                    },
-                    indent=2,
-                ),
-            )
-        ]
-
-    try:
-        if name == "design_binder":
-            result = await handle_design_binder(arguments)
-        elif name == "design_fold":
-            result = await handle_design_fold(arguments)
-        elif name == "design_sequence":
-            result = await handle_design_sequence(arguments)
-        elif name == "analyze_interface":
-            result = await handle_analyze_interface(arguments)
-        elif name == "validate_design":
-            result = await handle_validate_design(arguments)
-        elif name == "optimize_sequence":
-            result = await handle_optimize_sequence(arguments)
-        elif name == "suggest_hotspots":
-            result = await handle_suggest_hotspots(arguments)
-        elif name == "get_design_status":
-            result = await handle_get_design_status(arguments)
-        elif name == "predict_complex":
-            result = await handle_predict_complex(arguments)
-        elif name == "predict_structure":
-            result = await handle_predict_structure(arguments)
-        elif name == "score_stability":
-            result = await handle_score_stability(arguments)
-        elif name == "energy_minimize":
-            result = await handle_energy_minimize(arguments)
-        elif name == "generate_backbone":
-            result = await handle_generate_backbone(arguments)
-        elif name == "rosetta_score":
-            result = await handle_rosetta_score(arguments)
-        elif name == "rosetta_relax":
-            result = await handle_rosetta_relax(arguments)
-        elif name == "rosetta_interface_score":
-            result = await handle_rosetta_interface_score(arguments)
-        elif name == "rosetta_design":
-            result = await handle_rosetta_design(arguments)
-        elif name == "predict_structure_boltz":
-            result = await handle_predict_structure_boltz(arguments)
-        elif name == "predict_affinity_boltz":
-            result = await handle_predict_affinity_boltz(arguments)
-        else:
-            result = {"error": f"Unknown tool: {name}"}
-
-        # Use compact JSON for large responses to reduce stdio overhead
-        text = json.dumps(result, indent=2)
-        if len(text) > 1_000_000:
-            text = json.dumps(result, separators=(",", ":"))
-        return [TextContent(type="text", text=text)]
-
-    except Exception as e:
-        logger.exception(f"Error in tool {name}")
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps({"error": str(e), "tool": name}, indent=2),
-            )
-        ]
-
-
-# =============================================================================
-# Tool Handlers (to be implemented)
-# =============================================================================
-
-
-async def handle_design_binder(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Handle design_binder tool call."""
-    from protein_design_mcp.tools.design_binder import design_binder
-
-    target_pdb = arguments.get("target_pdb")
-    if not target_pdb:
-        return {"error": "target_pdb is required"}
-
-    hotspot_residues = arguments.get("hotspot_residues")
-    if not hotspot_residues:
-        return {"error": "hotspot_residues is required"}
-
-    result = await design_binder(
-        target_pdb=target_pdb,
-        hotspot_residues=hotspot_residues,
-        num_designs=arguments.get("num_designs", 10),
-        binder_length=arguments.get("binder_length", 80),
-    )
-    return result
-
-
-async def handle_design_fold(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Handle design_fold tool call."""
-    from protein_design_mcp.tools.design_fold import design_fold
-
-    length = arguments.get("length")
-    if not length:
-        return {"error": "length is required"}
-
-    result = await design_fold(
-        length=length,
-        num_designs=arguments.get("num_designs", 10),
-        num_sequences_per_backbone=arguments.get("num_sequences_per_backbone", 4),
-        sampling_temp=arguments.get("sampling_temp", 0.1),
-    )
-    return result
-
-
-async def handle_analyze_interface(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Handle analyze_interface tool call."""
-    from protein_design_mcp.tools.analyze import analyze_interface
-
-    complex_pdb = arguments.get("complex_pdb")
-    if not complex_pdb:
-        return {"error": "complex_pdb is required"}
-
-    chain_a = arguments.get("chain_a")
-    if not chain_a:
-        return {"error": "chain_a is required"}
-
-    chain_b = arguments.get("chain_b")
-    if not chain_b:
-        return {"error": "chain_b is required"}
-
-    result = await analyze_interface(
-        complex_pdb=complex_pdb,
-        chain_a=chain_a,
-        chain_b=chain_b,
-        distance_cutoff=arguments.get("distance_cutoff", 8.0),
-    )
-    return result
-
-
-async def handle_validate_design(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Handle validate_design tool call."""
-    from protein_design_mcp.tools.validate import validate_design
-
-    sequence = arguments.get("sequence")
-    if not sequence:
-        return {"error": "sequence is required"}
-
-    result = await validate_design(
-        sequence=sequence,
-        expected_structure=arguments.get("expected_structure"),
-        predictor=arguments.get("predictor", "esmfold"),
-    )
-    return result
-
-
-async def handle_optimize_sequence(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Handle optimize_sequence tool call."""
-    from protein_design_mcp.tools.optimize import optimize_sequence
-
-    current_sequence = arguments.get("current_sequence")
-    if not current_sequence:
-        return {"error": "current_sequence is required"}
-
-    target_pdb = arguments.get("target_pdb")
-    if not target_pdb:
-        return {"error": "target_pdb is required"}
-
-    result = await optimize_sequence(
-        current_sequence=current_sequence,
-        target_pdb=target_pdb,
-        optimization_target=arguments.get("optimization_target", "both"),
-        fixed_positions=arguments.get("fixed_positions"),
-        temperature=arguments.get("temperature", 0.0),
-    )
-    return result
-
-
-async def handle_design_sequence(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Handle design_sequence tool call."""
-    from protein_design_mcp.tools.design_sequence import design_sequence
-
-    backbone_pdb = arguments.get("backbone_pdb")
-    if not backbone_pdb:
-        return {"error": "backbone_pdb is required"}
-
-    result = await design_sequence(
-        backbone_pdb=backbone_pdb,
-        num_sequences=arguments.get("num_sequences", 8),
-        sampling_temp=arguments.get("sampling_temp", 0.1),
-        fixed_positions=arguments.get("fixed_positions"),
-        validate=arguments.get("validate", True),
-    )
-    return result
-
-
-async def handle_suggest_hotspots(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Handle suggest_hotspots tool call."""
-    from protein_design_mcp.tools.hotspots import suggest_hotspots
-
-    target = arguments.get("target")
-    if not target:
-        return {"error": "target is required"}
-
-    result = await suggest_hotspots(
-        target=target,
-        chain_id=arguments.get("chain_id"),
-        criteria=arguments.get("criteria", "exposed"),
-        include_literature=arguments.get("include_literature", False),
-    )
-    return result
-
-
-async def handle_get_design_status(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Handle get_design_status tool call."""
-    from protein_design_mcp.tools.status import get_design_status
-
-    job_id = arguments.get("job_id")
-    if not job_id:
-        return {"error": "job_id is required"}
-
-    result = await get_design_status(job_id=job_id)
-    return result
-
-
-async def handle_predict_complex(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Handle predict_complex tool call using AlphaFold2-Multimer."""
-    from protein_design_mcp.pipelines.alphafold2 import AlphaFold2Runner
-
-    sequences = arguments.get("sequences")
-    if not sequences:
-        return {"error": "sequences is required"}
-
-    if len(sequences) < 2:
-        return {"error": "At least 2 sequences are required for complex prediction"}
-
-    runner = AlphaFold2Runner()
-    result = await runner.predict_complex(
-        sequences=sequences,
-        chain_names=arguments.get("chain_names"),
-    )
-
-    import tempfile
-
-    # Write PDB to file instead of embedding inline (avoids multi-MB responses)
-    pdb_file = tempfile.NamedTemporaryFile(
-        suffix=".pdb", prefix="complex_", delete=False, mode="w"
-    )
-    pdb_file.write(result.pdb_string)
-    pdb_file.close()
-
-    response = {
-        "predicted_structure_pdb": pdb_file.name,
-        "plddt": result.plddt,
-        "ptm": result.ptm,
-        "plddt_per_residue": result.plddt_per_residue.tolist(),
-        "sequences": sequences,
-        "num_chains": len(sequences),
-    }
-
-    # Always include ipTM for complex predictions (0.0 if unavailable)
-    response["iptm"] = result.iptm if result.iptm is not None else 0.0
-
-    # Write PAE matrix to file if available (N x N can be huge)
-    if result.pae_matrix is not None:
-        pae_path = pdb_file.name.replace(".pdb", "_pae.json")
-        with open(pae_path, "w") as pf:
-            json.dump(result.pae_matrix.tolist(), pf)
-        response["pae_matrix_path"] = pae_path
-
-        # Compute interface PAE (mean PAE between chains)
-        import numpy as np
-        pae = result.pae_matrix
-        chain_lengths = [len(s) for s in sequences]
-        boundary = chain_lengths[0]
-        total = sum(chain_lengths)
-        if boundary < total:
-            # Off-diagonal blocks: chain A→B and B→A
-            block_ab = pae[:boundary, boundary:total]
-            block_ba = pae[boundary:total, :boundary]
-            i_pae = float(np.mean([block_ab.mean(), block_ba.mean()]))
-            response["i_pae"] = round(i_pae, 2)
-
-    return response
-
-
-async def handle_predict_structure(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Handle predict_structure tool call."""
-    from protein_design_mcp.tools.predict_structure import predict_structure
-
-    sequence = arguments.get("sequence")
-    if not sequence:
-        return {"error": "sequence is required"}
-
-    result = await predict_structure(
-        sequence=sequence,
-        predictor=arguments.get("predictor", "esmfold"),
-    )
-    return result
-
-
-async def handle_score_stability(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Handle score_stability tool call."""
-    from protein_design_mcp.tools.score_stability import score_stability
-
-    sequence = arguments.get("sequence")
-    if not sequence:
-        return {"error": "sequence is required"}
-
-    result = await score_stability(
-        sequence=sequence,
-        mutations=arguments.get("mutations"),
-        reference_sequence=arguments.get("reference_sequence"),
-    )
-    return result
-
-
-async def handle_energy_minimize(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Handle energy_minimize tool call."""
-    from protein_design_mcp.tools.energy_minimize import energy_minimize
-
-    pdb_path = arguments.get("pdb_path")
-    if not pdb_path:
-        return {"error": "pdb_path is required"}
-
-    result = await energy_minimize(
-        pdb_path=pdb_path,
-        force_field=arguments.get("force_field", "amber14-all.xml"),
-        num_steps=arguments.get("num_steps", 500),
-        solvent=arguments.get("solvent", "implicit"),
-    )
-    return result
-
-
-async def handle_generate_backbone(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Handle generate_backbone tool call — unconditional or conditional RFdiffusion."""
-    length = arguments.get("length")
-    if not length:
-        return {"error": "length is required"}
-
-    target_pdb = arguments.get("target_pdb")
-
-    if target_pdb:
-        # Conditional mode: generate binder backbones for a target protein
-        import tempfile
-        from protein_design_mcp.pipelines.rfdiffusion import RFdiffusionRunner
-
-        hotspot_residues = arguments.get("hotspot_residues", [])
-        num_designs = arguments.get("num_designs", 10)
-        output_dir = tempfile.mkdtemp(prefix="rfdiff_conditional_")
-
-        runner = RFdiffusionRunner()
-        designs = await runner.generate_backbones(
-            target_pdb=target_pdb,
-            hotspot_residues=hotspot_residues,
-            output_dir=output_dir,
-            num_designs=num_designs,
-            binder_length=length,
-        )
-        return {
-            "designs": designs,
-            "num_designs": len(designs),
-            "length": length,
-            "target_pdb": target_pdb,
-            "hotspot_residues": hotspot_residues,
-            "mode": "conditional",
-            "output_dir": output_dir,
-        }
-    else:
-        # Unconditional mode: generate de novo backbones
-        from protein_design_mcp.pipelines.rfdiffusion import run_unconditional
-
-        result = await run_unconditional(
-            length=length,
-            num_designs=arguments.get("num_designs", 10),
-        )
-        result["mode"] = "unconditional"
-        return result
-
-
-async def handle_rosetta_score(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Handle rosetta_score tool call."""
-    from protein_design_mcp.tools.rosetta_score import rosetta_score
-
-    pdb_path = arguments.get("pdb_path")
-    if not pdb_path:
-        return {"error": "pdb_path is required"}
-
-    return await rosetta_score(
-        pdb_path=pdb_path,
-        score_function=arguments.get("score_function", "ref2015"),
-    )
-
-
-async def handle_rosetta_relax(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Handle rosetta_relax tool call."""
-    from protein_design_mcp.tools.rosetta_relax import rosetta_relax
-
-    pdb_path = arguments.get("pdb_path")
-    if not pdb_path:
-        return {"error": "pdb_path is required"}
-
-    return await rosetta_relax(
-        pdb_path=pdb_path,
-        nstruct=arguments.get("nstruct", 1),
-        score_function=arguments.get("score_function", "ref2015"),
-    )
-
-
-async def handle_rosetta_interface_score(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Handle rosetta_interface_score tool call."""
-    from protein_design_mcp.tools.rosetta_interface import rosetta_interface_score
-
-    pdb_path = arguments.get("pdb_path")
-    if not pdb_path:
-        return {"error": "pdb_path is required"}
-
-    return await rosetta_interface_score(
-        pdb_path=pdb_path,
-        chains=arguments.get("chains", "A_B"),
-        score_function=arguments.get("score_function", "ref2015"),
-    )
-
-
-async def handle_rosetta_design(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Handle rosetta_design tool call."""
-    from protein_design_mcp.tools.rosetta_design import rosetta_design
-
-    pdb_path = arguments.get("pdb_path")
-    if not pdb_path:
-        return {"error": "pdb_path is required"}
-
-    return await rosetta_design(
-        pdb_path=pdb_path,
-        chains=arguments.get("chains", "A_B"),
-        fixed_positions=arguments.get("fixed_positions"),
-        score_function=arguments.get("score_function", "ref2015"),
-    )
-
-
-async def handle_predict_structure_boltz(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Handle predict_structure_boltz tool call."""
-    from protein_design_mcp.pipelines.boltz_runner import BoltzRunner, BoltzConfig
-
-    sequence = arguments.get("sequence")
-    if not sequence:
-        return {"error": "sequence is required"}
-
-    # BOLTZ_CONDA_ENV="" (empty) → direct invocation (Docker mode)
-    # BOLTZ_CONDA_ENV="boltz" (default) → conda run -n boltz
-    conda_env = os.environ.get("BOLTZ_CONDA_ENV", "boltz")
-    no_kernels = os.environ.get("BOLTZ_NO_KERNELS", "").lower() in ("1", "true", "yes")
-    config = BoltzConfig(
-        conda_env=conda_env if conda_env else None,
-        output_format="pdb",
-        no_kernels=no_kernels,
-    )
-    runner = BoltzRunner(config=config)
-    return await runner.predict_structure(
-        sequence=sequence,
-        model=arguments.get("model", "boltz2"),
-        num_samples=arguments.get("num_samples", 1),
-    )
-
-
-async def handle_predict_affinity_boltz(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Handle predict_affinity_boltz tool call."""
-    from protein_design_mcp.pipelines.boltz_runner import BoltzRunner, BoltzConfig
-
-    sequences = arguments.get("sequences")
-    if not sequences:
-        return {"error": "sequences is required"}
-
-    if len(sequences) < 2:
-        return {"error": "At least 2 sequences are required for affinity prediction"}
-
-    conda_env = os.environ.get("BOLTZ_CONDA_ENV", "boltz")
-    no_kernels = os.environ.get("BOLTZ_NO_KERNELS", "").lower() in ("1", "true", "yes")
-    config = BoltzConfig(
-        conda_env=conda_env if conda_env else None,
-        output_format="pdb",
-        no_kernels=no_kernels,
-    )
-    runner = BoltzRunner(config=config)
-    return await runner.predict_affinity(
-        sequences=sequences,
-        model=arguments.get("model", "boltz2"),
-    )
+    return await _app.list_tools()
+
+
+@server.call_tool(validate_input=False)
+async def call_tool(name: str, arguments: dict[str, Any]):
+    # validate_input=False: the SDK's default jsonschema validation runs
+    # BEFORE our handler and, on failure, replaces our message with its own
+    # generic "Input validation error: ...". validation.py exists precisely
+    # to name the offending parameter, state the constraint, and show a
+    # correct example for a model that will read the error and retry — so
+    # our validator, not jsonschema, must be the actual boundary.
+    return await _app.call_tool(name, arguments)
 
 
 # =============================================================================
@@ -1162,19 +139,193 @@ async def list_resource_templates() -> list[ResourceTemplate]:
 # =============================================================================
 
 
-async def run_server():
-    """Run the MCP server."""
+#: Environment variable holding the bearer token for the HTTP transport.
+TOKEN_ENV_VAR = "PROTEIN_DESIGN_MCP_TOKEN"
+
+
+def is_loopback(host: str) -> bool:
+    """True when ``host`` can only be reached from this machine.
+
+    The wildcards ``0.0.0.0``, ``::`` and ``""`` are explicitly NOT loopback:
+    uvicorn binds every interface for each of them, which is the exposure the
+    caller is being asked about.
+    """
+    if not host:
+        return False
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def resolve_http_token(host: str, env: Mapping[str, str] | None = None) -> tuple[str | None, bool]:
+    """The bearer token to require, and whether this call minted it.
+
+    Returns ``(None, False)`` for a loopback bind with no token configured --
+    the local case stays exactly as frictionless as it was.
+
+    For any other bind a token is mandatory. If the operator did not supply
+    one, mint it rather than refusing to start: refusing is safe but hostile,
+    since the operator would have to go away and invent a secret before they
+    could try anything, and the predictable result is that they reach for a
+    worse workaround. Minting keeps enabling remote access a single command.
+
+    A blank value is treated as unset. ``PROTEIN_DESIGN_MCP_TOKEN=`` is how an
+    environment variable arrives when something upstream failed to set it, and
+    honouring it as an empty password would authenticate everyone.
+    """
+    env = os.environ if env is None else env
+    configured = (env.get(TOKEN_ENV_VAR) or "").strip()
+    if configured:
+        # Honoured even on loopback: an operator who sets a token means it, and
+        # a shared machine has other users on the same loopback interface.
+        return configured, False
+    if is_loopback(host):
+        return None, False
+    return secrets.token_urlsafe(32), True
+
+
+def require_bearer_token(app: Any, token: str | None) -> Any:
+    """Wrap an ASGI app so every request must carry ``Authorization: Bearer``.
+
+    With no token this returns ``app`` unchanged, so a loopback server does not
+    pay for a check it does not need and cannot accidentally start refusing
+    local clients.
+    """
+    if not token:
+        return app
+
+    async def guarded(scope: Any, receive: Any, send: Any) -> None:
+        if scope.get("type") != "http":
+            await app(scope, receive, send)
+            return
+
+        presented = ""
+        for key, value in scope.get("headers", []):
+            if key == b"authorization":
+                presented = value.decode("latin-1", "replace")
+                break
+
+        scheme, _, candidate = presented.partition(" ")
+        # compare_digest, never ==: a byte-by-byte comparison on a secret leaks
+        # it to a caller patient enough to time the responses.
+        if scheme.lower() != "bearer" or not secrets.compare_digest(candidate.strip(), token):
+            body = (
+                b'{"error":"unauthorized: this server requires '
+                b'Authorization: Bearer <token>"}'
+            )
+            await send({
+                "type": "http.response.start",
+                "status": 401,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"www-authenticate", b'Bearer realm="protein-design-mcp"'),
+                    (b"content-length", str(len(body)).encode()),
+                ],
+            })
+            await send({"type": "http.response.body", "body": body})
+            return
+
+        await app(scope, receive, send)
+
+    return guarded
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse CLI arguments. Pure — safe to assert on in tests."""
+    parser = argparse.ArgumentParser(prog="protein-design-mcp")
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "http"],
+        default="stdio",
+        help=(
+            "stdio for a local client; http to serve over streamable HTTP so "
+            "clients on other machines can reach the GPU host."
+        ),
+    )
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help=(
+            "Bind address. 0.0.0.0 exposes this server to other machines; a "
+            "bearer token is then required (see --auth-token), because every "
+            "tool takes a caller-supplied filesystem path. A token is not a "
+            "substitute for a reverse proxy with TLS on an untrusted network: "
+            "plain HTTP sends it in the clear."
+        ),
+    )
+    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument(
+        "--auth-token",
+        default=None,
+        help=(
+            f"Bearer token clients must present. Defaults to ${TOKEN_ENV_VAR}. "
+            "Required for any non-loopback bind; one is generated and printed "
+            "if you do not supply it. Prefer the environment variable — a "
+            "token on the command line is visible in `ps`."
+        ),
+    )
+    return parser.parse_args(argv)
+
+
+async def run_server(
+    transport: str = "stdio",
+    host: str = "127.0.0.1",
+    port: int = 8765,
+    auth_token: str | None = None,
+):
+    """Run the MCP server over the chosen transport."""
+    if transport == "http":
+        import uvicorn
+        from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+
+        if auth_token:
+            token, minted = auth_token, False
+        else:
+            token, minted = resolve_http_token(host)
+
+        if minted:
+            # Printed once, prominently. The operator asked to be reachable
+            # from the network and needs the credential to do anything; hiding
+            # it in a log line they might not see would just push them back to
+            # running unauthenticated.
+            logger.warning(
+                "%s is not a loopback address, so this server requires a bearer "
+                "token. No %s was set, so one was generated for this run:\n\n"
+                "    %s\n\n"
+                "Clients must send `Authorization: Bearer <token>`. Set %s to "
+                "keep the same token across restarts. Plain HTTP sends it in "
+                "the clear -- put a TLS reverse proxy in front on any network "
+                "you do not control.",
+                host, TOKEN_ENV_VAR, token, TOKEN_ENV_VAR,
+            )
+        elif token:
+            logger.info("HTTP transport requires a bearer token (from %s).", TOKEN_ENV_VAR)
+        else:
+            logger.info("HTTP transport bound to %s (loopback); no token required.", host)
+
+        manager = StreamableHTTPSessionManager(app=server)
+        async with manager.run():
+            async def asgi_app(scope, receive, send):
+                await manager.handle_request(scope, receive, send)
+
+            config = uvicorn.Config(
+                require_bearer_token(asgi_app, token), host=host, port=port, log_level="info"
+            )
+            await uvicorn.Server(config).serve()
+        return
+
     async with stdio_server() as (read_stream, write_stream):
         await server.run(
-            read_stream,
-            write_stream,
-            server.create_initialization_options(),
+            read_stream, write_stream, server.create_initialization_options()
         )
 
 
 def main():
-    """Main entry point."""
-    asyncio.run(run_server())
+    args = parse_args()
+    asyncio.run(run_server(args.transport, args.host, args.port, args.auth_token))
 
 
 if __name__ == "__main__":

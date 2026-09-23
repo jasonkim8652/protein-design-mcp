@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "protein-design-mcp"
-version = "1.0.0"
+version = "2.2.0"
 description = "MCP server for protein design: RFdiffusion, ProteinMPNN, ESMFold, AlphaFold2, Boltz, PyRosetta, ESM2, OpenMM"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -35,7 +35,8 @@ classifiers = [
 ]
 
 dependencies = [
-    "mcp>=0.1.0",
+    "mcp>=1.25,<2",
+    "uvicorn>=0.30",
     "numpy>=1.24",
     "biopython>=1.81",
     "aiofiles>=23.0",
@@ -89,6 +90,9 @@ where = ["src"]
 [tool.setuptools.package-dir]
 "" = "src"
 
+[tool.setuptools.package-data]
+protein_design_mcp = ["manifests/*.yaml"]
+
 [tool.ruff]
 target-version = "py310"
 line-length = 100
@@ -122,5 +126,6 @@ disallow_untyped_defs = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src", "scripts"]
 asyncio_mode = "auto"
 addopts = "-v --tb=short"

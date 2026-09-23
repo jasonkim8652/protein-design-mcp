@@ -208,59 +208,26 @@ async def call_tool(item: dict) -> dict:
     if not name:
         return {"error": "Missing 'name' in request body"}
 
-    # Materialize any inlined file contents from the proxy
-    arguments = _materialize_files(arguments)
-
-    # Ensure model weight directories exist
-    os.makedirs("/models/esm/hub/checkpoints", exist_ok=True)
-    os.makedirs("/models/RFdiffusion/models", exist_ok=True)
-    os.makedirs("/models/ProteinMPNN/vanilla_model_weights", exist_ok=True)
-
-    # Import handlers (lazy — avoids import overhead on cold start)
-    from protein_design_mcp.server import (
-        handle_analyze_interface,
-        handle_design_binder,
-        handle_energy_minimize,
-        handle_generate_backbone,
-        handle_get_design_status,
-        handle_optimize_sequence,
-        handle_predict_complex,
-        handle_predict_structure,
-        handle_score_stability,
-        handle_suggest_hotspots,
-        handle_validate_design,
-    )
-
-    handlers = {
-        "design_binder": handle_design_binder,
-        "analyze_interface": handle_analyze_interface,
-        "validate_design": handle_validate_design,
-        "optimize_sequence": handle_optimize_sequence,
-        "suggest_hotspots": handle_suggest_hotspots,
-        "get_design_status": handle_get_design_status,
-        "predict_complex": handle_predict_complex,
-        "predict_structure": handle_predict_structure,
-        "score_stability": handle_score_stability,
-        "energy_minimize": handle_energy_minimize,
-        "generate_backbone": handle_generate_backbone,
+    # This deployment still dispatches the old hardcoded handle_* functions
+    # (design_binder, analyze_interface, ...), which were deleted from
+    # protein_design_mcp.server when the server moved to the manifest-driven
+    # ToolRegistry/ServerApp (see src/protein_design_mcp/app.py and
+    # src/protein_design_mcp/manifests/*.yaml). Porting this Modal deployment to the new
+    # manifest-driven surface is deliberately deferred to a later plan, so
+    # fail early and explicitly here rather than hitting an ImportError deep
+    # in a lazy import.
+    return {
+        "error": (
+            f"deploy/modal_app.py is obsolete: it still dispatches the "
+            f"pre-manifest tool named {name!r}, which no longer exists. "
+            "The server now derives its tool surface from "
+            "protein_design_mcp.app.ServerApp and src/protein_design_mcp/manifests/*.yaml. This "
+            "Modal deployment has not been ported to that surface yet; "
+            "redeploy is tracked as a follow-up. Do not call this endpoint "
+            "until it has been updated."
+        ),
+        "tool": name,
     }
-
-    handler = handlers.get(name)
-    if not handler:
-        return {"error": f"Unknown tool: {name}", "available": list(handlers.keys())}
-
-    try:
-        result = await handler(arguments)
-        # Persist any newly downloaded model weights to the volume
-        weights_volume.commit()
-        return _json_safe(result)
-    except Exception as e:
-        import traceback
-        return {
-            "error": str(e),
-            "tool": name,
-            "traceback": traceback.format_exc()[-1500:],
-        }
 
 
 # ---------------------------------------------------------------------------

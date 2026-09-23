@@ -1,0 +1,143 @@
+name: run_openfold3
+category: structure_prediction
+composite: false
+timeout_s: 3600
+
+engine:
+  repo: openfold3
+  # Plain PyPI install (`pip install openfold3` -> 0.5.0 today), not
+  # editable -- confirmed live via `python -m protein_design_mcp.mounts
+  # /home/jk661/.conda/envs/openfold3 openfold3`, which returned no extra
+  # IMPORT-TIME mounts. The checkpoint cache below is a separate,
+  # runtime-only need discovered in-container (task-13-report.md): once
+  # the libXrender/libXext import-chain defect was fixed, the next real
+  # error was `pydantic_core...ValidationError: Default checkpoint
+  # openbind-2025-06-30-174k not found in /tmp/.openfold3` -- the same
+  # "$HOME mismatch" root cause as promera/rf3/rfd3 (openfold3's own
+  # `entry_points/parameters.py` defaults its cache path to
+  # `Path("~/.openfold3/").expanduser()`, i.e. Path.home()-based), but
+  # fixed here with openfold3's OWN explicit override
+  # (`os.environ.get("OPENFOLD_CACHE") or DEFAULT_CACHE_PATH`) rather than
+  # the blanket dispatcher-level $HOME override (_HOME_OVERRIDE_REPOS in
+  # dispatch/env.py) -- narrower, and avoids the exact class of collision
+  # that redirecting $HOME caused for rf3/rfd3's triton cache (see that
+  # module's own comment).
+  prefix: /home/jk661/.conda/envs/openfold3
+  entry: ["python", "/app/scripts/engines/openfold3.py"]
+  mounts:
+    - /home/jk661/.openfold3
+  env_vars:
+    OPENFOLD_CACHE: /home/jk661/.openfold3
+
+requires:
+  gpu: true
+
+outputs:
+  - name: structures
+    pattern: "out/job/seed_*/job_seed_*_sample_*_model.cif"
+    description: One predicted structure per (seed, sample) pair.
+    multiple: true
+  - name: confidence_json
+    pattern: "out/job/seed_*/job_seed_*_sample_*_confidences.json"
+    description: >-
+      Per-sample confidence: plddt (per-residue array), pde (per-token-pair
+      distance error), and pae (per-token-pair aligned error) -- VERIFIED
+      live to carry a top-level "pae" key holding an NxN matrix, the
+      shape run_ipsae expects.
+    multiple: true
+  - name: confidence_aggregated_json
+    pattern: "out/job/seed_*/job_seed_*_sample_*_confidences_aggregated.json"
+    description: >-
+      Per-sample scalar summary (avg_plddt, ptm, iptm, gpde, has_clash,
+      sample_ranking_score, chain_ptm, chain_pair_iptm).
+    multiple: true
+
+summary: >-
+  Predict a multi-chain protein structure with OpenFold3 (OpenBind
+  release), given an explicit alignment (or none) per chain. Apache-2.0
+  code, weights and training data. num_diffusion_samples is capped at 5 on
+  this hardware -- 100 samples is documented to OOM a 48 GB card. Its
+  per-sample confidence_json carries a directly usable PAE matrix for
+  run_ipsae.
+
+doc: |
+  ## What this is
+  OpenFold3 all-atom structure prediction, using the default "OpenBind"
+  checkpoint (`openbind-2025-06-30-174k`, Apache-2.0, downloaded from an
+  unsigned/anonymous public S3 bucket -- not a gated weight).
+
+  ## What it is for
+  Predicting how a set of protein chains fold together, same job shape as
+  the other co-folding tools here.
+
+  ## When to use this instead of the alternatives
+  - `run_boltz`, `run_chai1`, `run_protenix` (not yet implemented) are the
+    direct siblings -- same job shape, different model. Compare them on
+    the SAME `msa` input; do not change engine and alignment source in the
+    same comparison.
+  - This tool's `confidence_json` output (one file per sample) VERIFIED
+    live to carry a top-level `pae` key with an NxN matrix -- a genuine,
+    directly usable `run_ipsae` input, alongside `run_boltz`'s `pae_npz`.
+
+  ## What you must supply
+  `chains`: one entry per chain in the assembly, each
+  `{"sequence": "<protein AA string>", "msa": "<path>" | null, "copies": <int, default 1>}`.
+  List every chain you want folded together in this call. `msa` has no
+  default: pass `null` to run that chain MSA-free, or a path to the
+  `unpaired_a3m` file `run_mmseqs_search` wrote for that exact sequence.
+
+  ## Important caveat -- the diffusion-sample cap
+  `num_diffusion_samples` is capped at 5 here. OpenFold3's own issue
+  tracker (#71) reports a 75.94 GiB allocation attempt on a 48 GB card at
+  100 samples; this host's L40S has 46 GB. 5 also happens to be the
+  built-in model-config default (`architecture.shared.diffusion.
+  no_full_rollout_samples = 5`), so the cap does not restrict the common
+  case -- it exists to make the ceiling explicit rather than let a caller
+  discover it as an out-of-memory crash.
+
+  ## What you get back
+  `avg_plddt`, `ptm`, `iptm`, `gpde`, `has_clash`, `sample_ranking_score`,
+  `chain_ptm`, `chain_pair_iptm` (from the lowest seed/sample pair),
+  `num_structures`, `num_diffusion_samples_cap`, and under `outputs` the
+  paths to every predicted structure and its per-sample confidence files.
+
+schema:
+  chains:
+    type: array
+    minItems: 1
+    maxItems: 12
+    items:
+      type: object
+    required: true
+    description: >-
+      One entry per chain in the predicted assembly: {"sequence": "<protein
+      amino-acid string, uppercase, standard 20 plus X/B/Z/J/U/O>", "msa":
+      "<path to run_mmseqs_search's unpaired_a3m output for this sequence>"
+      or null, "copies": <positive integer, default 1, identical copies of
+      this chain>}. Chain composition is never inferred -- list exactly the
+      chains you want folded together. "msa" is required on every entry;
+      there is no default.
+    example: [{"sequence": "NLYIQWLKDGGPSSGRPPPS", "msa": null, "copies": 1}]
+  num_diffusion_samples:
+    type: integer
+    minimum: 1
+    maximum: 5
+    default: 5
+    description: >-
+      Number of independent structures to sample. Capped at 5 on this
+      hardware (see the doc's caveat) -- this is not an arbitrary
+      restriction, it is also OpenFold3's own model-config default.
+    example: 5
+  seeds:
+    type: array
+    items:
+      type: integer
+    minItems: 1
+    maxItems: 5
+    default: [42]
+    description: >-
+      Random seeds; one full set of num_diffusion_samples structures is
+      generated per seed. [42] is OpenFold3's own single-seed default. Add
+      more seeds to check sensitivity to initialization rather than only
+      to sampling.
+    example: [42]

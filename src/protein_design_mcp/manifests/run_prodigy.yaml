@@ -1,0 +1,92 @@
+name: run_prodigy
+category: scoring
+composite: false
+
+engine:
+  repo: prodigy
+  env: scoring
+  entry: ["prodigy"]
+
+requires:
+  gpu: false
+
+summary: >-
+  Estimate the binding free energy of an existing protein-protein complex from
+  its interfacial contacts (PRODIGY). Runs on CPU in milliseconds and needs no
+  model weights, so it is the cheapest first look at an interface. It scores a
+  complex you already have; it does not predict structure and does not design.
+  Fold a candidate with run_chai1 (not yet implemented) or run_esmfold2 (not yet implemented) first.
+
+doc: |
+  ## What this is
+  PRODIGY predicts the binding affinity of a protein-protein complex with a
+  linear regression over the number and type of interfacial residue contacts.
+  It returns a binding free energy in kcal/mol and a dissociation constant.
+
+  ## What it is for
+  A fast, interpretable, absolute-scale sanity floor on an interface. Because
+  it is CPU-only and takes milliseconds, it is cheap enough to run on every
+  candidate before spending GPU time on anything else.
+
+  ## When to use this instead of the alternatives
+  - `run_rosetta_interface` (not yet implemented) gives a physics-based
+    decomposition (dG_separated, buried surface area, shape complementarity,
+    hydrogen bond counts) and will be the better choice when you need to know
+    *why* an interface scores as it does. It is slower, and it is
+    not available in every deployment of this server. When it is not
+    listed, use PRODIGY.
+  - `run_ipsae` and ipTM fields from co-folding tools measure model
+    *confidence* in the interface, not its energy. Those discriminate binders
+    from non-binders better than PRODIGY does and are preferred for ranking
+    designs. Use PRODIGY for a sanity floor, ipSAE for ranking.
+  - Use PRODIGY when you want an absolute number on a physical scale rather
+    than a model-internal confidence score.
+
+  ## Important caveat
+  PRODIGY is calibrated on natural protein complexes from the affinity
+  benchmark. It systematically mis-ranks de novo designed binders. Treat its
+  output as a sanity floor, never as the ranking criterion for a design
+  campaign.
+
+  ## What you must supply
+  A PDB or mmCIF file containing both partners, and the chain identifier of
+  each partner.
+
+  ## What you get back
+  `binding_affinity_kcal_per_mol`, `dissociation_constant_M`,
+  `intermolecular_contacts`, and a `caveat` string restating the calibration
+  limitation.
+
+schema:
+  complex_pdb:
+    type: string
+    format: path
+    pattern: '\.(pdb|cif|ent)$'
+    required: true
+    description: Path to a structure file containing both partners.
+    example: complex.pdb
+  chain_a:
+    type: string
+    pattern: '^[A-Za-z0-9]$'
+    required: true
+    description: >-
+      Chain identifier of the first partner: a single character only.
+      PRODIGY requires single-character chain IDs; multi-character mmCIF
+      chain identifiers are not supported.
+    example: A
+  chain_b:
+    type: string
+    pattern: '^[A-Za-z0-9]$'
+    required: true
+    description: >-
+      Chain identifier of the second partner: a single character only.
+      PRODIGY requires single-character chain IDs; multi-character mmCIF
+      chain identifiers are not supported.
+    example: B
+  temperature:
+    type: number
+    minimum: 0.0
+    maximum: 100.0
+    default: 25.0
+    description: Temperature in Celsius used for the Kd conversion.
+    example: 25.0

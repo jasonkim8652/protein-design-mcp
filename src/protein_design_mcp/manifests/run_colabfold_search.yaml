@@ -1,0 +1,420 @@
+name: run_colabfold_search
+category: msa
+composite: false
+timeout_s: 7200
+
+engine:
+  repo: colabfold
+  prefix: /home/jk661/.conda/envs/colabfold
+  entry: ["python", "/app/scripts/engines/colabfold_search.py"]
+  # `python -m protein_design_mcp.mounts /home/jk661/.conda/envs/colabfold
+  # colabfold` returns an EMPTY list -- CONFIRMED live, 2026-09-22 -- the
+  # `colabfold` package resolves entirely inside this prefix's own
+  # site-packages (no editable install, no user-site leak). The two entries
+  # below are the same class of manual, non-import mount
+  # run_mmseqs_search.yaml already declares for the exact same reason: a
+  # plain host path this engine reads from directly, not a Python import.
+  mounts:
+    # The standalone mmseqs binary colabfold_search shells out to via its
+    # own --mmseqs flag (the colabfold env bundles no mmseqs binary of its
+    # own -- confirmed live, 2026-09-22). Same binary run_mmseqs_search.yaml
+    # mounts, for the same reason.
+    - /usr/local/bin/mmseqs
+    # Local ColabFold search databases (UniRef30/envDB) -- see the doc's
+    # "Verification status" section for why this is currently an EMPTY
+    # placeholder directory, not a populated database.
+    - /home/jk661/.cache/colabfold_dbs
+
+requires:
+  gpu: false
+
+outputs:
+  - name: a3m
+    pattern: "results/query.a3m"
+    description: >-
+      The merged, deduplicated alignment for the query, from whichever
+      backend ran. `backend: "local"`: CONFIRMED by reading
+      colabfold/mmseqs/search.py directly (local databases not installed on
+      this host, see "Verification status" -- this path itself is untested
+      end to end): for a single-sequence, non-complex query with --unpack 1,
+      colabfold_search writes `{job_number}.a3m` then renames it to
+      `{safe_filename(header)}.a3m`; this tool always writes the query with
+      the fixed header `>query`, and `safe_filename` passes alphanumeric
+      names through unchanged, so the final path is deterministically
+      `results/query.a3m`. `backend: "remote"`: CONFIRMED LIVE, 2026-09-22 --
+      this tool writes the a3m text ColabFold's own remote-search helper
+      returns to this same path itself, with the header line rewritten to
+      `>query` to match.
+
+summary: >-
+  Search ColabFold's own sequence databases (UniRef30, envDB), the second
+  MSA producer this server exposes -- a DIFFERENT sequence universe than
+  `run_mmseqs_search` (which searches AlphaFold 3's own database set). Two
+  backends, chosen EXPLICITLY by the required `backend` parameter, never a
+  default a caller can take without noticing: `"local"` runs
+  `colabfold_search`'s own MMseqs2 binary against a local database set (not
+  currently installed on this host -- see "Verification status"); `"remote"`
+  submits the query sequence to `https://api.colabfold.com`, the ColabFold
+  project's own public MSA server -- CONFIRMED LIVE, 2026-09-22, a real a3m
+  returned for a real sequence -- read the doc's "backend" section before
+  choosing it, since the sequence leaves this machine.
+
+doc: |
+  ## What this is
+  A wrapper around ColabFold's own MMseqs2 search, in one of two modes (see
+  `backend` below): the standalone `colabfold_search` CLI against a local
+  database set, or ColabFold's own remote-search helper function against
+  its public remote MSA server. Either way, `uniref30_2302_db` (UniRef30)
+  and, by default, `colabfold_envdb_202108_db` (envDB, metagenomic
+  diversity) are searched, and one merged, deduplicated a3m per query is
+  written.
+
+  ## `backend` -- read this before choosing "remote"
+  **Choosing `backend: "remote"` transmits your query sequence to
+  `https://api.colabfold.com`, a server run by the ColabFold project, not
+  this deployment.** This is never a default -- `backend` has no default
+  value and every call must state one, the same shape as
+  `run_rfdiffusion2`'s `backend` parameter (an explicit capability choice,
+  not something inherited silently).
+
+  This matters specifically because this server removed `"auto"` MSA
+  generation from all nine folding tools precisely to stop a novel design's
+  sequence leaving the machine (see `docs/TOOLS.md`) -- `backend: "remote"`
+  here is different in kind, not a loophole around that: the CALLER is
+  choosing to send a sequence off-host for a specific, stated reason (e.g.
+  matching what a public ColabFold-server-trained consumer expects, or this
+  host's own local ColabFold databases not being installed -- see
+  "Verification status"), not having it happen invisibly inside a folding
+  tool's own default pipeline. If the sequence must not leave this host
+  under any circumstance, use `backend: "local"`, or better, use
+  `run_mmseqs_search` (see "When to use this instead of the alternatives"),
+  which never has a network-reaching code path at all.
+
+  - `"local"`: shells out to the `colabfold_search` CLI (env `colabfold`)
+    against this tool's fixed, host-local `dbbase` directory. Never reaches
+    a network address under any parameter value -- `colabfold_search`'s own
+    CLI (confirmed live, 2026-09-22, reading its full `--help`) has no
+    remote-server flag at all, and this wrapper's local code path never
+    imports ColabFold's own remote-search helper function or any other
+    function that defaults to the remote API. See "Verification status"
+    for why a local call fails right now regardless (the database set is
+    not installed on this host).
+  - `"remote"`: calls `colabfold.colabfold`'s own remote-search helper
+    function (the same one ColabFold's own `colabfold_batch` uses
+    internally) against its fixed default `host_url`,
+    `https://api.colabfold.com` -- pinned, never a parameter, so this tool
+    can only ever reach ColabFold's own official server, never an arbitrary
+    caller-supplied host. Needs outbound network access from wherever this
+    tool's dispatcher runs. CONFIRMED LIVE, 2026-09-22: a real 76-residue
+    query (human ubiquitin) returned a real 43,154-line, ~3MB merged a3m
+    with genuine UniRef100 hits in under 2 seconds. `use_env` and `filter`
+    (translated to that helper's boolean `use_filter` argument) apply here
+    too; every other local-search-only parameter (`db1`, `db3`,
+    `prefilter_mode`, `sensitivity`, `expand_eval`, `align_eval`, `diff`,
+    `qsc`, `max_accept`, `db_load_mode`, `threads`, `use_gpu`,
+    `gpu_server`) is ignored -- `colabfold_search`'s local MMseqs2 flags
+    have no remote equivalent.
+
+  ## Verification status -- local backend
+  `colabfold_search` itself IS installed and confirmed present in the
+  `colabfold` environment (`--help` inspected live, 2026-09-22; its full
+  flag set is what this tool's local-search schema parameters are built
+  from). What is NOT present anywhere on this host (confirmed by an
+  exhaustive search across every real mounted filesystem, 2026-09-22) is the
+  local database set `colabfold_search` needs to search against --
+  `uniref30_2302_db`, `colabfold_envdb_202108_db`, and the rest of
+  ColabFold's own `setup_databases.sh` output. `/home/jk661/.cache/colabfold_dbs`
+  (this tool's fixed local `dbbase`) is currently an EMPTY placeholder
+  directory this project created only so the manifest's mount-existence
+  check (every `engine.mounts` entry must exist on this host, checked at
+  manifest-load time) would pass at all -- it holds no database files.
+  Calling this tool with `backend: "local"` right now will fail loudly with
+  an mmseqs "database not found"-shaped error, not silently return an empty
+  or wrong alignment. An operator needs to run ColabFold's own
+  `setup_databases.sh` (or equivalent) against that directory before
+  `backend: "local"` can complete a real search -- `backend: "remote"` does
+  not need this and works today (see "`backend`" above).
+
+  The `results/query.a3m` output filename WAS verified against
+  `colabfold/mmseqs/search.py`'s own source (local backend) and against a
+  real run (remote backend, which this wrapper also writes to
+  `results/query.a3m`, with the query's own header line rewritten to
+  `>query` for a naming shape identical to the local backend's output).
+
+  ## When to use this instead of the alternatives
+  `run_mmseqs_search` is the default choice for anything that must not
+  leave this host under any circumstance -- it has no network-reaching code
+  path at all, is the alignment every other tool in this server was built
+  and verified against, and remains available even when this tool's local
+  databases are not installed. Prefer THIS tool's `backend: "local"` only
+  when a specific downstream consumer documents that it wants ColabFold's
+  own local alignment shape instead (once this host's local databases are
+  installed), and `backend: "remote"` only when you have specifically
+  decided a given query sequence may leave this machine.
+
+  MMseqs2 against AlphaFold 3's database set (`run_mmseqs_search`) and
+  MMseqs2 against ColabFold's own database set (this tool, either backend)
+  search DIFFERENT sequence universes and apply different filtering
+  defaults -- their a3m outputs are NOT interchangeable. A consumer built
+  for one handed the other's alignment usually returns WORSE results, not
+  an error. State which producer a co-folding tool's `msa` parameter
+  expects before mixing them; when unstated, prefer `run_mmseqs_search`'s
+  output, since that is the alignment this server's other tools were built
+  and verified against.
+
+  ## Single-sequence queries -- pairing never activates, so it is not exposed
+  Exactly like `run_mmseqs_search`, this tool takes ONE sequence per call.
+  Local backend: read live out of `colabfold/mmseqs/search.py`,
+  `colabfold_search`'s cross-chain pairing step only runs when the input
+  FASTA is a "`:`-joined" MULTI-chain record (`is_complex is True`) -- for a
+  single-sequence query it is skipped unconditionally, regardless of
+  `--pair-mode`/`--pairing_strategy`/`--use-env-pairing`. Remote backend:
+  this wrapper always calls ColabFold's own remote-search helper with
+  `use_pairing=False` -- pairing is ColabFold's own complex-alignment
+  feature, out of scope at this tool's single-sequence granularity either
+  way. Exposing local-only pairing flags
+  as parameters here would be knobs with no observable effect -- the same
+  rule `run_proteina_complexa_analyze`'s doc already applies to Foldseek's
+  hardcoded thresholds. This tool always runs with pairing effectively off.
+
+  ## Not exposed
+  - `--pair-mode`, `--pairing_strategy`, `--use-env-pairing`, `--db4`: see
+    "Single-sequence queries" above -- no observable effect at this tool's
+    granularity.
+  - `--use-templates`/`--db2` (structural templates): `run_mmseqs_search`
+    already provides templates via its own, independently-verified
+    `search_templates`/`templates_a3m` path. Exposing `colabfold_search`'s
+    OWN template feature would need a real templates database present to
+    verify its output naming/format (the `.m8` rename logic in
+    `colabfold/mmseqs/search.py`) -- like the search databases themselves,
+    that is not available on this host to confirm, so this tool does not
+    guess at it.
+  - `--af3-json`/`--af3-msa-as-path`: this server's structure-prediction
+    tools build their own AlphaFold 3 JSON from a plain a3m via their own
+    schemas (see `run_alphafold3`) rather than consuming colabfold_search's
+    own convenience JSON format -- consistent with `run_mmseqs_search` never
+    emitting one either.
+  - `--unpack`: pinned to `1` (unpacked loose a3m files) -- this tool's
+    declared `a3m` output and its adapter both depend on that shape; `0`
+    would leave results as an MMseqs2 database this tool cannot read.
+
+  ## What you must supply
+  `sequence` -- one protein chain's amino acid sequence. `backend` -- which
+  search path to use, `"local"` or `"remote"` (see "`backend`" above) -- no
+  default, must be stated every call.
+
+  ## What you get back
+  `query_length` and, under `outputs`, the path to `a3m`.
+
+schema:
+  sequence:
+    type: string
+    pattern: '^[ACDEFGHIKLMNPQRSTVWYXBZJUO]+$'
+    required: true
+    description: >-
+      One protein chain's amino acid sequence, uppercase single-letter
+      codes only (the standard 20 plus the ambiguity codes X/B/Z/J/U/O) --
+      same character policy as run_mmseqs_search's `sequence`, enforced
+      here for the same reason (colabfold_search's own FASTA parsing does
+      not reject a malformed sequence itself).
+    example: MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG
+  backend:
+    type: string
+    enum: ["local", "remote"]
+    required: true
+    description: >-
+      Which search path runs this query -- no default, every call must
+      state one (see the doc's "`backend`" section for the full reasoning).
+      "local" shells out to `colabfold_search` against this tool's fixed
+      host-local database directory and never reaches a network address
+      under any parameter value -- the safe choice, but only completes a
+      real search once this host's local ColabFold databases are installed
+      (see "Verification status"; not the case on this host today). "remote"
+      **transmits the query sequence to `https://api.colabfold.com`, a
+      server operated by the ColabFold project, not this deployment** --
+      choose it only when you have specifically decided this sequence may
+      leave the machine (e.g. matching what a ColabFold-server-trained
+      consumer expects). For anything that must never leave this host, use
+      `run_mmseqs_search` instead of either backend here.
+    example: local
+  db1:
+    type: string
+    pattern: '^[A-Za-z0-9_.]+$'
+    default: uniref30_2302_db
+    description: >-
+      Which UniRef database (colabfold_search's `--db1`) to search, by its
+      filename prefix inside the fixed local database directory. Applies
+      only to `backend: "local"` -- the "remote" backend always searches
+      ColabFold's own remote UniRef30 index and has no equivalent flag.
+      uniref30_2302_db is colabfold_search's own default
+      and the standard ColabFold UniRef30 release; change only if a
+      different UniRef30/40 build is installed under a different name in
+      that directory.
+    example: uniref30_2302_db
+  use_env:
+    type: boolean
+    default: true
+    description: >-
+      Whether to also search the environmental (metagenomic) database.
+      Applies to BOTH backends: `colabfold_search`'s `--use-env` (controls
+      `--db3`) for `backend: "local"`, the remote-search helper's own
+      `use_env` argument for `backend: "remote"`. True is both backends'
+      own default
+      -- envDB adds sequence diversity a UniProt-derived database like
+      UniRef30 misses, at real extra search cost.
+    example: true
+  db3:
+    type: string
+    pattern: '^[A-Za-z0-9_.]+$'
+    default: colabfold_envdb_202108_db
+    description: >-
+      Which environmental database (colabfold_search's `--db3`) to search
+      when use_env is true; ignored otherwise. Applies only to
+      `backend: "local"` -- see `db1`'s description for why `backend:
+      "remote"` has no equivalent. colabfold_envdb_202108_db is
+      colabfold_search's own default and the standard ColabFold envDB
+      release.
+    example: colabfold_envdb_202108_db
+  prefilter_mode:
+    type: integer
+    enum: [0, 1, 2]
+    default: 0
+    description: >-
+      MMseqs2 prefiltering algorithm colabfold_search uses: 0 k-mer
+      (high-memory, colabfold_search's own default), 1 ungapped
+      (high-CPU), 2 exhaustive (no prefilter at all -- very slow, only for
+      a query short/important enough that missing a hit is unacceptable).
+      Applies only to `backend: "local"` -- see `db1`'s description.
+    example: 0
+  sensitivity:
+    type: number
+    minimum: 1.0
+    maximum: 9.0
+    default: null
+    description: >-
+      MMseqs2 `-s`. Applies only to `backend: "local"` -- see `db1`'s
+      description; ColabFold's remote server picks its own sensitivity
+      server-side. No default (null) is colabfold_search's OWN default --
+      when omitted, it derives an internal k-mer threshold corresponding to
+      roughly sensitivity 8 (matching the ColabFold web server), rather
+      than a fixed `-s` value. Set explicitly (e.g. lower for a faster,
+      shallower search) to override that derived threshold.
+    example: 8.0
+  filter:
+    type: integer
+    enum: [0, 1, 2]
+    default: 1
+    description: >-
+      MMseqs2 result filtering. Applies to BOTH backends, though
+      differently: `colabfold_search`'s own 0/1/2 levels (0 none, 1 filter
+      the unpaired MSA by expand_eval/align_eval/diff/qsc -- its own
+      default, 2 also filter the paired MSA -- irrelevant here, see "Not
+      exposed", no pairing runs for a single-sequence query) for
+      `backend: "local"`; translated to the remote-search helper's boolean
+      `use_filter` argument (`filter != 0`) for `backend: "remote"`, which
+      has no finer-grained level.
+    example: 1
+  expand_eval:
+    type: number
+    minimum: 0.0
+    default: .inf
+    description: >-
+      E-value threshold for MMseqs2's `expandaln` step. Applies only to
+      `backend: "local"` -- see `db1`'s description. Infinity (no filtering
+      at this step) is colabfold_search's own default; lower it to prune
+      expansion hits before the align step.
+    example: .inf
+  align_eval:
+    type: integer
+    minimum: 0
+    default: 10
+    description: >-
+      E-value threshold for MMseqs2's `align` step. Applies only to
+      `backend: "local"` -- see `db1`'s description. Verified live in
+      colabfold_search's own argparse (2026-09-22) that this is an INTEGER
+      flag (unlike expand_eval/qsc, which are floats) -- 10 is
+      colabfold_search's own default; lower it for a more stringent, more
+      confident alignment.
+    example: 10
+  diff:
+    type: integer
+    minimum: 1
+    default: 3000
+    description: >-
+      Minimum number of sequences filterresult keeps in each MSA block,
+      even after applying qsc/align_eval. Applies only to
+      `backend: "local"` -- see `db1`'s description. 3000 is
+      colabfold_search's own default. Raising it keeps a deeper alignment
+      at the cost of noisier distant hits; lowering it prunes toward only
+      the highest-scoring rows.
+    example: 3000
+  qsc:
+    type: number
+    default: -20.0
+    description: >-
+      filterresult's minimum query-score threshold used to reduce output
+      MSA diversity. Applies only to `backend: "local"` -- see `db1`'s
+      description. -20.0 (colabfold_search's own default) is permissive
+      -- effectively no filtering by this criterion. Raise it (toward 0) to
+      keep only higher-scoring rows.
+    example: -20.0
+  max_accept:
+    type: integer
+    minimum: 1
+    default: 1000000
+    description: >-
+      Maximum accepted alignments per query before MMseqs2's align step
+      stops. Applies only to `backend: "local"` -- see `db1`'s description.
+      1000000 is colabfold_search's own default (effectively unbounded for
+      any query this tool would see); lower it only to cap align-step cost
+      on a query expected to have an unusually large number of hits.
+    example: 1000000
+  db_load_mode:
+    type: integer
+    enum: [0, 1, 2, 3]
+    default: 0
+    description: >-
+      How MMseqs2 loads the database into memory: 0 auto (colabfold_search's
+      own default), 1 fread, 2 mmap, 3 mmap+touch (pre-fault pages). Applies
+      only to `backend: "local"` -- see `db1`'s description. Only matters
+      for repeated-call performance on this host's storage; does not
+      change the alignment's content.
+    example: 0
+  threads:
+    type: integer
+    minimum: 1
+    maximum: 128
+    default: 64
+    description: >-
+      CPU threads for MMseqs2's non-GPU stages. Applies only to
+      `backend: "local"` -- `backend: "remote"` runs entirely on ColabFold's
+      own server. 64 is colabfold_search's own default. Raising it speeds up
+      those stages on a host with spare cores; it does not change the
+      alignment's content.
+    example: 64
+  use_gpu:
+    type: boolean
+    default: false
+    description: >-
+      Whether to pass colabfold_search `--gpu 1` for the search stage.
+      Applies only to `backend: "local"` -- see `db1`'s description. False
+      is colabfold_search's own default (unlike run_mmseqs_search's
+      databases, ColabFold's own database set is not necessarily
+      GPU-padded, so CPU mode is colabfold_search's traditional, long-
+      supported default -- this tool has no live finding of its own about
+      relative CPU/GPU speed here, since the databases are not present to
+      test against; see "Verification status"). Set true only if this
+      deployment's colabfold databases were built GPU-padded.
+    example: false
+  gpu_server:
+    type: boolean
+    default: false
+    description: >-
+      Whether to pass colabfold_search `--gpu-server 1`, which reuses a
+      persistent GPU-resident MMseqs2 server process across calls instead
+      of reloading the database each time. Applies only to
+      `backend: "local"` -- see `db1`'s description. False is
+      colabfold_search's own
+      default; only useful when use_gpu is also true and many calls are
+      expected in sequence.
+    example: false

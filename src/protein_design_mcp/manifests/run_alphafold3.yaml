@@ -1,0 +1,436 @@
+name: run_alphafold3
+category: structure_prediction
+composite: false
+timeout_s: 21600
+
+engine:
+  # AF3 dispatches like every other GPU engine in this server now: a
+  # mounted environment, run through EngineSpec.prefix as
+  # `micromamba run -p /alphafold3_venv ...` -- NOT a sibling `docker run`
+  # (see the doc's "How this tool is dispatched" section for the full
+  # history: it used to shell out to `docker run romerolabduke/alphafast`,
+  # which needed this server's OWN container to have the docker CLI and
+  # the host's Docker socket bind-mounted in -- a root-equivalent
+  # capability, forbidden outright per Ruling 3, since this server's HTTP
+  # transport has no authentication (defect C9, still open)). Task 16
+  # closed that: `/alphafold3_venv` (the image's own venv, python 3.12) was
+  # extracted from `romerolabduke/alphafast:latest` with `docker create` +
+  # `docker cp` (no sibling container ever runs), same as `docker cp` would
+  # pull any other file out of any other image -- not something upstream
+  # ships as an installable environment, but functionally identical once
+  # extracted.
+  #
+  # prefix vs. prefix_host -- read this before touching either value.
+  # `prefix: /alphafold3_venv` is NOT this host's real storage location; it
+  # is the path this venv's own files believe they live at (their console
+  # scripts' shebangs -- `head -1 <venv>/bin/python3.12` -- plus a
+  # hand-patched scikit-build-core editable-install redirect table, see
+  # below) -- CONFIRMED LIVE, 2026-09-23, both before and after that patch.
+  # Nothing under this host's own `/` is writable at `/alphafold3_venv`
+  # (root owns `/`, this deploy has no root), so the extracted bytes live
+  # at `prefix_host` instead -- `EngineSpec.prefix_host` exists for exactly
+  # this: the ONE schema-validated exception to "mount at your host path"
+  # (see EngineSpec's own docstring and
+  # tests/test_container_run.py::test_mounts_use_the_identical_host_path).
+  # `scripts/container_run.py` derives `-v prefix_host:prefix:ro` from
+  # these two fields alone -- never hand-written.
+  #
+  # The editable-install redirect table -- CONFIRMED LIVE, 2026-09-23: this
+  # image's own `run_alphafold.py` and its `alphafold3` package source
+  # (`/app/alphafold` inside `romerolabduke/alphafast:latest`) are NOT
+  # copied into the venv's site-packages as a normal install would be --
+  # they are wired in via scikit-build-core's editable-install machinery
+  # (`<venv>/lib/python3.12/site-packages/_alphafast_editable.py`, a
+  # generated `ScikitBuildRedirectingFinder`), which hardcodes every
+  # source file's location as an ABSOLUTE path starting `/app/alphafold/src/...`
+  # -- baked in when the image was built, on the assumption that
+  # `/app/alphafold` always sits next to the venv on whatever host runs it.
+  # Extraction moved `/app/alphafold` INSIDE the venv tree instead (now at
+  # `<venv>/app/alphafold`, i.e. container path `/alphafold3_venv/app/alphafold`)
+  # so it travels with prefix_host as ONE relocated mount rather than a
+  # second one -- and `_alphafast_editable.py`/`.pth`'s hardcoded
+  # `/app/alphafold/src/` paths were rewritten (123 occurrences,
+  # one-time, at extraction) to `/alphafold3_venv/app/alphafold/src/` to
+  # match. This is exactly the same "editable install needs its source
+  # checkout mounted" pattern design §2.3 already established for
+  # `boltz`/`pp1c`/etc. -- the only difference is that here the checkout
+  # was relocated to ride inside the SAME mount as its environment, instead
+  # of getting its own `engine.mounts` entry, so only prefix (not mounts)
+  # ever needs prefix_host's relocation.
+  #
+  # `mounts` below are all IDENTICAL host==container (no relocation) --
+  # `/opt/alphafold3_data/weights` (af3.bin/af3.bin.zst, never baked into
+  # any image -- see the doc's "Weights" note), and three plain host system
+  # paths the venv needs but this image does not bundle: the venv's own
+  # `bin/python(3.12)` is a symlink to `/usr/bin/python3.12` (baked in by
+  # `python -m venv` against the image's system interpreter, NOT bundled
+  # inside the venv itself -- CONFIRMED LIVE), so this HOST's own
+  # `/usr/bin/python3.12` (Ubuntu 24.04, same base OS/glibc as this
+  # server's own image) stands in for it, along with its stdlib
+  # (`/usr/lib/python3.12`, incl. `lib-dynload`'s C extensions) and the one
+  # shared library it needs that this image's minimal base does not
+  # install (`libexpat.so.1` -- confirmed missing via `ldd`; `libc`/`libm`/
+  # `libz` are already present in this image). `/hmmer` (also in the
+  # source image) is deliberately NOT mounted: it backs only the
+  # `--run_data_pipeline=true` / RNA-search code path, which this tool
+  # never takes (`run_data_pipeline` is always `false` -- see "MSA is
+  # optional" below) -- confirmed by reading `run_alphafold.py`'s own flag
+  # definitions (every `*_binary_path`/`*hmmer*` flag defaults to `None`
+  # and is only read inside the `if _RUN_DATA_PIPELINE.value:` branch).
+  repo: alphafold3
+  prefix: /alphafold3_venv
+  prefix_host: /opt/alphafold3_data/alphafold3_venv
+  entry: ["python", "/app/scripts/engines/alphafold3.py"]
+  mounts:
+    - /opt/alphafold3_data/weights
+    - /usr/bin/python3.12
+    - /usr/lib/python3.12
+    - /lib/x86_64-linux-gnu/libexpat.so.1
+
+requires:
+  gpu: true
+
+outputs:
+  # NOT "out/job/job_model.cif" -- the official AlphaFold 3 docs describe
+  # output nested under <output_dir>/<sanitised job name>/, but the image's
+  # OWN baked-in entrypoint this wrapper actually runs (see
+  # scripts/engines/alphafold3.py's own docstring for why the host repo's
+  # newer copy cannot be used against this image) writes DIRECTLY into
+  # output_dir with no job-name nesting when called with --json_path +
+  # --run_data_pipeline=false, exactly this wrapper's own call shape --
+  # CONFIRMED LIVE and by reading alphafold3/model/inference.py inside the
+  # image, 2026-09-22.
+  - name: model_cif
+    pattern: "out/job_model.cif"
+    description: Top-ranked predicted structure across every seed/sample.
+  - name: confidences_json
+    pattern: "out/job_confidences.json"
+    description: >-
+      Top-ranked prediction's full per-token/per-atom confidence arrays
+      (pae, atom_plddts, contact_probs, ...). THIS is the file to pass to
+      `run_ipsae` as `pae_file`, together with `model_cif` -- ipSAE reads
+      `pae` and `atom_plddts` out of a .cif+.json pair, which is exactly what
+      this file carries. Confirmed live, 2026-09-23: a two-chain prediction
+      scored ipsae 0.040, iptm_af 0.39, pdockq 0.203. `summary_confidences_json`
+      is NOT the one -- it holds scalars, not the matrix.
+  - name: summary_confidences_json
+    pattern: "out/job_summary_confidences.json"
+    description: >-
+      Top-ranked prediction's summary confidence scalars (ptm, iptm,
+      ranking_score, chain_ptm, chain_iptm, chain_pair_iptm, ...) -- this is
+      what this tool's own JSON reply is built from.
+  - name: ranking_scores_csv
+    pattern: "out/job_ranking_scores.csv"
+    description: ranking_score for every seed/sample this call produced, highest first.
+  - name: per_sample_cifs
+    pattern: "out/seed-*_sample-*/job_seed-*_sample-*_model.cif"
+    description: >-
+      Every individual seed/sample structure (not just the top-ranked one),
+      one per num_seeds x num_diffusion_samples combination.
+    multiple: true
+  - name: per_sample_confidences_json
+    pattern: "out/seed-*_sample-*/job_seed-*_sample-*_confidences.json"
+    description: Per-sample confidence arrays, paired with per_sample_cifs by seed/sample.
+    multiple: true
+
+summary: >-
+  Predict a multi-chain protein structure with AlphaFold 3, given an
+  explicit alignment (or none) per chain. The heaviest tool in this server:
+  dispatches through a mounted environment (EngineSpec.prefix) exactly like
+  every other GPU engine here, extracted from AF3's own image rather than
+  built by conda -- see the doc's "How this tool is dispatched" section for
+  the one detail (a relocated mount) that differs from the rest. MSA is
+  optional and NEVER built by this tool (AF3's own alignment-search step is
+  always disabled) -- pass run_mmseqs_search's unpaired_a3m/paired_a3m
+  outputs, or null/null to run MSA-free. Protein chains only in this
+  version -- no RNA, DNA, ligands, covalent bonds, or templates; see "Not
+  exposed".
+
+doc: |
+  ## What this is
+  AlphaFold 3, the current state-of-the-art structure predictor, covering
+  the same "chains + optional per-chain MSA" job shape as
+  `run_boltz`/`run_chai1`/`run_protenix`/`run_openfold3`, but from a
+  genuinely different model. The engine itself -- its venv and its
+  inference entrypoint script -- was extracted from
+  `romerolabduke/alphafast:latest` (the RomeroLab MMseqs2-GPU fork) onto
+  this host with `docker create` + `docker cp` (no sibling container ever
+  runs; see "How this tool is dispatched" for why, and why that changed
+  from an earlier `docker run` design). Ground truth for the invocation
+  SHAPE (GPU pinning, bind-mount pattern, in-venv activation) is the user's
+  own checkout, `~/projects/af3-mmseqs-gpu` (the reference inference script
+  under its `benchmarks/` directory) -- but NOT for which entrypoint script
+  executes: see "Which entrypoint script executes" below for why this tool
+  uses the image's own baked-in copy instead of the one that script mounts
+  from the host repo. `docs/input.md` for the AlphaFold 3 JSON schema still
+  applies either way (shared, package-level code, not
+  entrypoint-script-specific).
+
+  ## Which entrypoint script executes -- confirmed live, not assumed
+  The ground-truth benchmark script bind-mounts the host repo's own
+  inference entrypoint into the container. **This tool does NOT do that**
+  -- CONFIRMED LIVE, 2026-09-22, that doing so fails immediately:
+  `ModuleNotFoundError: No module named 'alphafold3.jax.attention'`. That
+  host script's top-level `from alphafold3.jax.attention import attention`
+  (added by a LATER point in the same RomeroLab fork's history than this
+  image was built from) has no matching module in the `alphafold3` package
+  this image actually bakes in (confirmed by listing the image's
+  `alphafold3/jax/` directory: only a `geometry` subpackage). Instead, this
+  tool runs the image's OWN baked-in inference entrypoint -- extracted
+  alongside the venv itself, now under
+  `/alphafold3_venv/app/alphafold/` (see "How this tool is
+  dispatched") -- directly: the same fork family, the same
+  data-pipeline-disable flag and recycle/sample/MSA-overlap/flash-
+  attention/bucket/conformer flags this tool's schema already covers below,
+  built against `tokamax`/`ModelRunner` instead, and guaranteed
+  self-consistent with the package actually installed in this venv. This is
+  a real, live-confirmed incompatibility between two snapshots of the same
+  upstream fork, not a bug in either script on its own.
+
+  This also changes the OUTPUT layout from what the official AlphaFold 3
+  docs describe (see each `outputs:` entry's own comment in this manifest):
+  called with `--json_path` (not `--input_dir`) and the data-pipeline flag
+  disabled -- this tool's own call shape -- this entrypoint writes
+  DIRECTLY into `output_dir`, with no extra `<job_name>/` nesting.
+
+  ## How this tool is dispatched -- read this before deploying it
+  **This changed in task 16.** AF3 used to run from its own Docker image as
+  a SIBLING container: this tool's wrapper shelled out to `docker run
+  romerolabduke/alphafast:latest` directly, which required this server's
+  OWN container to have the `docker` CLI on PATH and the host's Docker
+  socket bind-mounted in (`-v /var/run/docker.sock:/var/run/docker.sock`).
+  That is a ROOT-EQUIVALENT capability -- bind-mounting the socket grants
+  anything that can reach it full control of the host -- and this server's
+  HTTP transport has no authentication (defect C9, still open), so Ruling 3
+  forbade it as the default containerised path: `run_alphafold3` was
+  HOST-SIDE ONLY (Ruling 4), `FileNotFoundError: 'docker'` in-container.
+
+  AF3 only needed a sibling container because upstream SHIPS it as a Docker
+  image, not because inference itself requires one. This server already
+  mounts ~20 host conda environments and dispatches into them via
+  `EngineSpec.prefix` (`micromamba run -p <prefix> <entry>`); AF3 is now
+  the twenty-first, exactly the same way. `/alphafold3_venv` (this image's
+  own venv, python 3.12) and `/alphafold3_venv/app/alphafold`
+  (its inference entrypoint script plus the `alphafold3` package source)
+  were extracted from `romerolabduke/alphafast:latest` with `docker create` + `docker cp`
+  -- no container needs to run for that, only to exist locally -- onto this
+  host, at `engine.prefix_host` (see this manifest's `engine:` block for
+  the full reasoning, and `EngineSpec.prefix_host`'s own docstring for why
+  a SECOND path is needed at all here and nowhere else). `docker.sock` is
+  never mounted, the `docker` CLI is never needed inside this server's own
+  container, and `scripts/container_run.py --check` (task 16) confirms
+  zero socket mounts in the derived recipe.
+
+  This tool's wrapper script (`scripts/engines/alphafold3.py`) now runs
+  UNDER the mounted venv's own python (via `micromamba run -p
+  /alphafold3_venv`) and invokes the entrypoint script under
+  `/alphafold3_venv/app/alphafold/` as a plain local subprocess -- no
+  docker involved anywhere in this call.
+  GPU selection needs NO handling here any more either: the GPU is pinned
+  at THIS server's own container boundary (design §2.1,
+  `--device=nvidia.com/gpu=7`), the same as every other GPU engine, instead
+  of needing its own `--gpus device=7` re-applied at a second, sibling
+  container boundary the way the old design did.
+
+  ## MSA is optional and NEVER built by this tool
+  AlphaFold 3's own alignment-search flag is always passed as `false` --
+  AF3 never searches for its own alignment, matching this server's
+  universal MSA policy (see
+  `docs/TOOLS.md`). Every chain's `unpaired_msa`/`paired_msa` must be BOTH
+  `null` (run that chain MSA-free) or BOTH a path (use these alignments) --
+  never one of each. `run_mmseqs_search`'s own doc already documents this
+  exact pairing: pass its `unpaired_a3m` output as `unpaired_msa` and its
+  `paired_a3m` output as `paired_msa` (that output is always written, even
+  for a chain you do not intend to pair, specifically so it can satisfy
+  this "both set" requirement). `null`/`null` is translated to AlphaFold
+  3's OWN `""`/`""` encoding (its documented "equivalent to running
+  completely MSA-free" combination) -- NEVER to JSON `null`/`null`, which
+  is AlphaFold 3's OWN encoding for "build both MSAs automatically", i.e.
+  exactly the self-search behaviour disabling that flag exists to
+  prevent. `run_colabfold_search`'s a3m is a DIFFERENT sequence universe
+  (UniRef30/envDB, not AlphaFold 3's own database set) -- valid here too,
+  but do not mix producers within one call: pair each chain's
+  `unpaired_msa`/`paired_msa` from the SAME search tool.
+
+  ## Chain composition is explicit and never inferred
+  List every chain you want folded together in this call -- the target and
+  the binder together for a complex prediction, the binder alone to score
+  it in isolation. Nothing is inferred from anything else you have called.
+
+  ## When to use this instead of the alternatives
+  `run_boltz`, `run_chai1`, `run_protenix`, `run_openfold3` and `run_promera`
+  cover the same "chains + optional per-chain MSA" job shape, each from a
+  different model; comparing their outputs on the SAME `msa` input is
+  exactly what this server's MSA-tool-first design exists to make possible
+  -- do not change engines and alignment source in the same comparison.
+  This tool is the heaviest and slowest of the family -- a full AlphaFold 3
+  inference pass per call, dispatched exactly like every other GPU engine
+  here (see "How this tool is dispatched" above) but the most expensive one
+  to run -- prefer a lighter structure predictor for routine screening and
+  reserve this one for a candidate you already want AlphaFold 3's specific
+  prediction on.
+  `run_rf3` and `run_esmfold2` are the fastest members of this family
+  (RF3 takes an optional MSA; ESMFold2 takes none at all) and are the
+  better choice for a first-pass, high-throughput filter before spending
+  this tool's much larger cost on a shortlist.
+
+  ## Not exposed
+  - RNA, DNA, ligands, covalent bonds (`bondedAtomPairs`), user-provided
+    CCD, and structural templates -- this version handles protein chains
+    only. AlphaFold 3's own JSON schema supports all of these; they are a
+    real, deliberate scope boundary of this tool, not an oversight, given
+    this wave's time budget -- stated plainly rather than silently dropped.
+  - AF3's own alignment-search flag and its GPU-device-index flag: pinned,
+    never a parameter -- see "MSA is optional" above and design §2.1/§7
+    (the GPU is pinned at the container boundary, never a per-engine field).
+  - `--jax_compilation_cache_dir`: an internal performance cache, pointed at
+    a scratch subdirectory automatically, the same way this project already
+    handles HF_HOME/TORCH_HOME for conda-mounted engines -- never a
+    caller-facing knob.
+
+  ## What you must supply
+  `chains`: one entry per chain in the assembly, each
+  `{"sequence": "<protein AA string>", "unpaired_msa": "<path>" | null,
+  "paired_msa": "<path>" | null, "copies": <int, default 1>}`. Both MSA
+  fields are required on every entry, with no default -- see "MSA is
+  optional" above.
+
+  ## What you get back
+  `ranking_score`, `ptm`, `iptm`, `fraction_disordered`, `has_clash` (from
+  the top-ranked sample), `num_samples`, and under `outputs` the paths to
+  the top-ranked structure/confidence files, the full ranking_scores.csv,
+  and every individual seed/sample's own structure and confidences.
+
+schema:
+  chains:
+    type: array
+    minItems: 1
+    maxItems: 20
+    items:
+      type: object
+    required: true
+    description: >-
+      One entry per chain in the predicted assembly: {"sequence": "<protein
+      amino-acid string, uppercase, standard 20 plus X/B/Z/J/U/O>",
+      "unpaired_msa": "<path to an unpaired a3m for this exact sequence>"
+      or null, "paired_msa": "<path to a paired a3m for this exact
+      sequence>" or null, "copies": <positive integer, default 1, identical
+      copies of this chain -- use for a homo-oligomer instead of repeating
+      the entry>}. Chain composition (who's present, alone or in complex)
+      is never inferred -- list exactly the chains you want folded
+      together. Both MSA fields are required on every entry (no default);
+      both must be null (MSA-free) or both a path (use these alignments) --
+      one null and one a path is rejected.
+    example: [{"sequence": "QLEDSEVEAVAKGLEEMYANGVTEDNFKNYVKNNFAQQEISSVEEELNVNISDSCVANKIKDEFFAMISISAIVKAAQKKAWKELAVTVLRFAKANGLKTNAIIVAGQLALWAVQCG", "unpaired_msa": null, "paired_msa": null, "copies": 1}]
+  seeds:
+    type: array
+    items:
+      type: integer
+    minItems: 1
+    maxItems: 20
+    default: [1]
+    description: >-
+      Random seeds AlphaFold 3 samples with -- one full inference pass per
+      seed, each producing num_diffusion_samples structures. [1] is this
+      tool's own default (a single, reproducible seed); pass several to get
+      a broader diverse set at roughly linear extra cost.
+    example: [1]
+  num_recycles:
+    type: integer
+    minimum: 1
+    maximum: 20
+    default: 10
+    description: >-
+      Number of recycling passes through the trunk before diffusion. 10 is
+      AlphaFold 3's own default (`run_alphafold.py`'s `--num_recycles`).
+      More recycling can improve hard interfaces at roughly linear extra
+      cost.
+    example: 10
+  num_diffusion_samples:
+    type: integer
+    minimum: 1
+    maximum: 20
+    default: 5
+    description: >-
+      Number of independent structures to sample PER seed. 5 is AlphaFold
+      3's own default. Total structures this call produces is
+      len(seeds) * num_diffusion_samples.
+    example: 5
+  max_template_date:
+    type: string
+    pattern: '^\d{4}-\d{2}-\d{2}$'
+    default: "2021-09-30"
+    description: >-
+      Format YYYY-MM-DD. AlphaFold 3's own default (the AlphaFold 3 paper's
+      cutoff date) -- even with templates not exposed here (see "Not
+      exposed"), this date still gates whether RDKit-conformer-generation
+      fallback to CCD model coordinates is allowed for a chemical
+      component, so `run_alphafold.py` still requires a value.
+    example: "2021-09-30"
+  resolve_msa_overlaps:
+    type: boolean
+    default: true
+    description: >-
+      Whether to deduplicate a chain's unpaired MSA against its paired MSA.
+      True is AlphaFold 3's own default. Set false only if unpaired_msa was
+      built with deliberate, hand-crafted cross-chain pairing you do not
+      want deduplication to disturb (AlphaFold 3's own docs' explicit
+      recommendation for that specific expert workflow).
+    example: true
+  flash_attention_implementation:
+    type: string
+    enum: ["triton", "cudnn", "xla"]
+    default: triton
+    description: >-
+      Which flash-attention kernel to use. triton is AlphaFold 3's own
+      default and the most thoroughly tested; cudnn is a comparable
+      alternative; xla is portable (no flash attention) and the ONLY valid
+      choice on a GPU with compute capability in [7.0, 8.0) per AlphaFold
+      3's own startup check (not relevant on this host's L40S, compute
+      capability 8.9, but stated since this tool may run on other
+      hardware).
+    example: triton
+  save_embeddings:
+    type: boolean
+    default: false
+    description: >-
+      Whether to save the trunk's single/pair embeddings
+      (num_tokens*384 + num_tokens^2*128 float16 values -- several GB for a
+      large complex). False is AlphaFold 3's own default; only needed for
+      downstream embedding-based analysis this server does not otherwise
+      provide.
+    example: false
+  save_distogram:
+    type: boolean
+    default: false
+    description: >-
+      Whether to save the predicted distogram (num_tokens^2*64 float16
+      values -- also several GB for a large complex). False is AlphaFold
+      3's own default.
+    example: false
+  buckets:
+    type: array
+    items:
+      type: integer
+    minItems: 1
+    default: [256, 512, 768, 1024, 1280, 1536, 2048, 2560, 3072, 3584, 4096, 4608, 5120]
+    description: >-
+      Strictly increasing token-count sizes AlphaFold 3 caches JIT
+      compilations for; an input with more tokens than the largest bucket
+      gets its own bucket for exactly that count. This is AlphaFold 3's own
+      default bucket list (`run_alphafold.py`'s `--buckets`) -- a pure
+      compilation-cache performance knob, exposed because this project's
+      policy is never to hide a real knob behind a default, but it does not
+      change a prediction's result.
+    example: [256, 512, 768, 1024, 1280, 1536, 2048, 2560, 3072, 3584, 4096, 4608, 5120]
+  conformer_max_iterations:
+    type: integer
+    minimum: 0
+    default: null
+    description: >-
+      Optional override for RDKit's maximum conformer-search iterations.
+      null (AlphaFold 3's own default) uses RDKit's own default parameters.
+      Not relevant to a protein-only chain set (this tool does not expose
+      ligands -- see "Not exposed"), but this flag is unconditional in
+      `run_alphafold.py`'s own invocation, so it is exposed for completeness.
+    example: null
