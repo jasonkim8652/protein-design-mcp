@@ -21,12 +21,26 @@ import json
 import os
 import subprocess
 import sys
+from pathlib import Path
+
+_SRC = str(Path(__file__).parent.parent / "src")
 
 
 def _run(code: str, manifest_dir: str) -> subprocess.CompletedProcess:
     env = dict(os.environ)
     env["PROTEIN_MCP_MANIFEST_DIR"] = manifest_dir
     env["DEVICE"] = "cpu"
+    # The subprocess does NOT inherit pytest's sys.path insertion, so a bare
+    # ``import protein_design_mcp`` resolves to whatever this interpreter's
+    # editable install points at -- which on this machine is a DIFFERENT
+    # checkout of this project. That made these tests silently assert against
+    # the wrong source tree: they passed while that install pointed here, then
+    # failed with ``module 'protein_design_mcp.server' has no attribute
+    # '_app'`` once it pointed elsewhere, without a single line of THIS
+    # checkout having changed. Pin the path so the subprocess proves something
+    # about this tree regardless of what is installed.
+    existing = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = os.pathsep.join([_SRC, existing]) if existing else _SRC
     return subprocess.run(
         [sys.executable, "-c", code],
         env=env,

@@ -1,7 +1,7 @@
 # run_rfdiffusion2
 
 **Category:** binder_generation  
-**Engine:** `rfdiffusion2`  
+**Engine:** `rf_diffusion`  
 **Environment:** `/home/jk661/.conda/envs/rfd2_fixed`  
 **GPU required:** yes
 
