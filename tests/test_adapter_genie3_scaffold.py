@@ -26,7 +26,6 @@ DEFAULT_PARAMS = {
     "eta": 1.0,
     "n_sample_step": 100,
     "noise_scale": 1.0,
-    "predict_sidechain": False,
     "seed": 0,
 }
 
@@ -56,9 +55,13 @@ def test_build_args_passes_model_variant():
     assert args[args.index("--model-variant") + 1] == "v1"
 
 
-def test_build_args_encodes_predict_sidechain_as_lowercase_string():
+def test_predict_sidechain_is_pinned_false_and_cannot_be_turned_on():
+    """Genie 3's side-chain stage needs its own sequence head, which this tool
+    fixes to false, so true raises AssertionError on workflow.py:204 -- after
+    the main stage has finished. A caller passing it anyway must not reach the
+    engine with it set."""
     args = build_args(_manifest(), {**DEFAULT_PARAMS, "predict_sidechain": True})
-    assert args[args.index("--predict-sidechain") + 1] == "true"
+    assert args[args.index("--predict-sidechain") + 1] == "false"
 
 
 def test_parse_output_counts_ca_atoms_per_backbone(tmp_path: Path):
@@ -88,7 +91,11 @@ def test_validation_fills_defaults():
     params = validate_and_fill(_manifest(), {"min_length": 100, "max_length": 100})
     assert params["model_variant"] == "v1"
     assert params["n_sample_step"] == 100
-    assert params["predict_sidechain"] is False
+    assert "predict_sidechain" not in params, (
+        "the scaffold tool must not accept predict_sidechain: Genie 3's "
+        "side-chain stage asserts sampler.predict_sequence, which this tool "
+        "fixes to false"
+    )
 
 
 def test_validation_rejects_unknown_model_variant():

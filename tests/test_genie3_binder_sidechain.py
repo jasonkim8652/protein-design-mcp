@@ -64,8 +64,23 @@ def test_the_binder_docs_say_why_it_is_absent(manifests):
     assert "unconditional" in doc, "the doc must name the upstream constraint"
 
 
-def test_the_scaffold_tool_keeps_it(manifests):
-    """The constraint is specific to conditional generation. run_genie3_scaffold
-    IS the unconditional path, so the side-chain stage is reachable there and
-    removing the knob would lose a real capability."""
-    assert "predict_sidechain" in manifests["run_genie3_scaffold"].schema
+def test_the_scaffold_tool_does_not_expose_it_either(manifests):
+    """It was kept at first on the reasoning that run_genie3_scaffold IS the
+    unconditional path, so the stage should be reachable. That reasoning was
+    wrong, and running it settled the matter:
+
+        workflow.py:204: assert config.inference.sampler.sampler.predict_sequence
+        AssertionError
+
+    The guard is three lines, not one. The third requires Genie 3's own
+    sequence head, which every generative tool here pins to false because
+    sequence design is run_mpnn's job. So the side-chain stage is unreachable
+    from BOTH tools -- the binder fails on line 202, the scaffold on line 204.
+    """
+    assert "predict_sidechain" not in manifests["run_genie3_scaffold"].schema
+
+
+def test_the_scaffold_docs_explain_the_absence(manifests):
+    doc = manifests["run_genie3_scaffold"].doc
+    assert "predict_sidechain" in doc, "the omission must be explained, not silent"
+    assert "predict_sequence" in doc, "the doc must name the guard that blocks it"

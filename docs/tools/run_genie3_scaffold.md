@@ -19,11 +19,11 @@ on this host.
 ## `model_variant` -- which trained model and sampler, not a decoration
 - `v1` (default): the current model (`pretrained/v1/checkpoints/
   step=600000.ckpt`), sampled with Genie 3's DDIM sampler. `direction_scale`,
-  `eta`, `n_sample_step`, `noise_scale` and `predict_sidechain` all apply.
+  `eta`, `n_sample_step` and `noise_scale` all apply.
 - `legacy`: the Genie-2-compatible checkpoint (`pretrained/legacy/
   checkpoints/step=400000.ckpt`), sampled with the simpler DDPM sampler,
   which takes only `noise_scale` -- `direction_scale`, `eta`,
-  `n_sample_step` and `predict_sidechain` are silently ignored when this
+  and `n_sample_step` are silently ignored when this
   variant is selected (DDPM has no equivalent knobs), documented here
   rather than left to be discovered by a caller wondering why they had no
   effect.
@@ -41,9 +41,6 @@ not documented in the README):
   steps is finer-grained integration at roughly linear cost.
 - `noise_scale`: scales injected noise at each step. Genie 3's own default
   is 1.0.
-- `predict_sidechain`: whether the model also predicts sidechain atoms
-  (all-atom output) rather than backbone frames only. Genie 3's own
-  default is false.
 
 ## When to use this instead of the alternatives
 - `run_genie2`, `run_frameflow` and `run_la_proteina` are the other
@@ -60,6 +57,15 @@ not documented in the README):
 - **`predict_sequence`** (Genie 3's own built-in codesign head) is fixed
   to `false` -- sequence design is `run_mpnn`'s job, the same rule that
   excludes it from every other generative tool in this wave.
+- **`predict_sidechain`** is not exposed, because fixing `predict_sequence`
+  to `false` makes it unreachable. Genie 3's side-chain pass is a second
+  stage guarded by three assertions
+  (`genie3/generation/workflow.py`), and the third is
+  `assert config.inference.sampler.sampler.predict_sequence`. Confirmed by
+  running it: `predict_sidechain: true` raises AssertionError on that line.
+  The guards sit AFTER `[1 / 2] Main stage completed!`, so it would discard
+  a finished generation. Fold the backbone and run `run_mpnn` for an
+  all-atom model instead.
 - **Motif scaffolding and binder design** are Genie 3's own separate
   applications with entirely different dataset/conditioning config, not
   exposed by this tool.
@@ -86,5 +92,4 @@ counted from the file's own CA atoms). `num_backbones`, and under
 | `eta` | number | no | `1.0` | minimum: `0.0`<br>maximum: `1.0` | DDIM sampler only (ignored for model_variant=legacy). Stochasticity: 0 is deterministic (ODE-like), 1 is DDPM-equivalent stochastic sampling. Genie 3's own default is 1.0. |
 | `n_sample_step` | integer | no | `100` | minimum: `1`<br>maximum: `1000` | DDIM sampler only (ignored for model_variant=legacy). Number of denoising steps out of the model's fixed 1000-step training schedule. Genie 3's own default is 100; more steps is finer-grained at roughly linear cost. |
 | `noise_scale` | number | no | `1.0` | minimum: `0.0`<br>maximum: `2.0` | Scales injected noise at each denoising step. Applies to both samplers. Genie 3's own default is 1.0 for both. |
-| `predict_sidechain` | boolean | no | `False` | — | DDIM sampler only (ignored for model_variant=legacy). Whether the model also predicts sidechain atoms (all-atom output) rather than backbone frames only. Genie 3's own default is false. |
 | `seed` | integer | no | `0` | minimum: `0` | Random seed. |

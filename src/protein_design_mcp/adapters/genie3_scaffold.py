@@ -44,8 +44,15 @@ def build_args(manifest: Manifest, params: dict[str, Any]) -> list[str]:
         str(params["n_sample_step"]),
         "--noise-scale",
         str(params["noise_scale"]),
+        # Pinned false, not read from params: the schema no longer exposes it.
+        # Genie 3's side-chain pass is guarded by three assertions, and the
+        # third is `assert ...sampler.predict_sequence` -- which this tool
+        # fixes to false, because sequence design is run_mpnn's job. Confirmed
+        # by running it: predict_sidechain=true raises AssertionError on
+        # workflow.py:204, AFTER the main stage has finished, discarding the
+        # generation. The flag is still passed because the CLI expects it.
         "--predict-sidechain",
-        _bool_str(params["predict_sidechain"]),
+        _bool_str(False),
         "--seed",
         str(params["seed"]),
     ]
