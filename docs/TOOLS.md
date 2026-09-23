@@ -64,7 +64,7 @@ No tool here requires an alignment, and none builds its own — see below.
 
 | Tool | Engine |
 |---|---|
-| `run_ipsae` | ipSAE — works on any predictor's PAE |
+| `run_ipsae` | ipSAE — reads the PAE of run_alphafold2_multimer, run_boltz or run_alphafold3 (not Protenix/Chai-1: different key names) |
 | `run_prodigy` | PRODIGY |
 | `run_rosetta_interface` | PyRosetta InterfaceAnalyzer |
 | `run_esm_score` | ESM2-650M / ESM-C |

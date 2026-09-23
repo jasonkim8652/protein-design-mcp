@@ -107,7 +107,12 @@ outputs:
     pattern: "out/job_confidences.json"
     description: >-
       Top-ranked prediction's full per-token/per-atom confidence arrays
-      (pae, atom_plddts, contact_probs, ...).
+      (pae, atom_plddts, contact_probs, ...). THIS is the file to pass to
+      `run_ipsae` as `pae_file`, together with `model_cif` -- ipSAE reads
+      `pae` and `atom_plddts` out of a .cif+.json pair, which is exactly what
+      this file carries. Confirmed live, 2026-09-23: a two-chain prediction
+      scored ipsae 0.040, iptm_af 0.39, pdockq 0.203. `summary_confidences_json`
+      is NOT the one -- it holds scalars, not the matrix.
   - name: summary_confidences_json
     pattern: "out/job_summary_confidences.json"
     description: >-

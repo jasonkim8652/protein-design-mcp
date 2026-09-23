@@ -65,8 +65,19 @@ def test_the_docs_name_which_predictor_produces_which_format(manifest):
     cannot tell which file to pass."""
     text = f"{manifest.doc}\n{manifest.schema['pae_file'].get('description', '')}"
     assert ".npz" in text and ".json" in text
-    for engine in ("run_boltz", "run_alphafold2_multimer"):
+    for engine in ("run_boltz", "run_alphafold2_multimer", "run_alphafold3"):
         assert engine in text, f"{engine} is not named as a source of a PAE file"
+
+
+def test_the_docs_name_the_predictors_that_do_not_work(manifest):
+    """run_protenix and run_chai1 both produce a PAE, so a caller has every
+    reason to expect them to work here. They do not: ipSAE reads `pae` and
+    `atom_plddts` from a .cif+.json pair, Protenix writes `pae`/`plddt` and
+    Chai-1 writes `token_pair_pae`/`atom_plddt`, and the mismatch surfaces as
+    a KeyError inside the engine rather than a refusal."""
+    text = f"{manifest.doc}\n{manifest.schema['pae_file'].get('description', '')}"
+    for engine in ("run_protenix", "run_chai1"):
+        assert engine in text, f"{engine} produces a PAE this tool cannot read; say so"
 
 
 def test_the_docs_warn_that_an_npz_needs_its_confidence_file_beside_it(manifest):

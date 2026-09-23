@@ -220,6 +220,61 @@ def _check_ipsae_read_the_boltz_pae(results: dict[int, Any]) -> None:
     assert payload.get("chain_pair"), "no chain pair was scored"
 
 
+
+def _ipsae_args_from_af3(results: dict[int, Any]) -> dict[str, Any]:
+    """AlphaFold 3's PAE lives in `confidences_json`, not in the summary.
+
+    `summary_confidences_json` holds scalars; ipSAE needs the matrix, and the
+    two files sit side by side with almost the same name. Picking the wrong one
+    is a KeyError deep in the engine.
+    """
+    outputs = results[0].get("outputs") or {}
+    conf = outputs.get("confidences_json")
+    model = outputs.get("model_cif")
+    assert conf and model, f"run_alphafold3 returned no confidences or model: {list(outputs)}"
+    return {
+        "pae_file": conf[0] if isinstance(conf, list) else conf,
+        "structure": model[0] if isinstance(model, list) else model,
+    }
+
+
+def _check_ipsae_scored_an_interface(results: dict[int, Any]) -> None:
+    payload = results[1]
+    assert not payload.get("error"), str(payload["error"])[:300]
+    assert "ipsae" in payload, f"no ipsae score: {list(payload)}"
+    assert payload.get("chain_pair"), "no chain pair was scored"
+
+
+def _fold_the_designed_chain(results: dict[int, Any]) -> dict[str, Any]:
+    """Take run_mpnn's design and fold it alone.
+
+    run_mpnn joins the chains it returned with ':'. A folding tool takes ONE
+    sequence, so passing the joined string folds the target and the binder as
+    a single run-on chain -- silently, because ':' is not an amino acid the
+    validator rejects but is not a chain break the folder honours either. The
+    caller has to split it, and which half is the design depends on the chain
+    order the generator used.
+    """
+    designs = results[0].get("designs") or []
+    assert designs, f"run_mpnn returned no designs: {results[0]}"
+    sequence = designs[0]["sequence"]
+    assert ":" in sequence, "expected a two-chain design from a two-chain input"
+    designed = sequence.split(":")[-1]   # chains_to_design='B' -> the last part
+    return {"sequence": designed}
+
+
+def _check_the_fold_is_of_the_design_alone(results: dict[int, Any]) -> None:
+    designs = results[0].get("designs") or []
+    designed = designs[0]["sequence"].split(":")[-1]
+    payload = results[1]
+    assert not payload.get("error"), str(payload["error"])[:300]
+    length = payload.get("sequence_length") or payload.get("num_residues")
+    assert length == len(designed), (
+        f"run_esmfold2 folded {length} residues but the design is "
+        f"{len(designed)} -- the joined ':' sequence was passed through"
+    )
+
+
 CHAINS: list[Chain] = [
     Chain(
         name="mpnn_preserves_target",
@@ -274,6 +329,44 @@ CHAINS: list[Chain] = [
             Step("run_ipsae", _ipsae_args_from_boltz),
         ],
         check=_check_ipsae_read_the_boltz_pae,
+    ),
+    Chain(
+        name="af3_pae_reaches_ipsae",
+        why=(
+            "run_ipsae is described as comparable ACROSS predictors, but only "
+            "two of eleven declared a PAE output. AlphaFold 3 carries one in "
+            "confidences_json and never said so, so the tool looked "
+            "incompatible with the predictor most likely to be trusted."
+        ),
+        steps=[
+            Step("run_alphafold3", {"chains": [
+                {"sequence": "GSHMKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQ",
+                 "unpaired_msa": None, "paired_msa": None, "copies": 1},
+                {"sequence": "MEKAIKELLDTLKQLLEEYNVSEEEAKKLLEKLKEL",
+                 "unpaired_msa": None, "paired_msa": None, "copies": 1},
+            ]}),
+            Step("run_ipsae", _ipsae_args_from_af3),
+        ],
+        check=_check_ipsae_scored_an_interface,
+    ),
+    Chain(
+        name="mpnn_sequence_folds_alone",
+        why=(
+            "run_mpnn returns its chains joined with ':'. A folding tool takes "
+            "one sequence, so handing the joined string over folds target and "
+            "binder as one run-on chain -- and nothing refuses it, because ':' "
+            "is neither a rejected character nor an honoured chain break."
+        ),
+        needs=[str(TWO_CHAIN_COMPLEX)],
+        steps=[
+            Step("run_mpnn", {
+                "backbone_pdb": str(TWO_CHAIN_COMPLEX),
+                "chains_to_design": "B", "num_sequences": 1,
+                "model_type": "soluble", "seed": 11,
+            }),
+            Step("run_esmfold2", _fold_the_designed_chain),
+        ],
+        check=_check_the_fold_is_of_the_design_alone,
     ),
 ]
 

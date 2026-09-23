@@ -86,13 +86,27 @@ schema:
     description: >-
       The predicted-aligned-error matrix from the structure predictor that
       produced `structure`. WHICH FILE depends on the predictor, and they are
-      not interchangeable formats: `run_alphafold2_multimer` writes a
-      `.json` (its `pae_json` output), `run_boltz` writes a `.npz` (its
-      `pae_npz` output), and Chai-1 writes its `full_data_*.json`. All three
-      combinations are listed in ipSAE's own CLI help and handled by its
-      `core.py`; this parameter used to be called `pae_json` and reject
-      anything but `.json`, which refused Boltz's PAE even though
-      run_boltz's own output says it is "for run_ipsae".
+      not interchangeable formats. Three of this server's predictors are
+      known to work, each with a DIFFERENT output, all confirmed by running
+      them:
+
+        run_alphafold2_multimer  ->  its `pae_json` output        (.json)
+        run_boltz                ->  its `pae_npz` output         (.npz)
+        run_alphafold3           ->  its `confidences_json` output (.json)
+
+      For AlphaFold 3 it is `confidences_json`, NOT
+      `summary_confidences_json` -- the latter holds scalars, not the matrix.
+
+      run_protenix and run_chai1 DO produce a PAE, and ipSAE still cannot read
+      theirs: it parses any .cif + .json pair as AlphaFold 3 format and looks
+      for the keys `pae` and `atom_plddts`, while Protenix writes
+      `pae`/`plddt` and Chai-1 writes `token_pair_pae`/`atom_plddt`. Passing
+      either gets a KeyError deep in the engine rather than a clear refusal,
+      so fold with one of the three above when you intend to score here.
+
+      This parameter used to be called `pae_json` and reject anything but
+      `.json`, which refused Boltz's PAE even though run_boltz's own output
+      says it is "for run_ipsae".
 
       A `.npz` must stay BESIDE its confidence file. ipSAE does not take the
       summary as an argument -- it derives the path by replacing "pae" with
