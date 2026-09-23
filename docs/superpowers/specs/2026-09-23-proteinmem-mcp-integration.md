@@ -142,3 +142,23 @@ or containing the target chain — added as defence against `design_binder`'s ch
 bug. The tool is gone, but the bug class is not: `run_mpnn`'s first FASTA record is its
 own input, and any composition can make the same mistake. The guard is cheap and now
 protects a pipeline the model assembles itself.
+
+**5. Same repository, branch and tags — not a fork.** `v1.0.0` is already tagged, so
+both versions are preserved without duplicating history: the tag fixes that point
+permanently and its published image stays on Docker Hub untouched. A fork would add no
+preservation the tag does not already give, while splitting issues, CI and any future
+fix across two places, and losing the fact that this *is* the next version of the same
+project.
+
+Docker Hub was briefly thought to constrain this. It does not: an image is built and
+pushed from a local checkout on any branch, with whatever tag is chosen. Only Docker
+Hub's own automated-build service couples tags to branches, and this project does not
+use it.
+
+The case for a fork would be two versions developed in parallel. That does not apply
+here — v1's `design_binder` returns the target as its own design (spec §1), which is the
+defect this rewrite exists to fix. v1 is being replaced, not maintained.
+
+Plan: merge to `main`, tag `v2.0.0`, publish the matching image tag, and state the
+v1 → v2 breaking change at the top of the README so anyone arriving at the repo sees
+which version they want before they read further.
