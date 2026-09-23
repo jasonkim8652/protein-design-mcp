@@ -159,6 +159,42 @@ The case for a fork would be two versions developed in parallel. That does not a
 here — v1's `design_binder` returns the target as its own design (spec §1), which is the
 defect this rewrite exists to fix. v1 is being replaced, not maintained.
 
-Plan: merge to `main`, tag `v2.0.0`, publish the matching image tag, and state the
-v1 → v2 breaking change at the top of the README so anyone arriving at the repo sees
-which version they want before they read further.
+Plan: tag `v2.0.0`, publish the matching image tag, and state the v1 → v2 breaking
+change at the top of the README so anyone arriving at the repo sees which version they
+want before they read further.
+
+**6. No merge to `main` — the tag is on the branch.** Corrects this section's original
+plan, which said to merge first. A tag names a commit; it does not need that commit to
+be on `main`, and an image is built from a local checkout on any branch. Merging is a
+separate decision that can be taken later without changing anything `v2.0.0` points at.
+The README's breaking-change section is what tells an arriving reader which version they
+want, and it does not depend on which branch is checked out by default.
+
+---
+
+## Release defects found while preparing the tag (2026-09-23)
+
+None of these were visible from the source or the host test suite. Each was found by
+deriving the deployment and then actually running it.
+
+| # | Defect | Why it mattered | Caught by |
+|---|---|---|---|
+| 1 | README still documented v1's 19 tools and `design_binder` | the release's front page would describe removed tools | reading it before tagging |
+| 2 | image `CMD` ran `scripts/live_proof.py` | `docker run -i <image>` returned proof output, not an MCP session — the harness could not connect at all | reading the Dockerfile against `mcp_docker.json`'s launch shape |
+| 3 | `pyproject` said `1.0.0`; `Server()` passed no version, so `serverInfo` reported `1.30.0` — the MCP SDK's version | a client could not tell v1's surface from v2's | live handshake probe |
+| 4 | `container_run.py` emitted `-it` | `cannot attach stdin to a TTY-enabled container` — the generated command was unusable as the MCP invocation it exists to produce | piping into it |
+| 5 | `DEVICE=auto` reported `cpu` inside a correctly GPU-pinned container | **27 of 39 tools silently excluded**; the published image would have served 14 | live handshake probe with mounts |
+
+Defect 5 is the instructive one. v1 detected CUDA with `import torch;
+torch.cuda.is_available()`, which was sound when the server shared one environment with
+its engines. v2's `server` environment deliberately shares no dependencies with any
+engine, so it has no torch, so the `except ImportError: "cpu"` fallback fired every
+time. The architecture change invalidated the probe, and nothing failed loudly — the
+server started, listed tools, and answered calls. It just answered with a third of them.
+
+The replacement asks the question the server actually has: not "can I run CUDA" (it
+never does; the engines do) but "is a GPU attached to this container", which is a
+numbered `/dev/nvidia<N>` node and needs no dependency at all.
+
+Verified after the fixes, live against the built image over a real MCP handshake:
+**41 tools with mounts, 7 without**, `serverInfo` reporting `2.0.0`.
