@@ -14,7 +14,17 @@ from typing import Any
 from protein_design_mcp.job_status import get_design_status
 from protein_design_mcp.manifest.loader import SIBLING_DOC_HEADING
 from protein_design_mcp.manifest.registry import ToolNotAvailable, ToolRegistry
-from protein_design_mcp.manifest.schema import parse_manifest
+from protein_design_mcp.manifest.schema import CATEGORIES, parse_manifest
+
+#: The categories ``describe_tool`` accepts, DERIVED from the registry's own
+#: set rather than restated here. The hand-written copy that used to live below
+#: drifted: ``target_analysis`` was added to ``CATEGORIES`` along with
+#: run_interface_residues and run_epitope_scan, but not to the copy, so both
+#: tools were registered and returned by ``tools/list`` while
+#: ``describe_tool(category='target_analysis')`` was refused as an invalid
+#: value -- the documented way to discover them denied they existed.
+#: Sorted for a stable schema; a set would reorder between runs.
+_CATEGORY_ENUM = sorted(CATEGORIES)
 
 DESCRIBE_TOOL_MANIFEST = parse_manifest(
     {
@@ -26,8 +36,7 @@ DESCRIBE_TOOL_MANIFEST = parse_manifest(
             "category. Tool names here name the engine they run and nothing more, "
             "so call this before choosing between similar tools. Pass exactly one of: "
             "name= for one tool, or category= for a comparison of all tools in that "
-            "category (binder_generation, monomer_generation, sequence_design, "
-            "structure_prediction, msa, scoring, run_analysis, preparation)."
+            "category (" + ", ".join(_CATEGORY_ENUM) + ")."
         ),
         "doc": (
             "## What this is\n"
@@ -48,17 +57,7 @@ DESCRIBE_TOOL_MANIFEST = parse_manifest(
             },
             "category": {
                 "type": "string",
-                "enum": [
-                    "binder_generation",
-                    "monomer_generation",
-                    "sequence_design",
-                    "structure_prediction",
-                    "msa",
-                    "scoring",
-                    "run_analysis",
-                    "preparation",
-                    "meta",
-                ],
+                "enum": _CATEGORY_ENUM,
                 "description": "Category to compare.",
                 "example": "structure_prediction",
             },
