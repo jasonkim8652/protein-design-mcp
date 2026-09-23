@@ -27,6 +27,41 @@ from protein_design_mcp.results import collect_outputs
 
 _OOM_MARKERS = ("out of memory", "outofmemoryerror", "cuda error: out of memory")
 
+# Some ``engine.prefix`` (host-mounted conda environment) dispatches read
+# files that live under this host's real home directory -- checkpoints,
+# weight caches (see e.g. run_promera.yaml/run_rf3.yaml/
+# run_rfdiffusion3_binder.yaml's ``mounts:``, all under /home/jk661/...).
+# The three engines below (promera's tinyprot taxonomy cache, foundry's
+# checkpoint registry behind rf3/rfd3) resolve those paths via
+# ``Path.home()``/``os.environ["HOME"]`` rather than an explicit flag this
+# server could pass instead. Inside a container this PROCESS's own $HOME is
+# whatever the container itself was started with (see
+# ``scripts/container_run.py``'s own ``-e HOME=...``) -- not this host's
+# real home directory -- so the file is genuinely present and correctly
+# mounted, but the engine looks for it in the wrong place
+# (task-13-report.md, "$HOME mismatch", 4 manifests found by the same
+# in-container proof this fixes for good).
+#
+# Fixed HERE, once, for exactly these engines, rather than with a repeated
+# ``env_vars: {HOME: ...}`` in each affected manifest -- a per-manifest fix
+# is exactly the kind of thing a later engine with the same failure mode
+# forgets to copy, silently reintroducing this bug one manifest at a time.
+#
+# NOT applied to every ``prefix``-dispatched engine, even though that was
+# tried first and looked like the more general fix: it broke
+# ``run_boltzgen_design`` in-container, which is ALSO prefix-dispatched but
+# needs its OWN, container-default $HOME (``/tmp``, writable — see
+# ``container_run.py``) for triton's own JIT kernel cache
+# (``$HOME/.triton/cache``) — `/home/jk661` is a read-only mount in this
+# image, so redirecting a WRITE-using engine's $HOME there instead of a
+# READ-using one's breaks it outright (`triton.runtime.build` failing to
+# create its cache dir). So this is an explicit allowlist of ``engine.repo``
+# values known to need it, not everything dispatched via ``prefix`` —
+# extending it for a future engine with the same read-side failure mode is
+# still one line in one place, not a new manifest key to remember.
+_HOME_OVERRIDE_REPOS = frozenset({"promera", "rf3", "rfd3"})
+_HOST_HOME = "/home/jk661"
+
 
 class EngineError(RuntimeError):
     """An engine subprocess failed, timed out, or could not be started."""
@@ -130,6 +165,25 @@ class EnvDispatcher:
             "HF_HOME": str(cache_dir / "huggingface"),
             "TORCH_HOME": str(cache_dir / "torch"),
             "XDG_CACHE_HOME": str(cache_dir),
+            # Same reasoning as the three cache vars above, for triton's own
+            # JIT kernel cache (defaults to $HOME/.triton/cache, see
+            # triton.knobs — TRITON_CACHE_DIR overrides it directly).
+            # Unconditional (not scoped to _HOME_OVERRIDE_REPOS below) —
+            # regression found live: rf3/rfd3 (foundry env) both compile
+            # triton kernels, and once their own $HOME is redirected to the
+            # read-only /home/jk661 mount (for the checkpoint-path fix
+            # below), `os.makedirs('/home/jk661/.triton')` fails with
+            # PermissionError. Scoping this redirect to the SAME allowlist
+            # as the HOME override would only be correct until the next
+            # engine that both needs the HOME override AND uses triton;
+            # redirecting it for everyone, like the other cache vars, is not
+            # more work and closes that off for good.
+            "TRITON_CACHE_DIR": str(cache_dir / "triton"),
+            # See _HOME_OVERRIDE_REPOS's own comment: only the specific
+            # engines known to resolve a mounted host path via Path.home()
+            # get this — every other engine (prefix- or env-dispatched
+            # alike) keeps whatever $HOME it already had.
+            **({"HOME": _HOST_HOME} if engine.repo in _HOME_OVERRIDE_REPOS else {}),
             **engine.env_vars,
         }
 

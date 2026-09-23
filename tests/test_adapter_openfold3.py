@@ -42,10 +42,16 @@ def test_manifest_documents_the_cap_reason():
     assert "OOM" in doc or "75.94" in doc or "out of memory" in doc.lower()
 
 
-def test_manifest_uses_prefix_with_no_extra_mounts():
+def test_manifest_uses_prefix_with_no_import_time_extra_mounts():
+    """No module discover_mounts can see needs an extra mount -- but the
+    checkpoint cache does (task-13-report.md: the default checkpoint was
+    not found at $HOME/.openfold3 in-container, the same "$HOME mismatch"
+    class as promera/rf3/rfd3, fixed here with openfold3's own
+    OPENFOLD_CACHE override instead of a $HOME override)."""
     engine = _manifest().engine
     assert engine.prefix == "/home/jk661/.conda/envs/openfold3"
-    assert engine.mounts == ()
+    assert engine.mounts == ("/home/jk661/.openfold3",)
+    assert engine.env_vars["OPENFOLD_CACHE"] == "/home/jk661/.openfold3"
 
 
 def test_validation_rejects_diffusion_samples_above_cap():

@@ -405,24 +405,53 @@ async def test_empty_env_vars_is_valid_and_still_inherits_parent_env(tmp_path, m
 
 @pytest.mark.asyncio
 async def test_default_caches_point_into_the_scratch_workdir(tmp_path):
-    """§3.3: HF_HOME, TORCH_HOME and XDG_CACHE_HOME default into the
-    engine's scratch workdir unless the manifest overrides them, so engines
-    do not write into a read-only mount or collide in a shared ~/.cache."""
+    """§3.3: HF_HOME, TORCH_HOME, XDG_CACHE_HOME and TRITON_CACHE_DIR
+    default into the engine's scratch workdir unless the manifest overrides
+    them, so engines do not write into a read-only mount or collide in a
+    shared ~/.cache (or ~/.triton)."""
     d = EnvDispatcher(runner=None, scratch_root=tmp_path)
     engine = EngineSpec(repo="py", env="unused", entry=(sys.executable,))
     script = (
         "import os; "
         "print(os.environ['HF_HOME']); "
         "print(os.environ['TORCH_HOME']); "
-        "print(os.environ['XDG_CACHE_HOME'])"
+        "print(os.environ['XDG_CACHE_HOME']); "
+        "print(os.environ['TRITON_CACHE_DIR'])"
     )
     result = await d.run(engine, ["-c", script], timeout=30)
-    hf_home, torch_home, xdg_cache = result.stdout.strip().splitlines()
+    hf_home, torch_home, xdg_cache, triton_cache = result.stdout.strip().splitlines()
     # The workdir is removed by the time we can inspect it here, but its
-    # *name* (pdmcp-<hex>) must be the parent of all three cache paths.
+    # *name* (pdmcp-<hex>) must be the parent of all four cache paths.
     assert Path(hf_home).is_relative_to(tmp_path)
     assert Path(torch_home).is_relative_to(tmp_path)
     assert Path(xdg_cache).is_relative_to(tmp_path)
+    assert Path(triton_cache).is_relative_to(tmp_path)
+
+
+@pytest.mark.asyncio
+async def test_triton_cache_dir_stays_writable_even_for_a_home_overridden_engine(tmp_path):
+    """Regression found live: rf3/rfd3 both JIT-compile triton kernels and
+    default (unless TRITON_CACHE_DIR is set) to $HOME/.triton/cache. Once
+    $HOME is redirected to the read-only /home/jk661 mount for these
+    engines (see _HOME_OVERRIDE_REPOS), triton's own
+    `os.makedirs($HOME/.triton, ...)` fails with PermissionError unless
+    TRITON_CACHE_DIR is ALSO redirected, independently of $HOME, to
+    somewhere writable."""
+    d = EnvDispatcher(runner=None, scratch_root=tmp_path)
+    engine = EngineSpec(
+        repo="rf3", prefix="/home/jk661/.conda/envs/foundry", entry=(sys.executable,)
+    )
+    result = await d.run(
+        engine,
+        [
+            "-c",
+            "import os; print(os.environ['HOME']); print(os.environ['TRITON_CACHE_DIR'])",
+        ],
+        timeout=30,
+    )
+    home, triton_cache = result.stdout.strip().splitlines()
+    assert home == "/home/jk661"
+    assert Path(triton_cache).is_relative_to(tmp_path)
 
 
 @pytest.mark.asyncio
@@ -438,3 +467,80 @@ async def test_manifest_env_vars_override_the_default_cache_dirs(tmp_path):
         engine, ["-c", "import os; print(os.environ['HF_HOME'])"], timeout=30
     )
     assert result.stdout.strip() == "/tmp/custom-hf-home"
+
+
+# --- Task 13: $HOME mismatch for promera/rf3/rfd3 specifically -------------
+
+
+@pytest.mark.asyncio
+async def test_allowlisted_repos_get_home_defaulted_to_the_mounted_host_path(tmp_path):
+    """Regression for task-13-report.md's largest finding: promera/rf3/
+    rfd3 all resolve a mounted checkpoint/cache path via Path.home(), which
+    inside a container is whatever $HOME the container itself was started
+    with -- not this host's real home directory, which is what every
+    ``prefix:`` mount naming a path under it actually sits under. The
+    subprocess's own $HOME must be defaulted to the real host home for
+    these specific engines, or the mounted file is unreachable even though
+    it exists."""
+    d = EnvDispatcher(runner=None, scratch_root=tmp_path)
+    engine = EngineSpec(
+        repo="promera", prefix="/home/jk661/.conda/envs/promera", entry=(sys.executable,)
+    )
+    result = await d.run(
+        engine, ["-c", "import os; print(os.environ['HOME'])"], timeout=30
+    )
+    assert result.stdout.strip() == "/home/jk661"
+
+
+@pytest.mark.asyncio
+async def test_other_prefix_engines_do_not_get_the_home_override(tmp_path, monkeypatch):
+    """Regression: this override was FIRST tried for every prefix-dispatched
+    engine, which broke run_boltzgen_design in-container -- ALSO
+    prefix-dispatched, but its own triton JIT kernel cache
+    ($HOME/.triton/cache) needs a WRITABLE $HOME (the container's own
+    default, e.g. /tmp -- see container_run.py), and /home/jk661 is a
+    read-only mount in this image. Only the specific engines in
+    _HOME_OVERRIDE_REPOS get the override; every other prefix-dispatched
+    engine's own $HOME must pass through untouched."""
+    monkeypatch.setenv("HOME", "/tmp")
+    d = EnvDispatcher(runner=None, scratch_root=tmp_path)
+    engine = EngineSpec(
+        repo="boltzgen", prefix="/home/jk661/miniforge3/envs/boltzgen", entry=(sys.executable,)
+    )
+    result = await d.run(
+        engine, ["-c", "import os; print(os.environ['HOME'])"], timeout=30
+    )
+    assert result.stdout.strip() == "/tmp"
+
+
+@pytest.mark.asyncio
+async def test_env_dispatched_engines_do_not_get_the_home_override(tmp_path, monkeypatch):
+    """The image's own baked-in environments (scoring/md/mpnn/mmseqs/
+    server) never mount anything under a host home directory -- their own
+    $HOME must pass through untouched, not be silently rewritten to a host
+    path that has no meaning for them."""
+    monkeypatch.setenv("HOME", "/home/mambauser")
+    d = EnvDispatcher(runner=None, scratch_root=tmp_path)
+    engine = EngineSpec(repo="prodigy", env="scoring", entry=(sys.executable,))
+    result = await d.run(
+        engine, ["-c", "import os; print(os.environ['HOME'])"], timeout=30
+    )
+    assert result.stdout.strip() == "/home/mambauser"
+
+
+@pytest.mark.asyncio
+async def test_manifest_env_vars_can_still_override_home(tmp_path):
+    """engine.env_vars is merged in last (see EnvDispatcher.run's own
+    comment) -- a manifest that genuinely needs a different $HOME must
+    still be able to set one."""
+    d = EnvDispatcher(runner=None, scratch_root=tmp_path)
+    engine = EngineSpec(
+        repo="promera",
+        prefix="/home/jk661/.conda/envs/promera",
+        entry=(sys.executable,),
+        env_vars={"HOME": "/somewhere/else"},
+    )
+    result = await d.run(
+        engine, ["-c", "import os; print(os.environ['HOME'])"], timeout=30
+    )
+    assert result.stdout.strip() == "/somewhere/else"

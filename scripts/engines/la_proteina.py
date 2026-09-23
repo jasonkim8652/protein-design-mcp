@@ -4,29 +4,42 @@ La-Proteina's `proteinfoundation/generate.py` is not an installed package --
 it does `sys.path.insert(0, os.path.abspath("."))` at import time, so it
 MUST be run with the repo root as the process's own cwd, and its Hydra
 config loader (`hydra.initialize(config_path, ...)`) resolves `config_path`
-relative to `generate.py`'s own file location, not cwd -- `--config_subdir
-X` becomes `../configs/X`, i.e. a subdirectory of THIS repo's own
-`configs/` directory, not an arbitrary external path. There is no CLI
-surface to point either of these at the dispatcher's scratch workdir, so
-this wrapper does the following instead:
+relative to `generate.py`'s own file location -- specifically
+`realpath(dirname(__file__))` (confirmed from hydra's own
+`_internal/utils.py::compute_search_path_dir`), so a plain SYMLINK to
+`generate.py` does not help: hydra resolves straight through it back to the
+real, read-only-mounted checkout. There is no CLI surface to point either
+the config directory or the output directory at the dispatcher's scratch
+workdir, so this wrapper builds a WRITABLE VIEW of the repo instead, rooted
+at the call's own scratch workdir (`Path.cwd()`), and runs `generate.py`
+from there:
 
-1. Writes a per-call config pair into a UNIQUELY NAMED subdirectory of the
-   repo's own `configs/` (named after this run's scratch-workdir token, so
-   two concurrent calls -- there are, per WAVE-COMMON, other agents active
-   on this host -- can never collide), copying `inference_base.yaml`
-   alongside it so the `defaults:` chain still resolves without touching
-   the repo's shared top-level configs at all.
-2. Invokes `generate.py` as a subprocess with `cwd` explicitly set to the
-   repo root (required for its own import mechanism), not this wrapper's
-   own cwd (the dispatcher's scratch workdir).
-3. Copies the run's output (written by La-Proteina, again by construction,
-   to a cwd-relative `./inference/<config_name>/...` -- confirmed live) back
-   into the ACTUAL scratch workdir this wrapper itself was invoked in, which
-   is what this tool's manifest `outputs:` glob is relative to.
-4. Removes both the temporary config subdirectory and the repo-side
-   `inference/<config_name>/` output directory it created, in a `finally`
-   block, so nothing lingers in the shared checkout regardless of success
-   or failure.
+1. `_build_repo_view()` symlinks every top-level entry of the real repo
+   (`openfold/`, `assets/`, `.git`, etc.) straight into the scratch workdir
+   -- cheap, and fine for ordinary Python imports/reads, which follow
+   symlinks without caring whether the target is real. `proteinfoundation/`
+   is handled specially: it becomes a REAL (non-symlink) directory in the
+   scratch workdir, with every entry inside it symlinked EXCEPT
+   `generate.py` itself, which is a real copy. `configs/`, `inference/`,
+   `tmp/` and `tmp_ae/` are deliberately left out entirely -- see below.
+2. Every one of La-Proteina's own cwd-relative writes (`./configs/<subdir>`
+   for hydra's per-call config, `./inference/<config_name>` for its output,
+   `./tmp` / `./tmp_ae` for checkpoint-loading scratch state --
+   `proteinfoundation/proteina.py`'s and
+   `partial_autoencoder/autoencoder.py`'s own `store_dir` defaults) is
+   therefore relative to the SAME writable scratch workdir this wrapper
+   itself was invoked in -- which is what this tool's manifest `outputs:`
+   glob (`inference/**/*.pdb`) is relative to. No copy-back step is needed:
+   the output lands exactly where the dispatcher will look for it.
+3. `generate.py`'s own `__file__` is real (not a symlink) -- see step 1 --
+   so hydra's `realpath(dirname(__file__))` resolves to
+   `<scratch_workdir>/proteinfoundation`, a genuinely writable directory,
+   and `../configs/<subdir>` (this wrapper's own `--config_subdir` value)
+   resolves to `<scratch_workdir>/configs/<subdir>`, not the read-only
+   mount. Regular Python imports of `proteinfoundation`'s OWN submodules
+   (`proteinfoundation.datasets...`, `proteinfoundation.utils...`) are
+   unaffected by any of this -- they resolve through the symlinked
+   entries exactly as they would through the real ones.
 
 Every parameter this tool exposes maps directly onto one of `generate.py`'s
 own config fields (`generation.dataset.nlens_cfg.nres_lens`,
@@ -44,6 +57,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -55,6 +69,61 @@ _REPO_ROOT = Path("/home/jk661/projects/la-proteina")
 _CKPT_DIR = _REPO_ROOT / "checkpoints_laproteina"
 _CKPT_NAME = "LD1_ucond_notri_512.ckpt"
 _AE_CKPT_PATH = _CKPT_DIR / "AE1_ucond_512.ckpt"
+
+# Left out of the top-level symlink mirror in `_build_repo_view` -- each of
+# these must be a REAL, writable path under the scratch workdir instead of
+# a symlink into the (read-only, per the container's own mount contract)
+# real checkout: `configs` because this wrapper creates a per-call subdir
+# under it, `inference` because that is where generate.py writes its
+# output, `tmp`/`tmp_ae` because `proteina.py`/`autoencoder.py` write
+# checkpoint-loading scratch state there by default (cwd-relative).
+# `lightning_logs` is the SAME class -- PyTorch Lightning's own default
+# CSVLogger writes `./lightning_logs/version_N/` (cwd-relative) whenever no
+# explicit logger is configured, confirmed live in-container: symlinking it
+# (as an ordinary read-only entry, before this was added) let Lightning
+# resolve straight through to the real repo's own `lightning_logs/`
+# (present on this host from prior interactive runs) and fail with
+# `OSError: [Errno 30] Read-only file system` the moment it tried to create
+# a new version subdirectory there.
+#
+# This list is inherently a DENYLIST of write-targets discovered by
+# actually running the engine, not something derivable from the repo's
+# structure alone (nothing distinguishes `lightning_logs` from `assets` or
+# `openfold` by name or type) -- a future La-Proteina call path that writes
+# somewhere new under the repo root can reproduce this same failure mode
+# for a directory not yet listed here. The in-container live proof is what
+# is positioned to catch that when it happens, the same way it caught this
+# one.
+_SKIP_TOP_LEVEL = {"proteinfoundation", "configs", "inference", "tmp", "tmp_ae", "lightning_logs"}
+
+
+def _build_repo_view(call_workdir: Path) -> None:
+    """Give La-Proteina's subprocess a repo root it can write into.
+
+    See this module's own docstring for why a plain symlinked mirror of
+    `proteinfoundation/` is not enough: hydra resolves `generate.py`'s
+    containing directory with `realpath()`, which follows a symlink
+    straight back to the real, read-only-mounted checkout. Only
+    `generate.py` itself (and its immediate containing directory) needs to
+    be a real, physical file/directory under the scratch workdir; every
+    other top-level entry, and every OTHER file inside
+    `proteinfoundation/`, is a plain symlink -- ordinary Python imports
+    (unlike hydra's config-path resolution) don't care whether the path
+    they open runs through a symlink.
+    """
+    for entry in os.listdir(_REPO_ROOT):
+        if entry in _SKIP_TOP_LEVEL:
+            continue
+        (call_workdir / entry).symlink_to(_REPO_ROOT / entry)
+
+    real_pf = _REPO_ROOT / "proteinfoundation"
+    pf_view = call_workdir / "proteinfoundation"
+    pf_view.mkdir()
+    for entry in os.listdir(real_pf):
+        if entry == "generate.py":
+            shutil.copy2(real_pf / entry, pf_view / entry)
+        else:
+            (pf_view / entry).symlink_to(real_pf / entry)
 
 
 def main() -> None:
@@ -78,9 +147,14 @@ def main() -> None:
     config_name = f"mcp_{run_token}"
     config_subdir_name = f"_mcp_{run_token}"
 
-    config_subdir = _REPO_ROOT / "configs" / config_subdir_name
+    _build_repo_view(call_workdir)
+
+    # Both now relative to the WRITABLE scratch workdir, not the read-only
+    # mounted checkout -- see _build_repo_view's and this module's own
+    # docstrings.
+    config_subdir = call_workdir / "configs" / config_subdir_name
     generation_subdir = config_subdir / "generation"
-    repo_output_dir = _REPO_ROOT / "inference" / config_name
+    repo_output_dir = call_workdir / "inference" / config_name
 
     step_params = {
         "sc_scale_noise": args.sc_scale_noise,
@@ -196,7 +270,13 @@ def main() -> None:
                 "--data_path",
                 str(call_workdir),
             ],
-            cwd=str(_REPO_ROOT),
+            # cwd is now the writable scratch workdir itself (see
+            # _build_repo_view), not the real (read-only mounted) repo --
+            # generate.py's own sys.path.insert(0, abspath(".")) resolves
+            # `proteinfoundation` through the symlinked view planted there,
+            # and every one of its cwd-relative writes (./configs/<subdir>,
+            # ./inference/<config_name>, ./tmp, ./tmp_ae) lands in scratch.
+            cwd=str(call_workdir),
             capture_output=True,
             text=True,
         )
@@ -210,12 +290,15 @@ def main() -> None:
                 f"La-Proteina exited 0 but did not create the expected output "
                 f"directory {repo_output_dir}"
             )
-        dest = call_workdir / "inference"
-        dest.mkdir(exist_ok=True)
-        shutil.copytree(repo_output_dir, dest / config_name)
+        # No copy-back needed: repo_output_dir IS already
+        # <call_workdir>/inference/<config_name>, exactly where the
+        # manifest's outputs: pattern (inference/**/*.pdb) looks for it.
     finally:
+        # Only the per-call config subdir needs explicit cleanup here --
+        # everything else this wrapper created lives under call_workdir,
+        # which the dispatcher itself removes on success (and preserves,
+        # deliberately, for diagnosis on failure).
         shutil.rmtree(config_subdir, ignore_errors=True)
-        shutil.rmtree(repo_output_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ while catching nothing (this project replaced two such tests already).
 from __future__ import annotations
 
 import importlib.util
+import os
 from pathlib import Path
 
 import pytest
@@ -106,3 +107,38 @@ def test_mounts_use_the_identical_host_path(container_run, derived):
     for volume in volumes:
         host, container, mode = volume.rsplit(":", 2)
         assert host == container, f"mount must keep its host path: {volume} ({mode})"
+
+
+# --- Task 13: container runs as the invoking host user, not the image's
+# --- default user (protpardelle's mode-640 model_params/configs fix) -------
+
+
+def test_the_command_maps_the_container_to_the_given_uid_and_gid(container_run, derived):
+    """A mode-640 host file (readable via the host user's own group
+    membership) is unreadable to the image's arbitrary default user
+    ($MAMBA_USER). Mapping the container onto the invoking user's own
+    uid/gid — not chmod'ing the file, not a broader read-only-mount
+    exception — makes every already-host-readable mount readable
+    identically in-container."""
+    prefixes, mounts = derived
+    argv = container_run.build_command(prefixes, mounts, "img", "7", uid=1234, gid=5678)
+    assert "--user=1234:5678" in argv
+
+
+def test_the_command_defaults_uid_and_gid_to_the_invoking_process(container_run, derived):
+    prefixes, mounts = derived
+    argv = container_run.build_command(prefixes, mounts, "img", "7")
+    assert f"--user={os.getuid()}:{os.getgid()}" in argv
+
+
+def test_the_command_sets_a_writable_home_for_the_mapped_user(container_run, derived):
+    """The image's own baked-in home directories (e.g. /home/mambauser)
+    are not writable by an arbitrary uid, and micromamba needs a writable
+    $HOME for its own runtime lockfile -- confirmed live: without this,
+    `micromamba run` fails with 'Could not open lockfile
+    .../.cache/mamba/proc/proc.lock' the moment the container runs as
+    anyone other than the image's own baked-in user."""
+    prefixes, mounts = derived
+    argv = container_run.build_command(prefixes, mounts, "img", "7")
+    idx = argv.index("-e")
+    assert argv[idx + 1] == f"HOME={container_run.CONTAINER_HOME}"
