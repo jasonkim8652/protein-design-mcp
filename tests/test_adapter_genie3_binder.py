@@ -26,7 +26,6 @@ DEFAULT_PARAMS = {
     "eta": 1.0,
     "n_sample_step": 100,
     "noise_scale": 1.0,
-    "predict_sidechain": False,
     "seed": 0,
     "expand_interface": False,
     "interface_cutoff_angstrom": 6.0,
@@ -140,7 +139,11 @@ def test_validation_fills_defaults():
     )
     assert params["num_samples"] == 2
     assert params["model_variant"] == "v1"
-    assert params["predict_sidechain"] is False
+    assert "predict_sidechain" not in params, (
+        "the binder tool must not accept predict_sidechain: Genie 3 asserts "
+        "dataset.source == 'unconditional' before the side-chain stage and "
+        "binder generation runs with source == 'target'"
+    )
     # expand_interface defaults to false: unchanged behavior for existing
     # callers who never asked for interface expansion.
     assert params["expand_interface"] is False

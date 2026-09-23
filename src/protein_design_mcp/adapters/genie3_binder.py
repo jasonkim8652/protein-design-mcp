@@ -47,8 +47,15 @@ def build_args(manifest: Manifest, params: dict[str, Any]) -> list[str]:
         str(params["n_sample_step"]),
         "--noise-scale",
         str(params["noise_scale"]),
+        # Pinned false, not read from params: the schema no longer exposes it.
+        # Genie 3's side-chain pass is a second stage guarded by
+        # `assert config.dataset.source == "unconditional"`, and binder
+        # generation runs with source == "target", so true can only raise an
+        # AssertionError -- and it does so AFTER the main stage completes,
+        # discarding the generation that was just paid for. The flag is still
+        # passed because the CLI expects it.
         "--predict-sidechain",
-        _bool_str(params["predict_sidechain"]),
+        _bool_str(False),
         "--seed",
         str(params["seed"]),
         "--expand-interface",

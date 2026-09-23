@@ -57,8 +57,8 @@ doc: |
   Genie 3's target-conditioned binder-design generation path
   (`genie3.cli generate`, dataset source `target`): given a target structure
   and a set of hotspot residues on it, samples a new chain's coordinates
-  (and, with `predict_sidechain: true`, side-chain atoms) conditioned on
-  that interface.
+  conditioned on that interface. Backbone frames only -- see "What is NOT
+  exposed" for why the side-chain stage is unreachable here.
 
   ## `target_pdb` and `hotspot_residues` -- the parameters that decide whether this tool is usable at all
   `target_pdb` is a structure file containing ONLY the target (one or more
@@ -117,14 +117,21 @@ doc: |
   - Neither this tool nor `run_protpardelle` scores the result. Refold with
     `run_chai1` or `run_boltz` with the target chain present, then score
     the interface with `run_ipsae`.
-  - Design a sequence for the target chain if you need one --
-    `predict_sidechain: true` gives side-chain ATOMS for the binder chain
-    Genie 3 itself placed, not an independently verified sequence; for that,
-    fold the result and run `run_mpnn` on it instead.
+  - Design a sequence for the binder if you need one -- this tool emits
+    backbone frames, so fold the result and run `run_mpnn` on it.
 
   ## What is NOT exposed, and why
   - **`predict_sequence`** is fixed to `false` -- sequence design is
     `run_mpnn`'s job, the same rule as every other generative tool here.
+  - **`predict_sidechain`** is not exposed, although `run_genie3_scaffold`
+    does expose it. Genie 3's side-chain pass is a second stage guarded by
+    `assert config.dataset.source == "unconditional"`
+    (`genie3/generation/workflow.py`), and binder generation runs with
+    `source == "target"` (`runner.py`, `postprocess.py`), so the assertion can
+    never hold here. The guard sits AFTER `[1 / 2] Main stage completed!`, so
+    setting it would run the whole generation and then discard it -- confirmed
+    live, 52 s of GPU lost to an AssertionError. Fold the backbone and run
+    `run_mpnn` for an all-atom model instead.
   - **Multi-round / iterative binder design** (Genie 3's own
     `cond_strategy: iter_common`, which recomputes an interface from prior
     rounds' successes) is an orchestration pattern over several calls to
@@ -258,15 +265,6 @@ schema:
       Scales injected noise at each denoising step. Applies to both
       samplers. Genie 3's own default is 1.0 for both.
     example: 1.0
-  predict_sidechain:
-    type: boolean
-    default: false
-    description: >-
-      DDIM sampler only (ignored for model_variant=legacy). Whether the
-      model also predicts side-chain atoms for the binder chain (all-atom
-      output) rather than backbone frames only. Genie 3's own default is
-      false.
-    example: false
   seed:
     type: integer
     minimum: 0
