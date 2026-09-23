@@ -421,6 +421,115 @@ def test_prefix_must_not_contain_dotdot(tmp_path):
         parse_manifest(data)
 
 
+# --- Task 16: EngineSpec.prefix_host -------------------------------------------
+
+
+def test_prefix_host_defaults_to_none(tmp_path):
+    data = {
+        **MINIMAL,
+        "engine": {"repo": "boltz", "prefix": str(tmp_path), "entry": ["boltz"]},
+    }
+    m = parse_manifest(data)
+    assert m.engine.prefix_host is None
+
+
+def test_prefix_host_is_parsed_when_it_differs_from_prefix(tmp_path):
+    real_dir = tmp_path / "real"
+    real_dir.mkdir()
+    data = {
+        **MINIMAL,
+        "engine": {
+            "repo": "alphafold3",
+            "prefix": "/alphafold3_venv",
+            "prefix_host": str(real_dir),
+            "entry": ["python", "alphafold3.py"],
+        },
+    }
+    m = parse_manifest(data)
+    assert m.engine.prefix == "/alphafold3_venv"
+    assert m.engine.prefix_host == str(real_dir)
+
+
+def test_prefix_host_without_prefix_is_a_load_error(tmp_path):
+    data = {
+        **MINIMAL,
+        "engine": {
+            "repo": "boltz",
+            "env": "scoring",
+            "prefix_host": str(tmp_path),
+            "entry": ["boltz"],
+        },
+    }
+    with pytest.raises(ManifestError, match="prefix_host"):
+        parse_manifest(data)
+
+
+def test_prefix_host_must_be_an_absolute_path(tmp_path):
+    data = {
+        **MINIMAL,
+        "engine": {
+            "repo": "boltz",
+            "prefix": "/alphafold3_venv",
+            "prefix_host": "relative/path",
+            "entry": ["boltz"],
+        },
+    }
+    with pytest.raises(ManifestError, match="absolute"):
+        parse_manifest(data)
+
+
+def test_prefix_host_must_not_contain_dotdot(tmp_path):
+    data = {
+        **MINIMAL,
+        "engine": {
+            "repo": "boltz",
+            "prefix": "/alphafold3_venv",
+            "prefix_host": str(tmp_path / ".." / "boltz"),
+            "entry": ["boltz"],
+        },
+    }
+    with pytest.raises(ManifestError, match=r"\.\."):
+        parse_manifest(data)
+
+
+def test_prefix_host_is_not_existence_checked(tmp_path):
+    """Deliberately NOT ``pytest.raises`` — see EngineSpec.prefix_host's own
+    docstring for why: this manifest gets loaded again every time the
+    server starts INSIDE the deployed container, where prefix_host's path
+    is never visible (only ``prefix``, what it is mounted AT, is). An
+    existence check here broke exactly that way, live, 2026-09-23 -- CONFIRMED
+    by loading run_alphafold3.yaml inside the deployed container with an
+    earlier version of this function that did check. Real existence
+    verification is ``scripts/container_run.py --check`` (see
+    tests/test_container_run.py), run by the operator on the HOST."""
+    missing = tmp_path / "does-not-exist"
+    data = {
+        **MINIMAL,
+        "engine": {
+            "repo": "boltz",
+            "prefix": "/alphafold3_venv",
+            "prefix_host": str(missing),
+            "entry": ["boltz"],
+        },
+    }
+    m = parse_manifest(data)
+    assert m.engine.prefix_host == str(missing)
+
+
+def test_prefix_host_empty_string_is_treated_as_unset(tmp_path):
+    data = {
+        **MINIMAL,
+        "engine": {
+            "repo": "boltz",
+            "prefix": str(tmp_path),
+            "prefix_host": "",
+            "entry": ["boltz"],
+        },
+    }
+    m = parse_manifest(data)
+    assert m.engine.prefix_host is None
+
+
 # --- Task 2: EngineSpec.mounts ------------------------------------------------
 
 

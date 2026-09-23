@@ -22,6 +22,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = REPO_ROOT / "scripts" / "container_run.py"
+MANIFEST_DIR = REPO_ROOT / "src" / "protein_design_mcp" / "manifests"
 
 
 def _load():
@@ -39,27 +40,48 @@ def container_run():
 
 @pytest.fixture(scope="module")
 def derived(container_run):
-    manifest_dir = REPO_ROOT / "src" / "protein_design_mcp" / "manifests"
-    prefixes, mounts, _problems = container_run.collect_paths(manifest_dir)
+    """``(prefixes, mounts)``, each a set of ``(host_path, container_path)``
+    pairs — see ``container_run.collect_paths``'s own docstring for why a
+    pair, not a bare path string, is the unit here."""
+    prefixes, mounts, _problems = container_run.collect_paths(MANIFEST_DIR)
     return prefixes, mounts
+
+
+@pytest.fixture(scope="module")
+def manifests():
+    """The real, loaded manifests — used only by the one test below that
+    needs to cross-check a non-identical mount pair against its OWN
+    ``engine.prefix_host`` declaration, rather than trusting
+    ``collect_paths``'s round-trip of its own logic."""
+    from protein_design_mcp.manifest.loader import load_manifests_resilient
+
+    loaded, _failures = load_manifests_resilient(MANIFEST_DIR)
+    return loaded
 
 
 def test_every_derived_path_exists_on_this_host(derived):
     """A mount naming a path that is not there fails at engine-import time,
     long after the container has started, with an error that does not mention
-    mounting at all."""
+    mounting at all. Checked on the HOST side of each pair — the
+    container-side path (e.g. run_alphafold3's ``/alphafold3_venv``) is
+    never expected to exist here; nothing on this host is allowed to write
+    at that path (see ``EngineSpec.prefix_host``'s docstring)."""
     prefixes, mounts = derived
-    missing = sorted(p for p in prefixes | mounts if not Path(p).exists())
+    missing = sorted(host for host, _container in prefixes | mounts if not Path(host).exists())
     assert not missing, f"manifests declare paths that do not exist: {missing}"
 
 
 def test_no_mount_is_relative_or_traversing(derived):
     """Mounts go in a ``docker run -v`` unquoted by position; a relative or
-    ``..`` path would resolve against whatever directory the operator happens to
-    be in."""
+    ``..`` path would resolve against whatever directory the operator happens
+    to be in. Checked on BOTH sides of every pair — a relocated mount's
+    container-side path is just as position-sensitive as its host side."""
     prefixes, mounts = derived
     bad = sorted(
-        p for p in prefixes | mounts if not p.startswith("/") or ".." in Path(p).parts
+        f"{host}:{container}"
+        for host, container in prefixes | mounts
+        for p in (host, container)
+        if not p.startswith("/") or ".." in Path(p).parts
     )
     assert not bad, f"mounts must be absolute and free of '..': {bad}"
 
@@ -69,9 +91,13 @@ def test_the_server_never_mounts_its_own_package(derived):
     checkout of this server, because a stale editable install put it on several
     engine environments' ``sys.path``. Mounting it would shadow the container's
     own server code with another working tree — a failure that presents as "the
-    container is running old code"."""
+    container is running old code". Checked on the HOST side: that is what is
+    actually read off disk regardless of which container path it lands at."""
     prefixes, mounts = derived
-    offenders = sorted(p for p in prefixes | mounts if (Path(p) / "protein_design_mcp").is_dir())
+    offenders = sorted(
+        host for host, _container in prefixes | mounts
+        if (Path(host) / "protein_design_mcp").is_dir()
+    )
     assert not offenders, f"these mounts would shadow the server's own code: {offenders}"
 
 
@@ -97,16 +123,72 @@ def test_every_mount_is_read_only(container_run, derived):
     assert not not_ro, f"mounts must be read-only: {not_ro}"
 
 
-def test_mounts_use_the_identical_host_path(container_run, derived):
-    """Conda environments are not relocatable: their console scripts carry
-    absolute shebangs such as ``#!/home/jk661/.conda/envs/boltz/bin/python3.11``.
-    Mounting to any other path inside the container breaks every entry point."""
+def test_mounts_use_the_identical_host_path(container_run, derived, manifests):
+    """An environment must be mounted where it believes it lives.
+
+    For an ordinary conda environment, that belief IS its host install path:
+    console scripts carry absolute shebangs such as
+    ``#!/home/jk661/.conda/envs/boltz/bin/python3.11``, baked in at creation
+    time by conda itself. Mounting anywhere else breaks every entry point in
+    the environment, so host and container path must be identical — full
+    stop — for every ``engine.mounts`` entry (which has no override
+    mechanism at all) and for every ``engine.prefix`` that does not declare
+    ``prefix_host``.
+
+    AlphaFold 3's ``/alphafold3_venv`` believes it lives at that exact path
+    for the SAME reason (its own console-script shebangs, plus a
+    hand-patched editable-install redirect table baked at extraction time —
+    see run_alphafold3.yaml's own comment) — but that belief has nothing to
+    do with where its 8+GB of files are actually stored on THIS host's
+    disk, since this venv was never created here; it was extracted from
+    ``romerolabduke/alphafast:latest``, and nothing under this host's ``/``
+    is writable at ``/alphafold3_venv`` itself (root owns it). So its
+    ``prefix`` (the belief, i.e. the container path) and its
+    ``prefix_host`` (wherever we actually put the bytes) legitimately
+    differ, and ``collect_paths`` mounts ``prefix_host:prefix``.
+
+    This must not become a general loophole: it is checked here against the
+    REAL manifest declarations, not merely against ``collect_paths``'s own
+    round-trip of its own logic. Every ``mounts`` pair must be identical
+    unconditionally (that field has no relocation field to point to at
+    all), and every non-identical ``prefixes`` pair must be traceable to an
+    ``engine.prefix_host`` that names that exact host path on an engine
+    whose ``engine.prefix`` is that exact container path — so a conda
+    environment quietly moved without updating its manifest (or a future
+    manifest that sets ``prefix_host`` on an engine that does not actually
+    need it) still has to explain itself here, and a manifest that never
+    touches ``prefix_host`` (every engine but ``run_alphafold3`` today)
+    still gets the ORIGINAL, unweakened identical-path requirement.
+    """
     prefixes, mounts = derived
     argv = container_run.build_command(prefixes, mounts, "img", "7")
     volumes = [argv[i + 1] for i, a in enumerate(argv) if a == "-v"]
+
+    # (host, container) -> the set of engine.repo values that legitimately
+    # declared this exact relocation via prefix_host, straight from the
+    # real manifests -- not from collect_paths's own derivation.
+    declared_relocations: dict[tuple[str, str], set[str]] = {}
+    for manifest in manifests:
+        engine = manifest.engine
+        host = getattr(engine, "prefix_host", None)
+        prefix = getattr(engine, "prefix", None)
+        if host and prefix:
+            declared_relocations.setdefault((host, prefix), set()).add(engine.repo)
+
+    mount_pairs = {(h, c) for h, c in mounts}
     for volume in volumes:
         host, container, mode = volume.rsplit(":", 2)
-        assert host == container, f"mount must keep its host path: {volume} ({mode})"
+        if host == container:
+            continue
+        assert (host, container) not in mount_pairs, (
+            f"engine.mounts entries have no relocation mechanism -- must "
+            f"keep their host path: {volume} ({mode})"
+        )
+        assert (host, container) in declared_relocations, (
+            f"mount must keep its host path, unless an engine.prefix_host "
+            f"in the manifests explicitly declares this exact relocation: "
+            f"{volume} ({mode})"
+        )
 
 
 # --- Task 13: container runs as the invoking host user, not the image's

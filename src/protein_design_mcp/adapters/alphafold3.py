@@ -1,7 +1,8 @@
-"""Adapter for AlphaFold 3 (``scripts/engines/alphafold3.py``, env
-``scoring`` -- see the manifest's own comment on why this tool, which
-launches a SIBLING Docker container rather than a process in a mounted
-conda environment, needs nothing more than a plain baked-in CPU env).
+"""Adapter for AlphaFold 3 (``scripts/engines/alphafold3.py``, dispatched
+through ``engine.prefix: /alphafold3_venv`` -- an extracted venv mounted
+like any other GPU engine's conda environment, not a sibling Docker
+container -- see the manifest's own ``engine:`` comment and "How this tool
+is dispatched" doc section for the full reasoning).
 
 The manifest's ``chains`` parameter is ``type: array, items: {type:
 object}`` for the same reason ``run_boltz``'s is (see that adapter's own
@@ -15,8 +16,9 @@ entries (they are nested inside ``chains`` objects), so
 ``app._resolve_path_params`` never sees them; this adapter resolves and
 READS each one itself (embedding the actual a3m TEXT inline in AlphaFold
 3's JSON, AlphaFold 3's own "expert option" combination -- see the
-manifest's doc) rather than passing a path into the sibling container,
-which would need its own extra bind mount for an arbitrary caller path.
+manifest's doc) rather than passing a path into the engine's own
+subprocess, which would need its own extra mount for an arbitrary caller
+path.
 """
 
 from __future__ import annotations

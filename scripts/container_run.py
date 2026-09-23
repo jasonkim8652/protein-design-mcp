@@ -6,16 +6,28 @@ which tools are registered, so a hand-maintained command goes stale the moment a
 tool is added — and it goes stale silently, because a missing mount shows up as
 ``ModuleNotFoundError`` deep inside an engine rather than as a startup error.
 
-Three things this encodes, each established by experiment (see
+Four things this encodes, each established by experiment (see
 ``docs/superpowers/specs/2026-09-22-gpu-engine-substrate-design.md`` §2):
 
 1. **The GPU is pinned at the container boundary**, not inside it.
    ``--device nvidia.com/gpu=7`` makes the container see exactly one GPU, so an
    engine cannot reach another index even if it sets ``CUDA_VISIBLE_DEVICES``
    itself.
-2. **Host conda environments mount at their identical host path.** Their console
-   scripts carry absolute shebangs (``#!/home/jk661/.conda/envs/boltz/bin/python3.11``),
-   so a relocated mount breaks every entry point in the environment.
+2. **A mounted environment must land where it believes it lives.** For an
+   ordinary conda environment that belief IS its host install path — its
+   console scripts carry absolute shebangs
+   (``#!/home/jk661/.conda/envs/boltz/bin/python3.11``), baked in at creation
+   time — so host and container path have to be identical or every entry
+   point breaks. ``EngineSpec.prefix_host`` (see that field's own docstring)
+   is the one, narrow, schema-validated exception: it lets a manifest name a
+   DIFFERENT host path than ``engine.prefix`` for the one case where an
+   environment's belief about where it lives was fixed by hand rather than by
+   where conda put it (``run_alphafold3``'s venv, extracted from an image,
+   not created on this host) — the container-side path (what the environment
+   believes) never moves, only where its bytes physically sit on this host's
+   disk does. Every other mount — every ``engine.mounts`` entry, and every
+   ``engine.prefix`` that does not set ``prefix_host`` — still mounts at its
+   own identical path, exactly as before this field existed.
 3. **Editable installs need their source checkout mounted too.** With only the
    environment mounted, ``import boltz`` raises ``ModuleNotFoundError`` while the
    interpreter runs fine and ``import torch`` succeeds. Half the engine
@@ -70,29 +82,44 @@ DEFAULT_GPU = "7"
 CONTAINER_HOME = "/tmp"
 
 
-def collect_paths(manifest_dir: Path) -> tuple[set[str], set[str], list[str]]:
+def collect_paths(
+    manifest_dir: Path,
+) -> tuple[set[tuple[str, str]], set[tuple[str, str]], list[str]]:
     """Return (prefixes, mounts, problems) across every manifest that loads.
+
+    ``prefixes`` and ``mounts`` are both sets of ``(host_path,
+    container_path)`` pairs, not bare path strings — see point 2 of this
+    module's own docstring. For every ``engine.mounts`` entry the pair is
+    always ``(mount, mount)``: that field has no relocation mechanism, full
+    stop. For a prefix, the pair is ``(engine.prefix_host or engine.prefix,
+    engine.prefix)`` — identical unless the manifest explicitly set
+    ``prefix_host`` (see that field's own docstring), which is the ONLY way
+    a non-identical pair can ever reach this function. A manifest with a
+    plain ``prefix`` and no ``prefix_host`` (every engine but
+    ``run_alphafold3`` today) always yields an identical pair here, exactly
+    as it did before ``prefix_host`` existed.
 
     Uses the resilient loader on purpose: one malformed manifest should not stop
     us printing a command for the rest, and its exclusion is reported rather than
     hidden.
     """
     manifests, failures = load_manifests_resilient(manifest_dir)
-    prefixes: set[str] = set()
-    mounts: set[str] = set()
+    prefixes: set[tuple[str, str]] = set()
+    mounts: set[tuple[str, str]] = set()
     for manifest in manifests:
         engine = manifest.engine
         if getattr(engine, "prefix", None):
-            prefixes.add(engine.prefix)
+            host = getattr(engine, "prefix_host", None) or engine.prefix
+            prefixes.add((host, engine.prefix))
         for mount in getattr(engine, "mounts", ()) or ():
-            mounts.add(mount)
+            mounts.add((mount, mount))
     problems = [f"{name}: {reason}" for name, reason in sorted(failures.items())]
     return prefixes, mounts, problems
 
 
 def build_command(
-    prefixes: set[str],
-    mounts: set[str],
+    prefixes: set[tuple[str, str]],
+    mounts: set[tuple[str, str]],
     image: str,
     gpu: str,
     *,
@@ -112,10 +139,11 @@ def build_command(
         f"--user={uid}:{gid}",
         "-e", f"HOME={CONTAINER_HOME}",
     ]
-    # Identical-path, read-only. Sorted so the command is stable between runs and
-    # a diff of two invocations is meaningful.
-    for path in sorted(prefixes | mounts):
-        argv += ["-v", f"{path}:{path}:ro"]
+    # Read-only, host:container (identical unless a prefix's own
+    # prefix_host overrides it — see collect_paths). Sorted so the command
+    # is stable between runs and a diff of two invocations is meaningful.
+    for host, container in sorted(prefixes | mounts):
+        argv += ["-v", f"{host}:{container}:ro"]
     argv.append(image)
     return argv
 
@@ -142,7 +170,12 @@ def main() -> int:
         print(f"# excluded manifest: {problem}", file=sys.stderr)
 
     if args.check:
-        missing = [p for p in sorted(prefixes | mounts) if not Path(p).exists()]
+        # Existence is a property of the HOST side of each pair — the
+        # container-side path (e.g. run_alphafold3's /alphafold3_venv) is
+        # never expected to exist on this host at all; see collect_paths.
+        missing = [
+            host for host, _container in sorted(prefixes | mounts) if not Path(host).exists()
+        ]
         for path in missing:
             print(f"MISSING: {path}", file=sys.stderr)
         print(

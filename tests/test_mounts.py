@@ -125,10 +125,30 @@ def test_declared_mounts_of_every_prefix_manifest_match_the_helper():
 
     manifest_dir = Path(__file__).parent.parent / "src" / "protein_design_mcp" / "manifests"
     manifests = load_manifests(manifest_dir)
-    prefix_manifests = [m for m in manifests if m.engine.prefix is not None]
+    # run_alphafold3 declares engine.prefix_host (task 16) and is
+    # deliberately EXCLUDED here, not just probed at a different path.
+    # discover_mounts runs ``<probe_path>/bin/python -c <script>`` on THIS
+    # (bare, host-side) process -- but AF3's venv only resolves its own
+    # `alphafold3` package (a hand-patched scikit-build-core editable
+    # redirect, see run_alphafold3.yaml's own comment) through absolute
+    # paths that hardcode the CONTAINER-side prefix
+    # (`/alphafold3_venv/app/alphafold/src/...`), which never exists
+    # outside the deployed container regardless of whether prefix_host is
+    # used as the probe target -- CONFIRMED LIVE, 2026-09-23:
+    # `/opt/alphafold3_data/alphafold3_venv/bin/python -c "import
+    # alphafold3"` raises `FileNotFoundError:
+    # '/alphafold3_venv/app/alphafold/src/alphafold3/__init__.py'` even
+    # though that exact python IS the real interpreter. So this static,
+    # host-side check is inherently inapplicable to a relocated prefix --
+    # the equivalent guarantee for run_alphafold3 comes from actually
+    # running inside the container (this task's own in-container
+    # ServerApp.call_tool + live_proof.py verification), not from a
+    # host-side import probe.
+    prefix_manifests = [
+        m for m in manifests if m.engine.prefix is not None and m.engine.prefix_host is None
+    ]
 
-    # Today: zero. Once Task 3+ ships a prefix-based manifest, this
-    # assertion starts actually exercising the loop below.
+    # Today: zero non-relocated ones beyond the pre-existing GPU engines.
     for manifest in prefix_manifests:
         # engine.env_vars is passed through: an engine like esmfold2 whose
         # correct import depends on PYTHONNOUSERSITE=1 would otherwise be

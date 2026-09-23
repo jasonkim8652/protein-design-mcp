@@ -634,20 +634,18 @@ CASES: list[dict] = [
         "expect_keys": ["status", "job_id", "created_at", "result", "completed_at"],
     },
     {
-        # Task 11: AlphaFold 3 via its sibling romerolabduke/alphafast:latest
-        # Docker container (task-10's fixed version -- the image's own
-        # baked-in entrypoint, not the host repo's newer, incompatible copy;
-        # outputs land at out/*, not out/job/*). MSA-free, 20-residue
-        # Trp-cage, seeds=[1], num_recycles/num_diffusion_samples dropped to
-        # 1 for speed. Confirmed live on GPU 7: isError=False,
-        # ranking_score=ptm=0.12 (a real, if low-confidence, monomer
+        # Task 16: AlphaFold 3 dispatches through engine.prefix
+        # (/alphafold3_venv, extracted from romerolabduke/alphafast:latest
+        # with docker create + docker cp) exactly like every other GPU
+        # engine now -- no sibling docker run, no docker.sock. Runs the
+        # image's own baked-in entrypoint, not the host repo's newer,
+        # incompatible copy; outputs land at out/*, not out/job/*. MSA-free,
+        # 20-residue Trp-cage, seeds=[1], num_recycles/num_diffusion_samples
+        # dropped to 1 for speed. CONFIRMED LIVE in-container via
+        # ServerApp.call_tool, 2026-09-23: isError=False,
+        # ranking_score=ptm=0.11 (a real, if low-confidence, monomer
         # prediction -- iptm is null, correctly, since a single chain has no
-        # cross-chain interface to report). Verified end to end via
-        # EnvDispatcher(runner=None) (this tool's own env: "scoring" is
-        # baked into the deployed image only, per the manifest's dispatch
-        # doc -- not a change to this tool's real dispatch path, only to how
-        # this host-side check reaches it, same technique wave-H/task-10
-        # used).
+        # cross-chain interface to report).
         "tool": "run_alphafold3",
         "device": "cuda",
         "arguments": {

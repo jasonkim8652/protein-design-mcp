@@ -1,79 +1,104 @@
-"""Wrapper for AlphaFold 3 (``run_alphafold3``). Runs inside the ``scoring``
-environment (nothing beyond the Python standard library is needed -- see
-the manifest's own comment on why).
+"""Wrapper for AlphaFold 3 (``run_alphafold3``). Runs UNDER the mounted
+``/alphafold3_venv`` prefix's own python (``micromamba run -p
+/alphafold3_venv python /app/scripts/engines/alphafold3.py <job-json>`` --
+see the manifest's ``engine:`` block), exactly like every other GPU engine
+in this server now. This wrapper itself needs nothing beyond the Python
+standard library (json, subprocess, pathlib) -- it never imports
+``alphafold3`` directly, it only builds the job JSON and shells out to the
+mounted venv's own inference entrypoint as a plain LOCAL subprocess.
 
-Unlike every other engine in this server, AlphaFold 3 is NOT a process
-inside a conda environment mounted into this server's own container: it
-runs from its own Docker image. This wrapper therefore shells out to
-``docker run``, launching a SIBLING container next to this server's own --
-see the manifest's "How this tool is dispatched" section for the
-deployment requirements that creates (Docker CLI + socket access from
-inside this server's own container; a scratch workdir that is valid at an
-IDENTICAL path on the Docker daemon's host).
+**This changed in task 16.** AlphaFold 3 used to be the one tool in this
+server that shelled out to ``docker run``, launching a SIBLING container
+from ``romerolabduke/alphafast:latest`` -- see git history for that
+version, and ``run_alphafold3.yaml``'s own ``engine:`` comment and "How
+this tool is dispatched" doc section for the full reasoning (bind-mounting
+the host's Docker socket into this server's own container is a
+root-equivalent capability, forbidden by Ruling 3 given this server's
+unauthenticated HTTP transport). There is no docker invocation anywhere in
+this file any more, and none is needed: the venv (and the entrypoint
+script it now carries alongside it -- see below) was extracted from that
+same image with ``docker create`` + ``docker cp`` and is mounted in like
+any other GPU engine's conda environment.
 
 Ground truth for the invocation shape is the user's own checkout,
 ``~/projects/af3-mmseqs-gpu`` (read-only) --
-``benchmarks/run_inference_original_db.sh`` for the ``docker run``
-arguments and in-container activation sequence, ``docs/input.md`` for the
-AlphaFold 3 JSON schema, ``docs/output.md`` for the output directory
-layout this wrapper's manifest ``outputs:`` patterns are built from.
+``benchmarks/run_inference_original_db.sh`` for the argument shape and
+in-venv activation sequence, ``docs/input.md`` for the AlphaFold 3 JSON
+schema, ``docs/output.md`` for the output directory layout this wrapper's
+manifest ``outputs:`` patterns are built from.
 
-The image is ``romerolabduke/alphafast:latest`` (12.1GB, present on this
-host; verified live 2026-09-22 that ``/alphafold3_venv`` inside it is a
-real AlphaFold 3 venv) -- the RomeroLab MMseqs2-GPU fork the design spec
-names, and the same image the benchmark script's own ``DOCKER_IMAGE="$2"``
-takes as an argument rather than hardcoding.
-
-**This wrapper runs the image's OWN baked-in entrypoint,
-``/app/alphafold/run_alphafold.py`` -- NOT the ground-truth benchmark
-script's mounted copy.** CONFIRMED LIVE, 2026-09-22: mounting the host's own
+**This wrapper runs the image's OWN baked-in entrypoint -- NOT the
+ground-truth benchmark script's copy.** CONFIRMED LIVE, 2026-09-22 (and
+reconfirmed after extraction, 2026-09-23): mounting the host's own
 ``~/projects/af3-mmseqs-gpu/run_alphafold.py`` in, exactly as
 ``benchmarks/run_inference_original_db.sh`` does, fails immediately with
 ``ModuleNotFoundError: No module named 'alphafold3.jax.attention'`` --
 that host script's top-level ``from alphafold3.jax.attention import
-attention`` (added by a LATER point in the same RomeroLab fork's history)
-has no matching module in the ``alphafold3`` package actually baked into
-this image (confirmed by listing ``/app/alphafold/src/alphafold3/jax/``
-inside the image: only a ``geometry`` subpackage, no ``attention`` one).
-This image's own ``/app/alphafold/run_alphafold.py`` is genuinely the same
-fork family -- same flag surface (``--run_data_pipeline``,
+attention`` (added by a LATER point in the same RomeroLab fork's history
+than this venv was extracted from) has no matching module in the
+``alphafold3`` package this venv actually carries (confirmed by listing
+``<venv>/app/alphafold/src/alphafold3/jax/``: only a ``geometry``
+subpackage, no ``attention`` one). The extracted entrypoint IS genuinely
+the same fork family -- same flag surface (``--run_data_pipeline``,
 ``--num_recycles``, ``--num_diffusion_samples``, ``--resolve_msa_overlaps``,
 ``--flash_attention_implementation``, ``--buckets``,
 ``--conformer_max_iterations``, ...) built against ``tokamax``/
 ``ModelRunner`` instead -- and is guaranteed self-consistent with the
-package actually installed here, so this wrapper uses it directly rather
-than mounting anything from the host repo at all.
+package actually installed in this venv, so this wrapper uses it directly
+rather than mounting anything from the host repo at all.
 
-``MODEL_DIR_HOST`` is ``/opt/alphafold3_data/weights`` (contains
+``RUN_ALPHAFOLD_ENTRY`` is ``/alphafold3_venv/app/alphafold/run_alphafold.py``
+-- NOT ``/app/alphafold/run_alphafold.py``, the path it sat at INSIDE
+``romerolabduke/alphafast:latest``. Extraction moved ``/app/alphafold``
+to live UNDER the venv tree instead (see the manifest's ``engine:``
+comment for the full reasoning: this lets one relocated mount
+(``engine.prefix_host``) cover both the venv and its entrypoint, instead
+of needing a second, independently-relocated ``engine.mounts`` entry) --
+CONFIRMED LIVE, 2026-09-23, both the entrypoint AND its own
+``alphafold3`` package import correctly from this new location, including
+after the accompanying editable-install redirect table
+(``_alphafast_editable.py``/``.pth``) was hand-patched at extraction time
+to match.
+
+``MODEL_DIR`` is ``/opt/alphafold3_data/weights`` (contains
 ``af3.bin``/``af3.bin.zst`` -- note the identically-named
 ``/opt/alphafold3_data/models`` is empty and is NOT this path); AlphaFold
 3's own ``params.select_model_files`` matches ``af3.bin.zst`` first and
 returns just that one file, so having both the raw and compressed weight
 file in the same directory does not trigger its "Multiple models matched"
 error (confirmed by reading ``alphafold3/model/params.py`` directly out of
-the image, 2026-09-22).
+the extracted venv, 2026-09-22). This mount is IDENTICAL host and
+container path (``/opt/alphafold3_data/weights`` on both sides, per
+``engine.mounts`` -- see EngineSpec's own docstring on why only
+``engine.prefix`` ever needs ``prefix_host``'s relocation, never
+``mounts``), so no path translation is needed here at all.
 
 The job is always named ``"job"`` (never derived from caller input).
 **Output layout, confirmed live and by reading
-``alphafold3/model/inference.py`` inside the image (2026-09-22), differs
-from the official AlphaFold 3 docs' ``<output_dir>/<sanitised job name>/``
-convention**: this entrypoint's own ``main()``, when called with
+``alphafold3/model/inference.py`` inside the extracted venv (2026-09-22),
+differs from the official AlphaFold 3 docs' ``<output_dir>/<sanitised job
+name>/`` convention**: this entrypoint's own ``main()``, when called with
 ``--json_path`` (rather than ``--input_dir``) and
-``--run_data_pipeline=false``, passes ``output_dir`` (``_OUTPUT_DIR.value``,
-i.e. ``/output`` here) to ``process_fold_input`` DIRECTLY, with no extra
-``<job_name>/`` nesting -- so the top-ranked structure lands at
-``/output/job_model.cif`` (not ``/output/job/job_model.cif``), and each
-seed/sample directory (``seed-<seed>_sample-<n>/``) sits directly under
-``/output/`` too. The manifest's ``outputs:`` patterns match this real
-layout, not the official docs' generic one.
+``--run_data_pipeline=false``, passes ``output_dir`` (``_OUTPUT_DIR.value``)
+to ``process_fold_input`` DIRECTLY, with no extra ``<job_name>/`` nesting --
+so the top-ranked structure lands at ``<OUT_DIR>/job_model.cif`` (not
+``<OUT_DIR>/job/job_model.cif``), and each seed/sample directory
+(``seed-<seed>_sample-<n>/``) sits directly under ``<OUT_DIR>/`` too. The
+manifest's ``outputs:`` patterns match this real layout, not the official
+docs' generic one.
 
 ``--run_data_pipeline=false`` is always passed -- AlphaFold 3 must never
 search for its own alignment (see the manifest's "MSA is optional"
-section). GPU selection (``--gpus device=7``) is hardcoded here, never a
-parameter: this sibling container is a NEW top-level container on the
-host, so it does NOT inherit whatever CDI GPU restriction pins this
-server's own container to GPU 7 (design §2.1) -- that restriction has to be
-re-applied explicitly at this container boundary too.
+section). GPU selection needs NO flag here at all any more: the sibling
+``docker run`` this wrapper used to shell out to needed its OWN
+``--gpus device=7`` re-applied at ITS OWN container boundary, since it was
+a brand new top-level container that did not inherit this server's own
+CDI GPU restriction (design §2.1). That second container boundary is
+gone -- this subprocess runs directly inside THIS server's own container,
+which is already pinned to exactly GPU 7 (``--device=nvidia.com/gpu=7``,
+see ``scripts/container_run.py``), so the entrypoint's default
+``--gpu_device=0`` (the only GPU this process can ever see) is already
+correct, unconditionally.
 
 Reads one argv: a JSON object (see ``adapters/alphafold3.py`` for its exact
 shape). Writes ``input.json`` and an ``out/`` directory into the current
@@ -91,13 +116,10 @@ JOB_NAME = "job"
 INPUT_NAME = "input.json"
 OUT_DIR = "out"
 
-DOCKER_IMAGE = "romerolabduke/alphafast:latest"
-MODEL_DIR_HOST = "/opt/alphafold3_data/weights"
-# The image's OWN baked-in entrypoint -- NOT a host-mounted script. See this
-# module's own docstring for why the ground-truth benchmark script's mounted
-# copy cannot be used against this image.
-RUN_ALPHAFOLD_IN_IMAGE = "/app/alphafold/run_alphafold.py"
-GPU_DEVICE = "7"
+MODEL_DIR = "/opt/alphafold3_data/weights"
+# Lives UNDER the mounted venv now, not beside it -- see this module's own
+# docstring for why extraction moved it there.
+RUN_ALPHAFOLD_ENTRY = "/alphafold3_venv/app/alphafold/run_alphafold.py"
 
 _LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
@@ -142,16 +164,16 @@ def main() -> None:
     Path(INPUT_NAME).write_text(json.dumps(_build_input_json(job)))
     Path(OUT_DIR).mkdir(exist_ok=True)
 
-    cwd = str(Path(".").resolve())
-    input_json_host = f"{cwd}/{INPUT_NAME}"
-    out_dir_host = f"{cwd}/{OUT_DIR}"
+    cwd = Path(".").resolve()
+    input_json_path = str(cwd / INPUT_NAME)
+    out_dir_path = str(cwd / OUT_DIR)
 
     run_alphafold_args = [
         "python",
-        RUN_ALPHAFOLD_IN_IMAGE,
-        "--json_path=/input.json",
-        "--output_dir=/output",
-        "--model_dir=/models",
+        RUN_ALPHAFOLD_ENTRY,
+        f"--json_path={input_json_path}",
+        f"--output_dir={out_dir_path}",
+        f"--model_dir={MODEL_DIR}",
         "--run_data_pipeline=false",
         "--run_inference=true",
         f"--num_recycles={job['num_recycles']}",
@@ -168,30 +190,11 @@ def main() -> None:
             f"--conformer_max_iterations={job['conformer_max_iterations']}"
         )
 
-    inner_cmd = (
-        "cd /alphafold3_venv && source bin/activate && "
-        + " ".join(run_alphafold_args)
-    )
-
-    cmd = [
-        "docker",
-        "run",
-        "--rm",
-        "--gpus",
-        f"device={GPU_DEVICE}",
-        "-v",
-        f"{input_json_host}:/input.json:ro",
-        "-v",
-        f"{MODEL_DIR_HOST}:/models:ro",
-        "-v",
-        f"{out_dir_host}:/output",
-        DOCKER_IMAGE,
-        "bash",
-        "-c",
-        inner_cmd,
-    ]
-
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    # "python" resolves via inherited PATH -- micromamba run -p
+    # /alphafold3_venv already put the venv's own bin/ ahead of everything
+    # else for THIS process, and a subprocess inherits that same PATH, so
+    # this is the SAME interpreter the venv's own console scripts use.
+    result = subprocess.run(run_alphafold_args, capture_output=True, text=True)
     sys.stdout.write(result.stdout)
     sys.stderr.write(result.stderr)
     sys.exit(result.returncode)
