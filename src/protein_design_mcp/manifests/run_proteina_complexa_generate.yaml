@@ -83,7 +83,22 @@ requires:
 
 outputs:
   - name: generated_structures
-    pattern: "inference/*/*.pdb"
+    # THREE path segments below "inference/", not two: confirmed live,
+    # 2026-09-22, via a real run_proteina_complexa_generate call through the
+    # actual ServerApp.call_tool path (not just the bare `complexa generate`
+    # CLI invocation task-8/wave-D's own live verification used, which never
+    # exercised this glob at all) -- generate.py's own save_predictions
+    # writes each sample into its OWN per-sample subdirectory:
+    # inference/<run>/<sample_dir>/<sample_dir>.pdb, e.g.
+    # inference/search_binder_local_pipeline_02_PDL1_mcp_run/
+    # job_0_n_262_id_0_single_orig0/job_0_n_262_id_0_single_orig0.pdb. The
+    # previous two-segment pattern ("inference/*/*.pdb") matched zero files
+    # every time, which made every real call fail with "declared output
+    # 'generated_structures' matched no file" regardless of whether
+    # `complexa generate` itself succeeded -- this tool's dispatch path had
+    # never actually been run end to end before (see
+    # task-14-report.md).
+    pattern: "inference/*/*/*.pdb"
     description: >-
       One PDB per generated sample. Chain order follows Proteina-Complexa's
       own convention confirmed in generate.py's save_predictions: the

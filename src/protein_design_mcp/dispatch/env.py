@@ -76,6 +76,24 @@ class CompletedRun:
     outputs: dict[str, str | list[str]] = field(default_factory=dict)
 
 
+def _excerpt(text: str, head: int = 1200, tail: int = 1800) -> str:
+    """Keep BOTH ends of an engine's stderr, not just the tail.
+
+    A plain ``[-2000:]`` looks right and fails on a whole class of engine:
+    a CLI that catches an inner error and re-raises ``CalledProcessError``
+    puts its own full argv at the END of stderr, so the last 2000 characters
+    are the command line and the actual traceback -- which is EARLIER -- is
+    discarded. Proteina-Complexa does exactly this, and it made an
+    in-container failure undiagnosable: the message named the command and
+    not the cause, and the preserved workdir died with the --rm container.
+    """
+    text = text.strip()
+    if len(text) <= head + tail:
+        return text
+    omitted = len(text) - head - tail
+    return f"{text[:head]}\n... [{omitted} characters omitted] ...\n{text[-tail:]}"
+
+
 class EnvDispatcher:
     """Build and execute ``micromamba run -n <env> <entry> <args>`` commands."""
 
@@ -245,12 +263,12 @@ class EnvDispatcher:
                 raise EngineError(
                     f"engine {engine.repo!r} ran out of GPU memory. Reduce the "
                     "number of samples, shorten the input, or use a smaller "
-                    f"model variant.\n{stderr.strip()[-2000:]}\n"
+                    f"model variant.\n{_excerpt(stderr)}\n"
                     f"Working directory preserved for diagnosis: {workdir}"
                 )
             raise EngineError(
                 f"engine {engine.repo!r} exited with code {process.returncode}.\n"
-                f"{stderr.strip()[-2000:]}\n"
+                f"{_excerpt(stderr)}\n"
                 f"Working directory preserved for diagnosis: {workdir}"
             )
 

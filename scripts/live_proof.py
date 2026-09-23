@@ -46,11 +46,13 @@ Each case names a tool, the device it needs, the arguments to call it with,
 and the keys expected in the parsed JSON payload on success. A case whose
 ``expect_keys`` is ``["error"]`` is an EXPECTED-FAILURE case: the driver
 asserts ``isError`` is True and that the payload carries an ``error``
-message, rather than asserting success. No case currently uses this — every
-registered tool now has a proven success path — but the mechanism stays,
-since a genuinely unproven success path (as ``run_ipsae``'s was, until the
-staging fix below) is a real state a future engine can land in, and it must
-be reported honestly rather than silently omitted or faked.
+message, rather than asserting success. Exactly one case uses this today:
+``get_job_status`` queried with a deliberately nonexistent job id, which
+MUST fail (task-14-report.md) — every other registered tool now has a
+proven success path. The mechanism stays for that reason and because a
+genuinely unproven success path (as ``run_ipsae``'s was, until the staging
+fix below) is a real state a future engine can land in, and it must be
+reported honestly rather than silently omitted or faked.
 """
 
 from __future__ import annotations
@@ -65,6 +67,7 @@ from mcp.server import Server
 
 from protein_design_mcp.app import ServerApp, build_registry
 from protein_design_mcp.meta_tools import DESCRIBE_TOOL_MANIFEST, GET_JOB_STATUS_MANIFEST
+from protein_design_mcp.utils.job_queue import get_job_queue
 
 # Every device server.py's own DEVICE resolution can select (env var
 # override, or torch.cuda.is_available()) -- see server.py. Coverage and
@@ -72,6 +75,41 @@ from protein_design_mcp.meta_tools import DESCRIBE_TOOL_MANIFEST, GET_JOB_STATUS
 # device this script's own process happens to be running under, so a case
 # is always checked/dispatched against the registry it actually declared.
 DEVICES = ("cpu", "cuda")
+
+def _seed_real_completed_job() -> str:
+    """Create ONE real, completed job through the exact same ``JobQueue``
+    singleton ``get_job_status`` itself reads from
+    (``protein_design_mcp.utils.job_queue.get_job_queue()`` -- the module
+    ``job_status.get_design_status`` imports it from), so the
+    ``get_job_status`` success case below queries a job that genuinely
+    exists rather than a fabricated payload.
+
+    ``get_job_status`` has no engine to dispatch through at all (see
+    ``meta_tools.py`` / ``job_status.py``) and, confirmed by reading the
+    rest of this server (task-14-report.md), nothing else in it EVER calls
+    ``JobQueue.create_job()``/``complete_job()`` -- the composite pipeline
+    that once produced jobs this way is gone, and no current tool writes to
+    the job queue. So this harness has to seed the one real job its success
+    case can query, the same way
+    ``tests/test_job_queue.py::TestGetDesignStatus::test_get_status_completed_with_result``
+    does. A COMPLETED job (rather than a running one with progress) is
+    chosen deliberately: it exercises ``status``/``job_id``/``created_at``/
+    ``result``/``completed_at`` -- every key a real terminal job carries --
+    without ever touching ``job_status._estimate_time_remaining`` (only
+    reached for a job with ``progress`` set), which is a live, per-job
+    elapsed-time-rate estimate rather than a fixed value regardless.
+    """
+    queue = get_job_queue()
+    job_id = queue.create_job()
+    queue.complete_job(
+        job_id,
+        {"designs_completed": 1, "note": "live-proof: real seeded job, not a fabricated result"},
+    )
+    return job_id
+
+
+_REAL_JOB_ID = _seed_real_completed_job()
+
 
 CASES: list[dict] = [
     {
@@ -444,18 +482,34 @@ CASES: list[dict] = [
         "expect_keys": ["query_length", "unpaired_hit_count", "used_gpu"],
     },
     {
-        # Wave D: Proteina-Complexa binder generation. Cheapest possible
+        # Task 14: Proteina-Complexa binder generation. Cheapest possible
         # smoke shape -- single-pass (no search), one length, 20 denoising
-        # steps rather than this engine's own 400-step default.
-        # EXPECTED-FAILURE for now: the `proteina` conda env this tool
-        # dispatches into is missing several of Proteina-Complexa's own
-        # declared dependencies (lightning, pydantic, typing_extensions,
-        # fsspec among others -- `pip check` run live, 2026-09-22, lists
-        # the full set), which blocks `complexa generate` regardless of
-        # this case's own arguments -- see wave-D-report.md. Once that
-        # environment is fixed, this case should be updated to assert a
-        # real success payload (expect_keys=["rewards", "num_samples"])
-        # instead.
+        # steps rather than this engine's own 400-step default. Task 8
+        # already fixed the `proteina_complexa` env this dispatches into
+        # (this manifest's own `prefix:`) and verified `complexa generate`
+        # completes end to end with exactly this shape of arguments -- the
+        # only reason this case still failed afterward (task-13) was a
+        # SEPARATE, previously-undiscovered bug this task found: the
+        # `generated_structures` output pattern
+        # (run_proteina_complexa_generate.yaml) was `inference/*/*.pdb`, two
+        # path segments, but generate.py's own save_predictions actually
+        # writes THREE segments deep
+        # (inference/<run>/<sample_dir>/<sample_dir>.pdb) -- confirmed live,
+        # 2026-09-22, via a real call through the actual ServerApp.call_tool
+        # path (host, GPU 7, CUDA_VISIBLE_DEVICES=7, EnvDispatcher(runner=
+        # None) reaching proteina_complexa's own bin/ directly, same
+        # technique task-8/task-10 used): the two-segment pattern matched
+        # zero files every time, which made every real call fail with
+        # "declared output 'generated_structures' matched no file" before
+        # this adapter's own parse_output ever ran -- this tool's dispatch
+        # path had never actually been exercised end to end before (task-8's
+        # own live check ran the bare `complexa generate` CLI by hand, not
+        # through this glob). Fixed to `inference/*/*/*.pdb` (see that
+        # manifest). Confirmed live with the fix: isError=False, one 2-chain
+        # PDB (chain A=115-residue PD-L1 target, chain B=147-residue
+        # generated binder) and a real rewards_search_binder_local_pipeline_0.csv
+        # (total_reward=0.0 for this single-pass, unweighted-by-default
+        # sample -- a real, if uninteresting, value, not a placeholder).
         "tool": "run_proteina_complexa_generate",
         "device": "cuda",
         "arguments": {
@@ -464,41 +518,71 @@ CASES: list[dict] = [
             "num_lengths": 1,
             "nsteps": 20,
         },
-        "expect_keys": ["error"],
+        "expect_keys": ["rewards", "num_samples"],
     },
     {
-        # Wave D: Proteina-Complexa re-ranking of a finished generate run's
-        # rewards CSV -- runs no model, requires.gpu is false. Fixture is a
-        # 2-row CSV in generate.py's own rewards_{config}_{job}.csv shape.
-        # EXPECTED-FAILURE for now, same broken `proteina` conda env as
-        # run_proteina_complexa_generate above (blocks every `complexa`
-        # subcommand, not something specific to this tool) -- see
-        # wave-D-report.md. Once fixed, update to
-        # expect_keys=["selected_designs", "num_selected"].
+        # Task 14: Proteina-Complexa re-ranking of a finished generate run's
+        # rewards CSV -- runs no model, requires.gpu is false.
+        # task-13-report.md root-caused this case's old EXPECTED-FAILURE
+        # status: filter.py globs its root_path for files matching
+        # `rewards_{config_name}_*.csv` (config_name is always
+        # "search_binder_local_pipeline" -- this adapter's own
+        # `++base_config_name=search_binder_local_pipeline` override, never
+        # caller-controlled), but the old fixture was named
+        # `rewards_sample.csv`, which can never match that glob regardless
+        # of environment -- a stale fixture, not an engine defect. Fixed by
+        # using a REAL rewards CSV this task generated live (see
+        # run_proteina_complexa_generate's case above) and committed under
+        # its own honest, engine-produced name
+        # (tests/fixtures/proteina_complexa/generated/
+        # rewards_search_binder_local_pipeline_0.csv) -- the glob matches
+        # because this file genuinely came out of a real `complexa generate`
+        # run with that config, not because it was renamed to fit. This
+        # fixture is read-only input here -- it does not depend on the
+        # generate case above having run first in the same script execution.
+        # Confirmed live: isError=False, num_selected=1, num_total_designs=1.
         "tool": "run_proteina_complexa_filter",
         "device": "cpu",
         "arguments": {
-            "rewards_csv": "tests/fixtures/proteina_complexa/rewards_sample.csv",
+            "rewards_csv": "tests/fixtures/proteina_complexa/generated/rewards_search_binder_local_pipeline_0.csv",
         },
-        "expect_keys": ["error"],
+        "expect_keys": ["selected_designs", "num_selected"],
     },
     {
-        # Wave D: Proteina-Complexa diversity analysis over a design set --
-        # runs no neural model, requires.gpu is false. Reuses two existing
-        # structure fixtures as a 2-design "set". EXPECTED-FAILURE for now,
-        # same broken `proteina` conda env (see run_proteina_complexa_generate
-        # above) -- see wave-D-report.md. Once fixed, update to
-        # expect_keys=["foldseek_diversity", "mmseqs_diversity", "num_designs"].
+        # Task 14: Proteina-Complexa diversity analysis over a design set --
+        # runs no neural model, requires.gpu is false. Uses the SAME real
+        # generated structure as run_proteina_complexa_filter's case above
+        # (tests/fixtures/proteina_complexa/generated/
+        # job_0_n_262_id_0_single_orig0.pdb -- the actual PDB a real
+        # run_proteina_complexa_generate call produced, chain A=target,
+        # chain B=binder), so this is genuinely a step in the real
+        # generate->filter->analyze chain rather than an unrelated synthetic
+        # pair -- without making this case depend on the generate case
+        # having run first (the fixture is a committed file, read
+        # independently). `sequences` is the real A+B concatenated sequence
+        # extracted from that same PDB (262 residues, matching
+        # generate's own rewards CSV `aatype` column length) -- per the
+        # manifest doc, the diversity computation itself derives sequence
+        # straight from the structure regardless, so this is not
+        # load-bearing for the numbers, only for the record. Only
+        # structure_paths/sequences are required (refolding metrics are
+        # optional and omitted here, per the manifest doc). A single design
+        # degrades gracefully to the trivial (1.0, 1, 1) diversity result
+        # rather than failing -- confirmed live by task-8's original chain
+        # and reconfirmed here. Confirmed live: isError=False,
+        # foldseek_diversity=mmseqs_diversity={"score": 1.0,
+        # "num_clusters": 1, "num_samples": 1}, num_designs=1.
         "tool": "run_proteina_complexa_analyze",
         "device": "cpu",
         "arguments": {
             "structure_paths": [
-                "tests/fixtures/test_pdbs/mini_protein.pdb",
-                "tests/fixtures/test_pdbs/two_chain_complex.pdb",
+                "tests/fixtures/proteina_complexa/generated/job_0_n_262_id_0_single_orig0.pdb",
             ],
-            "sequences": ["MKTAYIAKQRQISFVK", "MKTAYIAKQRQISFVL"],
+            "sequences": [
+                "AFTVTVPKDLYVVEYGSNMTIECKFPVEKQLDLAALIVYWEMEDKNIIQFVHGEEDLKVQHSSYRQRARLLKDQLSLGNAALQITDVKLQDAGVYRCMISYGGADYKRITVKVNANGSPPPSPPRRDSHLNDSVLPVNGGDAPNPFIKSLNTTNTDDLLTNKDALTDSSDDPDLPSNGNSGTDNADLLPNNIALAPSNALPDNDGKPGKIKSGNPSFDPNTDNLNKTPTKPLNDINLQRPDDLIGDVLLLPNLVELDLTLDT",
+            ],
         },
-        "expect_keys": ["error"],
+        "expect_keys": ["foldseek_diversity", "mmseqs_diversity", "num_designs"],
     },
     {
         # Task 11: get_job_status has no engine at all (wired like
@@ -509,11 +593,45 @@ CASES: list[dict] = [
         # job_id would hit (get_job_queue().get_job(...) -> None -> the
         # ValueError this tool's own wrapper translates into {"error": ...}),
         # confirmed live to return isError=True with a real "Job not found"
-        # message.
+        # message. KEPT as an expected-failure case (task-14): querying a
+        # job id that does not exist SHOULD fail, and this is exactly the
+        # behavior worth pinning -- this is not the same class of weak case
+        # as the Proteina-Complexa trio's old expected-failure cases, which
+        # were tools that should have SUCCEEDED. See the next case for the
+        # missing success path.
         "tool": "get_job_status",
         "device": "cpu",
         "arguments": {"job_id": "nonexistent-job-id-live-proof-check"},
         "expect_keys": ["error"],
+    },
+    {
+        # Task 14: get_job_status's missing success path. Queries
+        # _REAL_JOB_ID -- a job this script itself seeds (see
+        # _seed_real_completed_job() above) through the exact same
+        # JobQueue singleton get_job_status reads from, since nothing else
+        # in this server ever creates one (the composite pipeline that used
+        # to is gone; see that function's own docstring). A COMPLETED job
+        # (not a running one with progress) is used deliberately: it proves
+        # status/job_id/created_at/result/completed_at -- every key a real
+        # terminal job carries -- without going anywhere near
+        # job_status._estimate_time_remaining (only reached when a job has
+        # ``progress`` set). That function's own docstring documents it
+        # already derives its estimate from THIS job's own observed
+        # progress rate rather than a fixed per-step table (the stale
+        # rfdiffusion/proteinmpnn/esmfold table task-14's own brief warned
+        # about was for an EARLIER version of this module and is not what
+        # ships today -- confirmed by reading job_status.py directly); a
+        # progress-based case was avoided anyway since its
+        # estimated_time_remaining value is real but non-reproducible
+        # (depends on wall-clock timing between two calls), which this
+        # harness only ever checks for KEY presence, not value equality, so
+        # it would not actually have been "pinning" anything even if used.
+        # Confirmed live: isError=False, status="completed", a real
+        # result dict, and a real completed_at timestamp.
+        "tool": "get_job_status",
+        "device": "cpu",
+        "arguments": {"job_id": _REAL_JOB_ID},
+        "expect_keys": ["status", "job_id", "created_at", "result", "completed_at"],
     },
     {
         # Task 11: AlphaFold 3 via its sibling romerolabduke/alphafast:latest
