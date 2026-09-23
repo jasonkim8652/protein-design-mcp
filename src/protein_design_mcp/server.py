@@ -8,6 +8,8 @@ import argparse
 import asyncio
 import logging
 import os
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _dist_version
 from typing import Any
 
 from mcp.server import Server
@@ -23,8 +25,20 @@ from protein_design_mcp.app import ServerApp, build_registry
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Create server instance
-server = Server("protein-design-mcp")
+# Create server instance.
+#
+# The version is read from the installed distribution rather than written
+# here, so exactly one place (pyproject.toml) states it. Passing it matters:
+# without it the SDK reports ITS OWN version in the initialize handshake -- a
+# live probe of the built image answered `version: '1.30.0'`, the `mcp`
+# library's version, which tells a client nothing about whether it is talking
+# to v1's composite tools or v2's atomistic ones.
+try:
+    _VERSION = _dist_version("protein-design-mcp")
+except PackageNotFoundError:  # a source tree that was never installed
+    _VERSION = "0+unknown"
+
+server = Server("protein-design-mcp", version=_VERSION)
 
 # Device detection: "auto" checks for CUDA availability, "cpu" forces CPU mode
 _DEVICE_ENV = os.environ.get("DEVICE", "auto").lower()

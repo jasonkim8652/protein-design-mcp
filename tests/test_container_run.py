@@ -111,6 +111,23 @@ def test_the_command_pins_exactly_one_gpu(container_run, derived):
     assert not any(a.startswith("--gpus") for a in argv)
 
 
+def test_the_default_gpu_index_is_not_this_machines_constraint(monkeypatch, container_run):
+    """Index 7 is the only GPU that is ours on the development host. That is a
+    fact about this machine, not about the software, and a published release
+    must not carry it: anyone else running the image would be pointed at a
+    GPU index that need not exist. The index is therefore selected by
+    ``PROTEIN_DESIGN_GPU``, defaulting to 0 (spec decision 2)."""
+    monkeypatch.delenv("PROTEIN_DESIGN_GPU", raising=False)
+    assert container_run.default_gpu() == "0"
+
+
+def test_the_gpu_index_is_selectable_by_environment(monkeypatch, container_run):
+    """So a deployment states which GPU it owns without editing the script --
+    which is what lets THIS host keep using index 7 while the default stays 0."""
+    monkeypatch.setenv("PROTEIN_DESIGN_GPU", "7")
+    assert container_run.default_gpu() == "7"
+
+
 def test_every_mount_is_read_only(container_run, derived):
     """Engine environments and weight caches are inputs. A writable mount lets a
     run mutate the host's shared environments — and several of these paths are

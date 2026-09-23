@@ -10,9 +10,10 @@ Four things this encodes, each established by experiment (see
 ``docs/superpowers/specs/2026-09-22-gpu-engine-substrate-design.md`` §2):
 
 1. **The GPU is pinned at the container boundary**, not inside it.
-   ``--device nvidia.com/gpu=7`` makes the container see exactly one GPU, so an
+   ``--device nvidia.com/gpu=N`` makes the container see exactly one GPU, so an
    engine cannot reach another index even if it sets ``CUDA_VISIBLE_DEVICES``
-   itself.
+   itself. Which index is a deployment's own business (``PROTEIN_DESIGN_GPU``);
+   that it is exactly one is this script's guarantee.
 2. **A mounted environment must land where it believes it lives.** For an
    ordinary conda environment that belief IS its host install path — its
    console scripts carry absolute shebangs
@@ -56,6 +57,7 @@ Four things this encodes, each established by experiment (see
 Usage::
 
     python scripts/container_run.py                     # print the command
+    PROTEIN_DESIGN_GPU=7 python scripts/container_run.py
     python scripts/container_run.py --gpu 7 --image protein-design-mcp:envs
     python scripts/container_run.py --check             # verify every path exists
 """
@@ -74,7 +76,24 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 from protein_design_mcp.manifest.loader import load_manifests_resilient  # noqa: E402
 
 DEFAULT_IMAGE = "protein-design-mcp:envs"
-DEFAULT_GPU = "7"
+
+#: Environment variable naming the GPU index to expose to the container.
+GPU_ENV_VAR = "PROTEIN_DESIGN_GPU"
+#: Index used when that variable is unset.
+FALLBACK_GPU = "0"
+
+
+def default_gpu() -> str:
+    """The GPU index to expose, from ``PROTEIN_DESIGN_GPU`` or 0.
+
+    This used to be a hardcoded ``"7"`` because index 7 is the only GPU that
+    is ours on the development host. That is a fact about one machine, not
+    about this software, and shipping it in a release points every other user
+    at an index that need not exist. The single-GPU guarantee is unaffected --
+    what moves is *which* index, never *how many*, because the pinning still
+    happens at the container boundary (see ``build_command``).
+    """
+    return os.environ.get(GPU_ENV_VAR) or FALLBACK_GPU
 # See point 4 in this module's own docstring: micromamba's own runtime
 # lockfile needs A writable $HOME regardless of which uid the container
 # runs as, and /tmp is world-writable (sticky bit) in any ordinary Linux
@@ -153,8 +172,12 @@ def main() -> int:
     parser.add_argument("--image", default=DEFAULT_IMAGE)
     parser.add_argument(
         "--gpu",
-        default=DEFAULT_GPU,
-        help="GPU index to expose. Only index 7 is ours on this host.",
+        default=default_gpu(),
+        help=(
+            f"GPU index to expose to the container. Defaults to ${GPU_ENV_VAR} "
+            f"if set, otherwise {FALLBACK_GPU}. Exactly one index is exposed "
+            "either way."
+        ),
     )
     parser.add_argument(
         "--check",
