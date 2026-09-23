@@ -73,7 +73,7 @@ def test_manifest_discloses_only_the_first_chain_pair_is_returned():
 def test_build_args_passes_both_files_and_the_cutoffs_in_order():
     args = build_args(
         _manifest(),
-        {"pae_json": "/tmp/pae.json", "structure": "/tmp/m.cif",
+        {"pae_file": "/tmp/pae.json", "structure": "/tmp/m.cif",
          "pae_cutoff": 12.5, "dist_cutoff": 8.0},
     )
     assert args == ["/tmp/pae.json", "/tmp/m.cif", "12.5", "8.0"]
@@ -143,14 +143,14 @@ def test_parse_output_tolerates_non_numeric_columns_outside_the_required_set(tmp
 
 
 def test_validation_rejects_a_non_json_pae_file():
-    with pytest.raises(ToolInputError, match="pae_json"):
-        validate_and_fill(_manifest(), {"pae_json": "notes.txt",
+    with pytest.raises(ToolInputError, match="pae_file"):
+        validate_and_fill(_manifest(), {"pae_file": "notes.txt",
                                         "structure": "m.cif"})
 
 
 def test_validation_fills_the_default_cutoffs():
     params = validate_and_fill(
-        _manifest(), {"pae_json": "p.json", "structure": "m.cif"}
+        _manifest(), {"pae_file": "p.json", "structure": "m.cif"}
     )
     assert params["pae_cutoff"] == 10.0
     assert params["dist_cutoff"] == 10.0

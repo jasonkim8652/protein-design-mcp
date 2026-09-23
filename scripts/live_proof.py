@@ -180,7 +180,7 @@ CASES: list[dict] = [
         "tool": "run_ipsae",
         "device": "cpu",
         "arguments": {
-            "pae_json": "tests/fixtures/pae/example_pae.json",
+            "pae_file": "tests/fixtures/pae/example_pae.json",
             "structure": "tests/fixtures/test_pdbs/two_chain_complex.pdb",
         },
         "expect_keys": ["ipsae", "chain_pair"],

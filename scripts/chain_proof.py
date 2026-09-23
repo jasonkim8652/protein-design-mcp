@@ -124,6 +124,15 @@ GENIE3_UNK_COMPLEX = (
     WORKSPACE / "pdmcp-results/pdmcp-fbba68ef7c35/binders/output/target/pdbs/target_0.pdb"
 )
 
+#: A short two-chain complex folded fresh by this chain. ipSAE scores the
+#: INTERFACE between a chain pair, so a monomer gives it nothing to score --
+#: and on a monomer it does not say so, it dies with
+#: `cannot access local variable 'n0res_byres_all'`. The pair has to be real.
+TWO_CHAIN_FOLD_INPUT = [
+    {"sequence": "GSHMKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQ", "msa": None, "copies": 1},
+    {"sequence": "MEKAIKELLDTLKQLLEEYNVSEEEAKKLLEKLKEL", "msa": None, "copies": 1},
+]
+
 
 def _check_mpnn_preserves_target(results: dict[int, Any]) -> None:
     before = chain_sequences(TWO_CHAIN_COMPLEX)
@@ -185,6 +194,32 @@ def _check_genie3_unk_is_refused_or_named(results: dict[int, Any]) -> None:
         )
 
 
+def _ipsae_args_from_boltz(results: dict[int, Any]) -> dict[str, Any]:
+    """Take the PAE and structure run_boltz just wrote.
+
+    The paths come straight from boltz's own result rather than being copied:
+    ipSAE does not take the confidence summary as an argument, it derives that
+    path from the PAE path, so a PAE moved away from its sibling fails on a
+    file the caller never named.
+    """
+    outputs = results[0].get("outputs") or {}
+    pae = outputs.get("pae_npz") or []
+    structures = outputs.get("structures") or []
+    assert pae and structures, f"run_boltz returned no PAE or structure: {list(outputs)}"
+    first = pae[0] if isinstance(pae, list) else pae
+    model = structures[0] if isinstance(structures, list) else structures
+    return {"pae_file": first, "structure": model}
+
+
+def _check_ipsae_read_the_boltz_pae(results: dict[int, Any]) -> None:
+    payload = results[1]
+    assert not payload.get("error"), payload["error"][:300]
+    assert "ipsae" in payload, (
+        f"run_ipsae returned no ipsae score for a Boltz PAE: {list(payload)}"
+    )
+    assert payload.get("chain_pair"), "no chain pair was scored"
+
+
 CHAINS: list[Chain] = [
     Chain(
         name="mpnn_preserves_target",
@@ -224,6 +259,21 @@ CHAINS: list[Chain] = [
             }, tolerate_error=True),
         ],
         check=_check_genie3_unk_is_refused_or_named,
+    ),
+    Chain(
+        name="boltz_pae_reaches_ipsae",
+        why=(
+            "run_boltz's own output says its pae_npz is 'for run_ipsae', but "
+            "the parameter was named pae_json and rejected anything but .json "
+            "-- so the one chain the manifests advertised was refused before "
+            "the engine saw it. ipSAE's own CLI help lists .npz as supported."
+        ),
+        steps=[
+            Step("run_boltz", {"chains": TWO_CHAIN_FOLD_INPUT, "diffusion_samples": 1,
+                               "recycling_steps": 1, "sampling_steps": 25}),
+            Step("run_ipsae", _ipsae_args_from_boltz),
+        ],
+        check=_check_ipsae_read_the_boltz_pae,
     ),
 ]
 

@@ -78,13 +78,34 @@ doc: |
   structure/PAE containing only those two chains.
 
 schema:
-  pae_json:
+  pae_file:
     type: string
     format: path
-    pattern: '\.json$'
+    pattern: '\.(json|npz)$'
     required: true
-    description: PAE matrix JSON produced by a structure predictor.
-    example: pae.json
+    description: >-
+      The predicted-aligned-error matrix from the structure predictor that
+      produced `structure`. WHICH FILE depends on the predictor, and they are
+      not interchangeable formats: `run_alphafold2_multimer` writes a
+      `.json` (its `pae_json` output), `run_boltz` writes a `.npz` (its
+      `pae_npz` output), and Chai-1 writes its `full_data_*.json`. All three
+      combinations are listed in ipSAE's own CLI help and handled by its
+      `core.py`; this parameter used to be called `pae_json` and reject
+      anything but `.json`, which refused Boltz's PAE even though
+      run_boltz's own output says it is "for run_ipsae".
+
+      A `.npz` must stay BESIDE its confidence file. ipSAE does not take the
+      summary as an argument -- it derives the path by replacing "pae" with
+      "confidence" and ".npz" with ".json" in this one -- so a PAE copied away
+      from its sibling fails on a file you never named. Pass the path
+      run_boltz returned rather than a copy.
+
+      `structure` must contain AT LEAST TWO CHAINS. ipSAE scores the
+      interface between a chain pair, so a monomer gives it nothing to score
+      -- and it does not say so: on a single-chain prediction it dies with
+      `cannot access local variable 'n0res_byres_all'`, which names nothing a
+      caller can act on. Fold with the target present before scoring.
+    example: pae_model_0.npz
   structure:
     type: string
     format: path

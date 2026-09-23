@@ -62,7 +62,7 @@ def build_args(manifest: Manifest, params: dict[str, Any]) -> list[str]:
     """
     del manifest
     return [
-        str(params["pae_json"]),
+        str(params["pae_file"]),
         str(params["structure"]),
         str(params["pae_cutoff"]),
         str(params["dist_cutoff"]),
