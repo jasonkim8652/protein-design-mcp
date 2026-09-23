@@ -1,6 +1,6 @@
 # Protein Design MCP Server
 
-[![Docker Hub](https://img.shields.io/docker/v/jeonghyeonkim8652/protein-design-mcp?label=docker%20hub&logo=docker)](https://hub.docker.com/r/jeonghyeonkim8652/protein-design-mcp)
+[![Docker Hub](https://img.shields.io/docker/v/jasonkim8652/protein-design-mcp?label=docker%20hub&logo=docker)](https://hub.docker.com/r/jasonkim8652/protein-design-mcp)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
 An [MCP](https://modelcontextprotocol.io) server that gives an LLM agent **41 atomistic
@@ -103,7 +103,7 @@ here disagree about torch, CUDA and numpy in ways no single environment resolves
 ### Quick start — no mounts
 
 ```bash
-docker run -i --rm jeonghyeonkim8652/protein-design-mcp:2.0.0
+docker run -i --rm jasonkim8652/protein-design-mcp:2.1.0
 ```
 
 This speaks MCP over stdio immediately and gives you **7 tools**: the five engines baked
@@ -145,7 +145,7 @@ and combined with an exposed HTTP port it would be an unauthenticated path to ro
       "command": "docker",
       "args": ["run", "-i", "--rm",
                "--device=nvidia.com/gpu=0",
-               "jeonghyeonkim8652/protein-design-mcp:2.0.0"]
+               "jasonkim8652/protein-design-mcp:2.1.0"]
     }
   }
 }
