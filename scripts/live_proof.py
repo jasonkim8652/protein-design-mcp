@@ -159,6 +159,21 @@ CASES: list[dict] = [
         "expect_keys": ["designs", "num_designs"],
     },
     {
+        # The handoff this tool exists for, in miniature. An ideal alpha
+        # helix CA trace (12 UNK residues, real helical geometry -- rise
+        # 1.5A, radius 2.3A, 100 deg/residue) so PULCHRA reconstructs from a
+        # physically sensible backbone rather than a straight line. Proving
+        # `backbone_complete` is the point: it is the exact condition
+        # run_mpnn fails on, and the reason this case cannot just check that
+        # a file appeared.
+        "tool": "run_rebuild_backbone",
+        "device": "cpu",
+        "arguments": {
+            "structure": "tests/fixtures/test_pdbs/ca_trace_helix.pdb",
+        },
+        "expect_keys": ["structure_pdb", "backbone_complete", "residues_rebuilt"],
+    },
+    {
         # SETTLED LIVE (Task 7 fix round 1): originally reduced to a
         # failure-path case because the Task 6 adapter parsed run.stdout,
         # but ipsae==1.0.1's only entry point (ipsae.cli:main) never prints

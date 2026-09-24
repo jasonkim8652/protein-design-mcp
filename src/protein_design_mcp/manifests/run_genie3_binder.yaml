@@ -38,8 +38,11 @@ outputs:
       comes back as UNK residues with CA atoms only, carrying no sequence at
       all. Confirmed by reading a real run's output, 2026-09-23. That also
       means tools which select "protein" residues do not see it -- ProDy,
-      and therefore run_mpnn, skip a UNK/CA-only chain entirely, so design a
-      sequence onto it only with a tool that accepts a CA trace.
+      and therefore run_mpnn, skip a UNK/CA-only chain entirely. Run
+      run_rebuild_backbone on this file first: it reconstructs N, C and O
+      from the CA trace and renames UNK, after which run_mpnn designs the
+      chain normally. The order is
+      run_genie3_binder -> run_rebuild_backbone -> run_mpnn.
     multiple: true
   - name: interface_conditioning
     pattern: interface_conditioning.json
