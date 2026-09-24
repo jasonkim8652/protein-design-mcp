@@ -165,7 +165,16 @@ schema:
     example: target.pdb
   contig:
     type: string
-    pattern: '^([A-Za-z]\d+(-\d+)?|/\d+|\d+(-\d+)?)(,([A-Za-z]\d+(-\d+)?|/\d+|\d+(-\d+)?))*$'
+    # A BINDER contig needs all three: a diffused segment, a target segment,
+    # and a "/0" chain break between them. Without the break the diffused
+    # residues and the target land in ONE chain -- "50-50,B2-505" was sent by
+    # a live round and accepted, and RFdiffusion3 returned a single fused
+    # 554-residue chain. Nothing downstream recovers: run_mpnn redesigned all
+    # 554 as one sequence, run_boltz folded one chain, and run_ipsae, an
+    # interface scorer with no interface to score, died on an unbound local.
+    # The description below already said to use "/0" and the example already
+    # showed it; a constraint this load-bearing belongs in the validator.
+    pattern: '^(?=.*(^|,)/\d+(,|$))(?=.*(^|,)\d+(-\d+)?(,|$))(?=.*(^|,)[A-Za-z]\d+(-\d+)?(,|$))([A-Za-z]\d+(-\d+)?|/\d+|\d+(-\d+)?)(,([A-Za-z]\d+(-\d+)?|/\d+|\d+(-\d+)?))*$'
     required: true
     description: >-
       RFdiffusion3's own contig grammar (see the doc's "contig and
@@ -173,7 +182,9 @@ schema:
       diffused-length range like "50-50", a bare "/0" chain break, or a
       target segment like "A1-150" pulled from target_pdb. By convention
       the diffused (binder) segment comes FIRST for a binder design, the
-      opposite order from run_rfdiffusion_binder's contigs.
+      opposite order from run_rfdiffusion_binder's contigs. All three parts
+      are REQUIRED here: omit the "/0" and the binder is generated fused to
+      the target as a single chain, which no later tool can undo.
     example: "50-50,/0,A1-150"
   select_hotspots:
     type: string

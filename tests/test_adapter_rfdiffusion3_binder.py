@@ -206,3 +206,62 @@ def test_parse_output_survives_a_cif_it_cannot_read(tmp_path):
     out = parse_output(None, run)
     assert out["num_structures"] == 1
     assert out["sequences"] == [None]
+
+
+# --- a binder contig without a chain break fuses the binder to the target ----
+
+
+def _contig_pattern():
+    import yaml
+    from pathlib import Path
+    text = Path("src/protein_design_mcp/manifests/run_rfdiffusion3_binder.yaml").read_text()
+    return yaml.safe_load(text)["schema"]["contig"]["pattern"]
+
+
+def _accepts(contig: str) -> bool:
+    import re
+    return re.match(_contig_pattern(), contig) is not None
+
+
+def test_a_binder_contig_without_a_chain_break_is_refused():
+    """`"50-50,B2-505"` is what a live round actually sent. Every token is
+    valid and the string was accepted, so RFdiffusion3 put the 50 diffused
+    residues and the 504-residue target in ONE chain. Nothing downstream can
+    recover from that: run_mpnn redesigned all 554 as a single sequence,
+    run_boltz folded one chain, and run_ipsae -- an INTERFACE scorer handed a
+    structure with no interface -- died on an unbound local variable.
+
+    The description already said to use `/0` and the example already showed
+    it. The model dropped it anyway, which is the same lesson this project
+    learned about `:`-joined sequences: a constraint that must hold belongs
+    in the validator, not in prose the caller may skim.
+    """
+    assert not _accepts("50-50,B2-505")
+
+
+def test_the_documented_example_is_still_accepted():
+    assert _accepts("50-50,/0,A1-150")
+
+
+def test_a_chain_break_anywhere_satisfies_it():
+    assert _accepts("A1-150,/0,50-50")
+
+
+def test_a_longer_binder_contig_with_a_break_is_accepted():
+    assert _accepts("30-60,/0,B2-505")
+
+
+def test_a_contig_that_is_only_a_chain_break_is_still_refused():
+    """A break with nothing on either side is not a design."""
+    assert not _accepts("/0")
+
+
+def test_a_target_only_contig_is_refused():
+    """No diffused segment means nothing is being designed."""
+    assert not _accepts("B2-505")
+
+
+def test_the_grammar_still_rejects_spaces():
+    """RFdiffusion3's contigs are comma-separated; the space-separated form
+    belongs to run_rfdiffusion_binder and run_rfdiffusion2."""
+    assert not _accepts("50-50 /0 A1-150")
