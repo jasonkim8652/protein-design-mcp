@@ -91,7 +91,32 @@ class MmseqsStepError(RuntimeError):
     """One mmseqs subcommand exited non-zero."""
 
 
-def _run(binary: str, args: list[str], step: str) -> None:
+def gpu_failure_hint(*, step: str, used_gpu: bool, stderr: str) -> str:
+    """What to say when a GPU search dies without saying anything.
+
+    ``--gpu 1`` loads the whole padded database into VRAM -- small_bfd_padded
+    alone is ~16.8GB -- and on this shared 8-GPU host another user's process
+    is routinely resident. When it does not fit, mmseqs exits non-zero having
+    printed nothing at all, which is the least actionable failure there is.
+    Seen live: the call failed mid-sweep with an empty stderr tail and then
+    succeeded unchanged once the GPU was free. So this never claims the run
+    was WRONG, only the most likely reason it was silent.
+
+    Empty when mmseqs did explain itself, or the search was on CPU: a guess
+    must not bury a real diagnostic.
+    """
+    if not used_gpu or stderr.strip():
+        return ""
+    return (
+        f"\nmmseqs {step} exited without writing to stderr, which is what a "
+        "GPU search does when the padded database does not fit in free VRAM "
+        "(small_bfd_padded alone is ~16.8GB, and this host's GPUs are "
+        "shared). Check free GPU memory and retry, or pass use_gpu=false to "
+        "search on CPU instead."
+    )
+
+
+def _run(binary: str, args: list[str], step: str, used_gpu: bool = False) -> None:
     cmd = [binary, *args]
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
@@ -99,6 +124,7 @@ def _run(binary: str, args: list[str], step: str) -> None:
             f"mmseqs {step} exited {proc.returncode}.\n"
             f"command: {' '.join(cmd)}\n"
             f"stderr (tail):\n{proc.stderr.strip()[-2000:]}"
+            + gpu_failure_hint(step=step, used_gpu=used_gpu, stderr=proc.stderr)
         )
 
 
@@ -182,7 +208,7 @@ def _search_one_database(
     ]
     if use_gpu:
         search_args += ["--gpu", "1"]
-    _run(binary, search_args, step=f"search ({target_db})")
+    _run(binary, search_args, step=f"search ({target_db})", used_gpu=use_gpu)
 
     msa_db = workdir / "msaDB"
     _run(

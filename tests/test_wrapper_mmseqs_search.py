@@ -176,3 +176,54 @@ def test_merge_of_zero_databases_falls_back_to_query_only():
     boundary the project's TDD checklist requires."""
     text = wrapper._query_only_a3m("ACDEFG")
     assert wrapper._parse_a3m(text) == [("query", "ACDEFG")]
+
+
+# --- a silent GPU failure has to say something -------------------------------
+
+
+def _wrapper():
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).parent.parent / "scripts" / "engines" / "run_mmseqs_search.py"
+    spec = importlib.util.spec_from_file_location("mmseqs_wrapper_diag", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_a_silent_gpu_failure_names_the_likely_cause():
+    """`--gpu 1` loads the whole padded database into VRAM: small_bfd_padded
+    is 16.8GB. On this shared 8-GPU box another user's process is routinely
+    resident, and when the database does not fit, mmseqs exits 1 having
+    printed NOTHING -- the sweep recorded
+
+        mmseqs search (...small_bfd_padded) exited 1.
+        stderr (tail):
+
+    with an empty tail and no other clue. The same call succeeded unchanged
+    once the GPU was free, so the code was never wrong; the failure was just
+    illegible. Say what it probably was.
+    """
+    module = _wrapper()
+    message = module.gpu_failure_hint(step="search", used_gpu=True, stderr="")
+    assert message
+    assert "gpu" in message.lower()
+    assert "memory" in message.lower() or "vram" in message.lower()
+
+
+def test_no_hint_when_mmseqs_actually_explained_itself():
+    """A real diagnostic must not be buried under a guess."""
+    module = _wrapper()
+    assert module.gpu_failure_hint(
+        step="search", used_gpu=True, stderr="Invalid database format") == ""
+
+
+def test_no_hint_for_a_cpu_search():
+    module = _wrapper()
+    assert module.gpu_failure_hint(step="search", used_gpu=False, stderr="") == ""
+
+
+def test_whitespace_only_stderr_counts_as_silent():
+    module = _wrapper()
+    assert module.gpu_failure_hint(step="search", used_gpu=True, stderr="  \n ")

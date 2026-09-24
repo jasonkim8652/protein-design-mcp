@@ -188,3 +188,67 @@ def test_parse_output_raises_when_refold_metrics_missing(tmp_path):
     run = CompletedRun(returncode=0, stdout="", stderr="", workdir=tmp_path, outputs={})
     with pytest.raises(ValueError, match="refold_metrics"):
         parse_output(_manifest(), run)
+
+
+# --- the --config step must be the step that actually runs ------------------
+
+
+def _args(with_target: bool):
+    return build_args(None, {
+        "design_spec": "/spec.yaml",
+        "generated_files": ["/w/designs/d.cif", "/w/designs/d.npz"],
+        "with_target": with_target,
+        "folding_checkpoint": "ckpt",
+        "moldir": "/moldir",
+        "use_kernels": False,
+        "num_workers": 0,
+        "recycling_steps": 1,
+        "sampling_steps": 20,
+        "diffusion_samples": 1,
+    })
+
+
+def _config_step(args):
+    return args[args.index("--config") + 1]
+
+
+def _steps(args):
+    return args[args.index("--steps") + 1]
+
+
+def test_the_config_overrides_target_the_step_being_run():
+    """BoltzGen assigns `--config <step> key=value` to THAT step only, and
+    `folding` stays a valid step name even when it is not in `--steps`, so a
+    mismatch is accepted in silence.
+
+    With `--config folding` hardcoded, `with_target: False` ran
+    `design_folding` while every override landed on `folding`. Its
+    `data.design_dir` then fell back to BoltzGen's own relative default and
+    the run died on
+
+        AssertionError('Path does not exist design_dir:
+        intermediate_designs_inverse_folded')
+
+    This is the merge of run_boltzgen_design_fold into a `with_target` mode:
+    the `--steps` value became conditional and the `--config` value did not.
+    """
+    for with_target in (True, False):
+        args = _args(with_target)
+        assert _config_step(args) == _steps(args), (
+            f"with_target={with_target}: overrides go to {_config_step(args)!r} "
+            f"but {_steps(args)!r} is what runs"
+        )
+
+
+def test_with_target_false_still_selects_design_folding():
+    assert _steps(_args(False)) == "design_folding"
+
+
+def test_with_target_true_still_selects_folding():
+    assert _steps(_args(True)) == "folding"
+
+
+def test_the_design_dir_override_is_present_in_both_modes():
+    for with_target in (True, False):
+        args = _args(with_target)
+        assert "data.design_dir=/w/designs" in args

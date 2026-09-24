@@ -62,6 +62,13 @@ def build_args(manifest: Manifest, params: dict[str, Any]) -> list[str]:
     del manifest
     generated_files = params["generated_files"]
     design_dir = str(Path(generated_files[0]).parent)
+    # ONE name, used for both --steps and --config. `--config <step>` binds
+    # the overrides to that step alone, and `folding` stays a VALID step name
+    # even when it is not the step being run -- so hardcoding it here sent
+    # every override to a step that never ran, in silence, and
+    # `design_folding` fell back to BoltzGen's own relative
+    # `intermediate_designs_inverse_folded` default, which does not exist.
+    step = "folding" if params["with_target"] else "design_folding"
 
     return [
         str(params["design_spec"]),
@@ -71,7 +78,7 @@ def build_args(manifest: Manifest, params: dict[str, Any]) -> list[str]:
         # `folding` refolds in complex, `design_folding` refolds the design
         # alone. One engine task with a mode, which is why these were merged
         # from two tools that differed by nothing else.
-        ("folding" if params["with_target"] else "design_folding"),
+        step,
         "--devices",
         "1",
         # checkpoint/moldir/use_kernels MUST go through the top-level flags,
@@ -90,7 +97,7 @@ def build_args(manifest: Manifest, params: dict[str, Any]) -> list[str]:
         "--use_kernels",
         str(params["use_kernels"]),
         "--config",
-        "folding",
+        step,
         f"data.design_dir={design_dir}",
         f"output={design_dir}",
         f"data.cfg.num_workers={params['num_workers']}",

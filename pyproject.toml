@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "protein-design-mcp"
-version = "2.3.0"
+version = "2.3.1"
 description = "MCP server for protein design: RFdiffusion, ProteinMPNN, ESMFold, AlphaFold2, Boltz, PyRosetta, ESM2, OpenMM"
 readme = "README.md"
 license = {text = "Apache-2.0"}
