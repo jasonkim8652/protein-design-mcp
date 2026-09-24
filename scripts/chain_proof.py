@@ -165,6 +165,16 @@ GENIE3_UNK_COMPLEX = (
     WORKSPACE / "pdmcp-results/pdmcp-fbba68ef7c35/binders/output/target/pdbs/target_0.pdb"
 )
 
+#: A 36+36 two-chain complex, committed with the repository.
+#:
+#: The chain below FOLDS what it designs, and folding is quadratic in length:
+#: run against the 504-residue target this server's other fixtures carry, Boltz
+#: sat at 0% GPU for 55 minutes on a 584-residue chain and produced nothing.
+#: What that chain asserts -- that a ':'-joined design splits into as many
+#: chains as it had parts -- is independent of how long they are, so it uses
+#: the smallest real complex that can show it.
+SMALL_TWO_CHAIN = REPO_ROOT / "tests/fixtures/complexes/two_chain_36_36.pdb"
+
 #: A short two-chain complex folded fresh by this chain. ipSAE scores the
 #: INTERFACE between a chain pair, so a monomer gives it nothing to score --
 #: and on a monomer it does not say so, it dies with
@@ -456,10 +466,10 @@ CHAINS: list[Chain] = [
             "fusion protein with no interface, which nothing refuses and an "
             "interface scorer cannot use."
         ),
-        needs=[str(TWO_CHAIN_COMPLEX)],
+        needs=[str(SMALL_TWO_CHAIN)],
         steps=[
             Step("run_mpnn", {
-                "backbone_pdb": str(TWO_CHAIN_COMPLEX),
+                "backbone_pdb": str(SMALL_TWO_CHAIN),
                 "chains_to_design": "B", "num_sequences": 1,
                 "model_type": "soluble", "seed": 5,
             }),
