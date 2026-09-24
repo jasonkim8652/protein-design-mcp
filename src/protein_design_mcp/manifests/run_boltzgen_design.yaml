@@ -25,6 +25,16 @@ requires:
   gpu: true
 
 outputs:
+  - name: design_spec_yaml
+    pattern: "design_spec.yaml"
+    description: >-
+      The BoltzGen spec this run used, whether it was built from the
+      parameters or copied from a hand-written one. PASS THIS to
+      run_boltzgen_fold, run_boltzgen_analyze, run_boltzgen_filter and
+      run_boltzgen_inverse_fold as their `design_spec`: those steps refuse to
+      run without the spec the designs came from, and before this output
+      existed nothing on this server produced one, so they could not be
+      reached from a planned workflow at all.
   # Pattern matches BOTH `<id>.cif` and its companion `<id>.npz`: `[cn][ip][fz]`
   # is a 3-position character class ("cif" or "npz", nothing else -- both
   # extensions happen to be 3 characters, and no other extension in this
@@ -151,24 +161,56 @@ doc: |
   `outputs` the paths to every generated `.cif`.
 
 schema:
-  design_spec:
+  target_structure:
     type: string
     format: path
-    pattern: '\.(yaml|yml)$'
+    pattern: '\.(pdb|cif)(\.gz)?$'
     required: true
     description: >-
-      BoltzGen design specification YAML: entities (designed chain(s),
-      target structure(s), any binding-site/motif hints), entirely in
-      BoltzGen's own spec grammar. Chain composition is defined here, never
-      inferred by this tool.
-
-      YOU WRITE THIS FILE: no tool on this server produces a BoltzGen design
-      spec, so it cannot come from a previous step of a planned workflow. A
-      workflow that reaches any run_boltzgen_* tool has to carry a spec path
-      the caller authored -- confirmed by a run that planned run_boltzgen_fold
-      after RFdiffusion3 and failed on this parameter, because there was
-      nothing upstream that could have supplied one.
-    example: design_spec.yaml
+      The target to design against. Its chains are conditioned on; the binder
+      is a new chain this tool adds. Pass the path a previous step returned.
+    example: target.cif
+  target_chains:
+    type: array
+    items:
+      type: string
+      pattern: '^[A-Za-z0-9]$'
+    minItems: 1
+    required: true
+    description: >-
+      Which chains of `target_structure` to condition on, e.g. ["A"]. At least
+      one: an empty list conditions on nothing, which is unconditional
+      generation wearing a binder tool's name. Read the chain ids off the
+      structure rather than assuming -- they differ per file.
+    example: ["A"]
+  binder_length_min:
+    type: integer
+    minimum: 8
+    maximum: 1000
+    default: 80
+    description: >-
+      Shortest binder to sample. BoltzGen picks a length in
+      [binder_length_min, binder_length_max] per design, so equal values fix
+      the length and a wide range trades designability for diversity.
+    example: 80
+  binder_length_max:
+    type: integer
+    minimum: 8
+    maximum: 1000
+    default: 140
+    description: >-
+      Longest binder to sample. Must be at least binder_length_min.
+    example: 140
+  binder_chain_id:
+    type: string
+    pattern: '^[A-Za-z0-9]$'
+    default: C
+    description: >-
+      Chain id given to the designed chain in the output. Must not be one of
+      `target_chains`: two entities claiming one id is a spec BoltzGen accepts
+      and then behaves unpredictably on. This is also the chain that holds the
+      design when a later step asks.
+    example: C
   num_designs:
     type: integer
     minimum: 1

@@ -271,7 +271,14 @@ CASES: list[dict] = [
         "tool": "run_boltzgen_design",
         "device": "cuda",
         "arguments": {
-            "design_spec": "tests/fixtures/boltzgen/design_spec.yaml",
+            # The spec is built from these, not handed in as a file: it used
+            # to be a required YAML nothing on this server produced, which made
+            # the whole run_boltzgen_* family unreachable from a plan.
+            "target_structure": "tests/fixtures/boltzgen/1g13.cif",
+            "target_chains": ["A"],
+            "binder_length_min": 15,
+            "binder_length_max": 20,
+            "binder_chain_id": "C",
             "num_designs": 1,
         },
         "expect_keys": ["designs", "num_designs"],

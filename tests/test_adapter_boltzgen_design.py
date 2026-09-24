@@ -16,7 +16,7 @@ def _manifest():
 
 
 def _base_params(**overrides):
-    return validate_and_fill(_manifest(), {"design_spec": "design.yaml", **overrides})
+    return validate_and_fill(_manifest(), {"target_structure": "target.cif", "target_chains": ["A"], **overrides})
 
 
 # --- manifest shape ---
@@ -45,8 +45,18 @@ def test_manifest_documents_protocol_has_no_effect():
     assert "verified" in _manifest().doc.lower()
 
 
-def test_design_spec_is_required():
-    assert _manifest().schema["design_spec"]["required"] is True
+def test_the_tool_builds_its_own_spec_from_parameters():
+    """design_spec used to be required and nothing on this server produced
+    one, so the run_boltzgen_* family was unreachable from a planned workflow.
+    The spec's content is structured parameters, so the tool builds it."""
+    schema = _manifest().schema
+    assert "design_spec" not in schema, (
+        "a raw spec file alongside the parameters would need 'exactly one of' "
+        "validation this schema cannot express, and leaves two ways to say one thing"
+    )
+    for field in ("target_structure", "target_chains",
+                  "binder_length_min", "binder_length_max", "binder_chain_id"):
+        assert field in schema, field
 
 
 def test_num_designs_defaults_smaller_than_boltzgens_own_cli_default():
@@ -68,8 +78,11 @@ def test_validation_fills_defaults():
     ]
 
 
-def test_validation_rejects_missing_design_spec():
-    with pytest.raises(ToolInputError, match="design_spec"):
+def test_validation_still_demands_something_to_design_against():
+    """Making every field optional would let a call through that names neither
+    a target nor a spec, and fail inside the engine instead of at the boundary
+    where the message can name the missing parameter."""
+    with pytest.raises(ToolInputError, match="target_structure"):
         validate_and_fill(_manifest(), {})
 
 
@@ -94,7 +107,9 @@ def test_diffusion_batch_size_has_no_static_default():
 def test_build_args_wraps_boltzgen_run_with_design_step_only():
     params = _base_params()
     args = build_args(_manifest(), params)
-    assert args[0] == str(Path("design.yaml"))
+    # The spec path is no longer argv[0]: the wrapper writes the spec and puts
+    # it there itself, and everything after --passthrough is what it hands on.
+    assert "--passthrough" in args
     assert "--steps" in args
     assert args[args.index("--steps") + 1] == "design"
     assert "--output" in args
@@ -238,5 +253,5 @@ def test_manifest_generated_designs_pattern_also_collects_npz():
     downstream fold/design_fold/analyze steps (data_from_generated.py reads
     both from the SAME design_dir) -- without it, run_boltzgen_fold has no
     path to this tool's output. See wave-E-report.md."""
-    pattern = _manifest().outputs[0].pattern
-    assert pattern.endswith(".[cn][ip][fz]")
+    generated = next(o for o in _manifest().outputs if o.name == "generated_designs")
+    assert generated.pattern.endswith(".[cn][ip][fz]")

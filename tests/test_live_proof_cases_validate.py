@@ -16,6 +16,7 @@ GPU queue.
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
@@ -28,6 +29,12 @@ def _load_live_proof():
     spec = importlib.util.spec_from_file_location("live_proof", LIVE_PROOF)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
+    # Registered BEFORE exec: a module that defines a @dataclass has to be in
+    # sys.modules while it runs, because dataclasses resolves annotations
+    # through `sys.modules[cls.__module__].__dict__` and gets None otherwise --
+    # "AttributeError: 'NoneType' object has no attribute '__dict__'", which
+    # names neither the module nor the dataclass.
+    sys.modules.setdefault("live_proof", module)
     spec.loader.exec_module(module)
     return module
 

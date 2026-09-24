@@ -32,8 +32,18 @@ def build_args(manifest: Manifest, params: dict[str, Any]) -> list[str]:
     """
     del manifest
 
-    args = [
-        str(params["design_spec"]),
+    # The spec is BUILT by the wrapper from the parameters below, or copied
+    # from `design_spec` when a hand-written one is given. Everything after
+    # --passthrough is what the wrapper hands to `boltzgen run`.
+    args: list[str] = [
+        "--target-structure", str(params["target_structure"]),
+        "--target-chains", ",".join(str(c) for c in params["target_chains"]),
+        "--binder-length-min", str(params["binder_length_min"]),
+        "--binder-length-max", str(params["binder_length_max"]),
+        "--binder-chain-id", str(params["binder_chain_id"]),
+    ]
+    args += [
+        "--passthrough",
         "--output",
         ".",
         "--steps",
