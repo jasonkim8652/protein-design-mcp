@@ -9,7 +9,14 @@ engine:
   # run_boltzgen_filter's manifest comment for the identity-verification and
   # mount-discovery detail; identical for every tool on this engine.
   prefix: /home/jk661/miniforge3/envs/boltzgen
-  entry: ["boltzgen", "run"]
+  # The WRAPPER, not `boltzgen run` directly. BoltzGen takes a design-spec
+  # YAML, and this tool's parameters describe the design rather than naming a
+  # spec file -- so something has to build the spec from them, and that is
+  # scripts/engines/boltzgen_design.py. Pointed straight at `boltzgen run`,
+  # the adapter's own `--target-structure ... --passthrough` argv reached
+  # BoltzGen, which rejected every call with "unrecognized arguments" for
+  # live_proof's arguments as much as for a model's.
+  entry: ["python", "/app/scripts/engines/boltzgen_design.py"]
   env_vars:
     # Weights (~5.6G: two design checkpoints + the moldir library) are
     # already downloaded to the host's real HuggingFace cache -- see

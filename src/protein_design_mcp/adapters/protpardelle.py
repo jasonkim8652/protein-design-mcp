@@ -24,6 +24,7 @@ from Bio.SeqUtils import seq1
 
 from protein_design_mcp.dispatch.env import CompletedRun
 from protein_design_mcp.manifest.schema import Manifest
+from protein_design_mcp.validation import ToolInputError
 
 _HOTSPOT_RE = re.compile(r"^[A-Za-z]\d+[A-Za-z]?$")
 _PDB_PARSER = PDBParser(QUIET=True)
@@ -71,9 +72,37 @@ def _validate_total_lengths(total_lengths: Any, contig: str) -> list[list[int]]:
     return total_lengths
 
 
+#: Checkpoints that produce SIDE CHAINS, not just a backbone. An all-atom
+#: model runs ProteinMPNN to assign the sequence, so it needs ProteinMPNN's
+#: own weights -- which the backbone-only checkpoints never touch. Only cc94
+#: qualifies among the four this tool exposes: the manifest doc calls cc83 and
+#: cc95 backbone-only and cc78 experimental, and cc94 is the one observed
+#: loading ProteinMPNN live.
+ALL_ATOM_MODELS = {"cc94"}
+
+#: Where Protpardelle-1c looks for those weights. Not bundled with its own
+#: checkpoints, and absent on this host -- a live round spent ~35s of GPU
+#: sampling 500 backbone steps and then died on a bare FileNotFoundError
+#: naming this path, which no caller had chosen and no message explained.
+MPNN_WEIGHTS = Path(
+    "/home/jk661/projects/protpardelle-1c/model_params/ProteinMPNN"
+    "/vanilla_model_weights/v_48_020.pt"
+)
+
+
 def build_args(manifest: Manifest, params: dict[str, Any]) -> list[str]:
     """Translate validated parameters into the wrapper script's argv."""
     del manifest
+    model = str(params.get("model") or "")
+    if model in ALL_ATOM_MODELS and not MPNN_WEIGHTS.exists():
+        raise ToolInputError(
+            f"run_protpardelle.model = {model!r} is the all-atom checkpoint: it "
+            "assigns side chains with ProteinMPNN, whose weights are not "
+            f"installed on this host ({MPNN_WEIGHTS} is missing). Use a "
+            "backbone-only checkpoint instead -- cc83 (the default), cc95 or "
+            "cc78 -- and design the sequence with run_mpnn, or install "
+            "ProteinMPNN's v_48_020 weights at that path."
+        )
     contig = str(params["contig"])
     hotspots = _validate_hotspots(params["hotspots"])
     total_lengths = _validate_total_lengths(params["total_lengths"], contig)

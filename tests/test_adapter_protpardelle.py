@@ -167,3 +167,80 @@ def test_validation_accepts_explicit_null_hotspots():
         },
     )
     assert params["hotspots"] is None
+
+
+# --- an all-atom model needs weights this host may not have -----------------
+
+
+def test_an_all_atom_model_without_its_mpnn_weights_is_refused(tmp_path, monkeypatch):
+    """`cc94` is the one checkpoint in the enum that the doc calls all-atom:
+    it produces side chains, which means it runs ProteinMPNN, which loads
+    `model_params/ProteinMPNN/vanilla_model_weights/v_48_020.pt`. That file is
+    not installed here, so a live round sampled 500 backbone steps (~35s of
+    GPU) and then died with a raw
+
+        FileNotFoundError: [Errno 2] No such file or directory:
+        '.../ProteinMPNN/vanilla_model_weights/v_48_020.pt'
+
+    naming a path no caller chose and no message explained. The other three
+    checkpoints are backbone-only and unaffected -- the same call with the
+    default cc83 succeeds.
+    """
+    from protein_design_mcp.adapters import protpardelle
+    from protein_design_mcp.validation import ToolInputError
+
+    monkeypatch.setattr(protpardelle, "MPNN_WEIGHTS", tmp_path / "absent.pt")
+    target = tmp_path / "t.pdb"
+    target.write_text(
+        "ATOM      1  CA  ALA A   1       0.000   0.000   0.000  1.00  0.00           C\n")
+    with pytest.raises(ToolInputError) as excinfo:
+        protpardelle.build_args(None, {
+            "target_pdb": str(target), "contig": "A1-1;/;5-5",
+            "total_lengths": [[1, 1], [5, 5]], "hotspots": None, "model": "cc94",
+        })
+    message = str(excinfo.value)
+    assert "cc94" in message
+    assert "v_48_020" in message
+
+
+def test_a_backbone_only_model_is_unaffected_by_the_missing_weights(tmp_path, monkeypatch):
+    from protein_design_mcp.adapters import protpardelle
+
+    monkeypatch.setattr(protpardelle, "MPNN_WEIGHTS", tmp_path / "absent.pt")
+    target = tmp_path / "t.pdb"
+    target.write_text(
+        "ATOM      1  CA  ALA A   1       0.000   0.000   0.000  1.00  0.00           C\n")
+    args = protpardelle.build_args(None, {
+        "target_pdb": str(target), "contig": "A1-1;/;5-5",
+        "total_lengths": [[1, 1], [5, 5]], "hotspots": None, "model": "cc83",
+        "step_scale": 1.2, "schurn": 0.0, "crop_cond_start": 0.0,
+        "translation": [0.0, 0.0, 0.0], "num_samples": 1, "batch_size": 1,
+    })
+    assert "cc83" in args
+
+
+def test_the_all_atom_model_runs_when_the_weights_are_present(tmp_path, monkeypatch):
+    from protein_design_mcp.adapters import protpardelle
+
+    weights = tmp_path / "v_48_020.pt"
+    weights.write_bytes(b"not really weights")
+    monkeypatch.setattr(protpardelle, "MPNN_WEIGHTS", weights)
+    target = tmp_path / "t.pdb"
+    target.write_text(
+        "ATOM      1  CA  ALA A   1       0.000   0.000   0.000  1.00  0.00           C\n")
+    args = protpardelle.build_args(None, {
+        "target_pdb": str(target), "contig": "A1-1;/;5-5",
+        "total_lengths": [[1, 1], [5, 5]], "hotspots": None, "model": "cc94",
+        "step_scale": 1.2, "schurn": 0.0, "crop_cond_start": 0.0,
+        "translation": [0.0, 0.0, 0.0], "num_samples": 1, "batch_size": 1,
+    })
+    assert "cc94" in args
+
+
+def test_only_cc94_is_treated_as_all_atom():
+    """Evidence-based, not guessed: the manifest doc calls cc83 and cc95
+    backbone-only, cc78 experimental, and cc94 all-atom, and cc94 is the one
+    observed to load ProteinMPNN."""
+    from protein_design_mcp.adapters import protpardelle
+
+    assert protpardelle.ALL_ATOM_MODELS == {"cc94"}

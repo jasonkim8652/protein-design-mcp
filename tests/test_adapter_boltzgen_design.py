@@ -33,7 +33,11 @@ def test_manifest_uses_prefix_not_env():
     engine = _manifest().engine
     assert engine.prefix == "/home/jk661/miniforge3/envs/boltzgen"
     assert engine.env is None
-    assert engine.entry == ("boltzgen", "run")
+    # This line used to read ("boltzgen", "run"), which pinned the BUG rather
+    # than the requirement: the adapter's argv is written for the wrapper, and
+    # sending it to BoltzGen made every call fail with "unrecognized
+    # arguments". The wrapper builds the design spec and runs `boltzgen run`.
+    assert engine.entry == ("python", "/app/scripts/engines/boltzgen_design.py")
 
 
 def test_manifest_documents_protocol_has_no_effect():
@@ -255,3 +259,74 @@ def test_manifest_generated_designs_pattern_also_collects_npz():
     path to this tool's output. See wave-E-report.md."""
     generated = next(o for o in _manifest().outputs if o.name == "generated_designs")
     assert generated.pattern.endswith(".[cn][ip][fz]")
+
+
+# --- the manifest must invoke the wrapper, not boltzgen directly ------------
+
+
+def test_the_entry_point_is_the_wrapper_that_understands_these_arguments():
+    """`build_args` emits `--target-structure ... --passthrough <rest>`, which
+    only `scripts/engines/boltzgen_design.py` parses: it builds BoltzGen's
+    design-spec YAML from those parameters and then runs `boltzgen run <spec>`
+    with whatever followed --passthrough.
+
+    With `engine.entry: ["boltzgen", "run"]` the arguments went straight to
+    BoltzGen, which has never heard of them, and every call died with
+
+        boltzgen: error: unrecognized arguments: --target-structure
+        --target-chains A --binder-length-min 15 ... --passthrough
+
+    -- for live_proof's own arguments as much as for a model's, so this was
+    broken for every caller, not a bad call.
+    """
+    import yaml
+    from pathlib import Path
+
+    manifest = yaml.safe_load(
+        Path("src/protein_design_mcp/manifests/run_boltzgen_design.yaml").read_text())
+    entry = manifest["engine"]["entry"]
+    assert entry[0] == "python"
+    assert entry[1].endswith("scripts/engines/boltzgen_design.py"), entry
+
+
+def test_the_wrapper_accepts_every_flag_the_adapter_emits():
+    """The two halves were written apart and drifted apart. Parse the adapter's
+    real output with the wrapper's real parser so a rename on either side
+    fails here instead of inside a container."""
+    import argparse
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location(
+        "bg_design_engine", Path("scripts/engines/boltzgen_design.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--design-spec", default=None)
+    parser.add_argument("--target-structure")
+    parser.add_argument("--target-chains", default="")
+    parser.add_argument("--binder-length-min", type=int)
+    parser.add_argument("--binder-length-max", type=int)
+    parser.add_argument("--binder-chain-id", default="C")
+    parser.add_argument("--passthrough", nargs=argparse.REMAINDER, default=[])
+
+    args = build_args(None, {
+        "target_structure": "/t.pdb",
+        "target_chains": ["A"],
+        "binder_length_min": 15,
+        "binder_length_max": 20,
+        "binder_chain_id": "C",
+        "num_designs": 1,
+        "diffusion_batch_size": 1,
+        "design_checkpoints": ["ckpt"],
+        "step_scale": 1.5,
+        "noise_scale": 1.0,
+        "use_kernels": False,
+        "moldir": "/moldir",
+        "num_workers": 0,
+    })
+    parsed = parser.parse_args(args)
+    assert parsed.target_structure == "/t.pdb"
+    assert parsed.binder_length_min == 15
+    assert parsed.passthrough, "everything after --passthrough goes to boltzgen run"
