@@ -252,3 +252,40 @@ def test_the_design_dir_override_is_present_in_both_modes():
     for with_target in (True, False):
         args = _args(with_target)
         assert "data.design_dir=/w/designs" in args
+
+
+def test_the_output_patterns_collect_both_modes():
+    """BoltzGen names its output directories after the STEP: `folding` writes
+    `refold_cif/` + `fold_out_npz/`, and `design_folding` writes
+    `refold_design_cif/` + `fold_out_design_npz/`. Confirmed by listing a real
+    `design_folding` working directory.
+
+    Merging the two tools into one `with_target` mode left the patterns
+    matching only the `folding` names, so `with_target: False` ran to
+    completion and then failed on
+
+        declared output 'refolded_structures' matched no file for pattern
+        'generated_files/refold_cif/*.cif'
+
+    -- the engine succeeding and the tool failing anyway.
+    """
+    import fnmatch
+
+    import yaml
+    from pathlib import Path
+
+    manifest = yaml.safe_load(
+        Path("src/protein_design_mcp/manifests/run_boltzgen_fold.yaml").read_text())
+    patterns = {o["name"]: o["pattern"] for o in manifest["outputs"]}
+
+    produced = {
+        "folding": ["generated_files/refold_cif/d.cif",
+                    "generated_files/fold_out_npz/d.npz"],
+        "design_folding": ["generated_files/refold_design_cif/d.cif",
+                           "generated_files/fold_out_design_npz/d.npz"],
+    }
+    for mode, paths in produced.items():
+        for path in paths:
+            assert any(fnmatch.fnmatch(path, p) for p in patterns.values()), (
+                f"{mode} writes {path}, which no declared output pattern "
+                f"matches: {sorted(patterns.values())}")

@@ -35,14 +35,18 @@ requires:
 
 outputs:
   - name: refolded_structures
-    pattern: "generated_files/refold_cif/*.cif"
+    # BoltzGen names the directory after the STEP: `folding` writes
+    # refold_cif/, `design_folding` writes refold_design_cif/. One
+    # tool with two modes has to collect both.
+    pattern: "generated_files/refold*_cif/*.cif"
     description: >-
       One refolded mmCIF per design (the highest-confidence of
       diffusion_samples internal samples, by 0.8*iptm + 0.2*ptm -- the same
       selection BoltzGen's own writer uses). pLDDT is in the B-factor column.
     multiple: true
   - name: refold_metrics
-    pattern: "generated_files/fold_out_npz/*.npz"
+    # Same per-step naming as refolded_structures above.
+    pattern: "generated_files/fold_out*_npz/*.npz"
     description: >-
       Per-design confidence metrics for EVERY internal sample (arrays of
       length diffusion_samples), not just the best one -- read this if you
