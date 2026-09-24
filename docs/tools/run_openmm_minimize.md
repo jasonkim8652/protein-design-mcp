@@ -40,6 +40,6 @@ A PDB file. Multi-chain inputs are relaxed as one system.
 
 | Parameter | Type | Required | Default | Constraints | Description |
 |---|---|---|---|---|---|
-| `input_pdb` | string | yes | `—` | pattern: `\.pdb$` | Structure to minimise. |
-| `max_iterations` | integer | no | `500` | minimum: `1`<br>maximum: `10000` | Minimisation step limit. |
+| `input_pdb` | string | yes | `—` | pattern: `\.pdb$` | Structure to minimise. WHERE THIS COMES FROM -- Any structure to relax -- your own, or one a folding or generation tool returned. |
+| `max_iterations` | integer | no | `500` | minimum: `1`<br>maximum: `10000` | Most L-BFGS steps to take before stopping, whether or not the energy has converged. Higher costs proportionally more CPU and buys less the further it goes; 0 means run until convergence, which on a badly clashing structure can be much longer than you expect. A few hundred is enough to relieve the clashes a predicted structure carries. |
 | `forcefield` | string | no | `amber14` | enum: `['amber14', 'charmm36']` | Force field to minimise under. |

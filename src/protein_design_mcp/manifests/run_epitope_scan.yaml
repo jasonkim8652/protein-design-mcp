@@ -170,6 +170,11 @@ schema:
       Structure file for the unbound target. Only plain PDB (or legacy
       .ent) is read -- this tool's parser (Biopython's PDBParser, via this
       server's own utils.pdb) does not read mmCIF.
+
+      WHERE THIS COMES FROM -- The unbound target -- your own structure
+      file. Use `run_interface_residues` instead when you already have a
+      complex, since that measures an interface rather than predicting where
+      one could be.
     example: target.pdb
   chain:
     type: string

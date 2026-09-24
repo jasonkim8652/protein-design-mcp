@@ -167,6 +167,9 @@ schema:
       Structure file containing the target chain(s) contig and hotspots
       refer to. May contain extra residues beyond what contig selects --
       Protpardelle-1c reads only the residues the contig names.
+
+      WHERE THIS COMES FROM -- The target you want a binder against -- your
+      own structure file, or a path a previous step returned.
     example: target.pdb
   contig:
     type: string

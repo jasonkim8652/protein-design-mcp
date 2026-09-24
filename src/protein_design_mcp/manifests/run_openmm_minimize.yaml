@@ -56,13 +56,21 @@ schema:
     pattern: '\.pdb$'
     required: true
     description: Structure to minimise.
+
+      WHERE THIS COMES FROM -- Any structure to relax -- your own, or one a
+      folding or generation tool returned.
     example: model.pdb
   max_iterations:
     type: integer
     minimum: 1
     maximum: 10000
     default: 500
-    description: Minimisation step limit.
+    description: >-
+      Most L-BFGS steps to take before stopping, whether or not the energy
+      has converged. Higher costs proportionally more CPU and buys less the
+      further it goes; 0 means run until convergence, which on a badly
+      clashing structure can be much longer than you expect. A few hundred
+      is enough to relieve the clashes a predicted structure carries.
     example: 500
   forcefield:
     type: string

@@ -180,6 +180,10 @@ schema:
       Structure file containing ONLY the target (one or more chains, no
       existing binder chain). hotspot_residues below refer to this file's
       own chain identifiers and residue numbers.
+
+      WHERE THIS COMES FROM -- The target you want a binder against -- your
+      own structure file, or a path a previous step returned. Target ONLY,
+      with no existing binder chain.
     example: target.pdb
   hotspot_residues:
     type: array
@@ -276,7 +280,11 @@ schema:
     type: integer
     minimum: 0
     default: 0
-    description: Random seed.
+    description: >-
+      Random seed for the diffusion trajectory. Two runs with the same seed
+      and the same parameters return the same backbones, so change it to
+      sample a different set rather than re-running and expecting variety.
+      It does not affect quality, only which samples you get.
     example: 0
   expand_interface:
     type: boolean

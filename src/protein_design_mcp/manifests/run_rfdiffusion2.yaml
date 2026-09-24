@@ -227,6 +227,9 @@ schema:
     description: >-
       Path to the target structure (PDB format). Crop it around the
       intended interface before diffusing against a large target.
+
+      WHERE THIS COMES FROM -- The target you want a binder against -- your
+      own structure file, or a path a previous step returned.
     example: target.pdb
   contig:
     type: string

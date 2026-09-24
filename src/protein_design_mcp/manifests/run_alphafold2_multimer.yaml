@@ -169,6 +169,11 @@ schema:
       multi-chain `sequences` list. There is no third option: ColabFold's
       remote-search modes (mmseqs2_uniref_env and friends) are never
       reachable through this tool.
+
+      WHERE THIS COMES FROM -- Produced by `run_mmseqs_search`
+      (unpaired_a3m) or `run_colabfold_search` -- they search different
+      sequence universes, so a consumer handed the wrong one usually returns
+      worse results rather than failing.
     example: null
   num_recycle:
     type: integer

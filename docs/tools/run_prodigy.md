@@ -54,7 +54,7 @@ limitation.
 
 | Parameter | Type | Required | Default | Constraints | Description |
 |---|---|---|---|---|---|
-| `complex_pdb` | string | yes | `—` | pattern: `\.(pdb\|cif\|ent)$` | Path to a structure file containing both partners. |
+| `complex_pdb` | string | yes | `—` | pattern: `\.(pdb\|cif\|ent)$` | Path to a structure file containing both partners. WHERE THIS COMES FROM -- A complex whose interface you want scored -- your own structure, or one a folding tool returned (`run_boltz`, `run_chai1`, `run_alphafold3`). |
 | `chain_a` | string | yes | `—` | pattern: `^[A-Za-z0-9]$` | Chain identifier of the first partner: a single character only. PRODIGY requires single-character chain IDs; multi-character mmCIF chain identifiers are not supported. |
 | `chain_b` | string | yes | `—` | pattern: `^[A-Za-z0-9]$` | Chain identifier of the second partner: a single character only. PRODIGY requires single-character chain IDs; multi-character mmCIF chain identifiers are not supported. |
 | `temperature` | number | no | `25.0` | minimum: `0.0`<br>maximum: `100.0` | Temperature in Celsius used for the Kd conversion. |

@@ -206,5 +206,9 @@ schema:
     type: integer
     minimum: 0
     default: 0
-    description: Random seed.
+    description: >-
+      Random seed for the diffusion trajectory. Two runs with the same seed
+      and the same parameters return the same backbones, so change it to
+      sample a different set rather than re-running and expecting variety.
+      It does not affect quality, only which samples you get.
     example: 0

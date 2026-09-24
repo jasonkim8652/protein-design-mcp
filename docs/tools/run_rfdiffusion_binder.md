@@ -14,7 +14,7 @@ Generate de novo binder backbones against a target with RFdiffusion 1.1.0 -- the
 ## What this is
 RFdiffusion 1.1.0 (Watson et al. 2023; Baker lab / IPD), the original
 RFdiffusion, run from the actual checkout at
-`/file_server/data/jk661/pioneer/RFdiffusion` (the package's own pip
+the RFdiffusion checkout the deployment mounts (the package's own pip
 metadata points at a now-nonexistent path -- see the manifest's engine
 comment; this tool works around that with an explicit PYTHONPATH, and
 ALSO works around a live nvrtc/JIT compilation crash on this host's
@@ -143,7 +143,7 @@ its paired `metadata_trb`.
 
 | Parameter | Type | Required | Default | Constraints | Description |
 |---|---|---|---|---|---|
-| `target_pdb` | string | yes | `—` | pattern: `\.pdb$` | Path to the target structure (PDB format only -- RFdiffusion 1.1.0's own parser does not accept mmCIF). Crop it around the intended interface before diffusing against a large target; see the doc's note on O(N^2) runtime scaling. |
+| `target_pdb` | string | yes | `—` | pattern: `\.pdb$` | Path to the target structure (PDB format only -- RFdiffusion 1.1.0's own parser does not accept mmCIF). Crop it around the intended interface before diffusing against a large target; see the doc's note on O(N^2) runtime scaling. WHERE THIS COMES FROM -- The target you want a binder against -- your own structure file, or a path a previous step returned. |
 | `contig` | string | yes | `—` | pattern: `^([A-Za-z]\d+(-\d+)?(/\d+)?\|/\d+\|\d+(-\d+)?)(\s+([A-Za-z]\d+(-\d+)?(/\d+)?\|/\d+\|\d+(-\d+)?))*$` | RFdiffusion 1.1.0's own contig grammar (see the doc's "contig" section for the full explanation and worked example). Space-separated tokens: a target segment like "B1-100", optionally suffixed with "/0" for a chain break ("B1-100/0"), a bare "/0", or a diffused-length range like "100-150" (or a fixed "100-100"). Do not wrap it in outer brackets -- this tool adds those itself. |
 | `hotspot_res` | array | no | `[]` | — | Target residues the binder must contact, each EXACTLY "<ChainID><ResidueNumber>" (e.g. "A30") -- no ranges, no colons, no other separator. 3-6 entries is the upstream-recommended range (the model expects to make more contacts than you list -- see the doc). An empty list runs without hotspot conditioning (a real but not recommended choice; the binder can attach anywhere the contig geometry allows). |
 | `num_designs` | integer | no | `10` | minimum: `1`<br>maximum: `1000` | Number of independent backbones to sample. Cost scales linearly. 10 is RFdiffusion's own default; drop it to 1 for a fast sanity check on a new contig/hotspot combination before committing to a larger batch. |

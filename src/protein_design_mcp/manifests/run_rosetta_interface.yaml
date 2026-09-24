@@ -144,6 +144,12 @@ schema:
     pattern: '\.(pdb|cif|ent)$'
     required: true
     description: Path to a structure file containing both interface partners.
+
+      WHERE THIS COMES FROM -- A complex whose interface you want scored --
+      your own structure, or one a folding tool returned. Relax it with
+      `run_openmm_minimize` first if it came straight from a generator,
+      since Rosetta's energies are sensitive to clashes a predicted
+      structure may carry.
     example: complex.pdb
   interface:
     type: string

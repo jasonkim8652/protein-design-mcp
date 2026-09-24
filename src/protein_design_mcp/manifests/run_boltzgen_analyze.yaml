@@ -330,7 +330,7 @@ schema:
       call over all_atom design PDBs, roughly linear in design count; skip
       it for a quick look. false is BoltzGen's own default. The foldseek
       binary this needs is confirmed present on this host
-      (`/home/jk661/.local/bin/foldseek`, mounted explicitly -- see
+      (the `foldseek` binary the deployment provides, mounted explicitly -- see
       `foldseek_binary` and this manifest's `engine.mounts` comment) but is
       not guaranteed present in every deployment of this server; true
       without it fails with a clear subprocess "no such file" error rather

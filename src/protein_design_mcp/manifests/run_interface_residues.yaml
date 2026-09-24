@@ -165,6 +165,11 @@ schema:
       in one file. Only plain PDB (or legacy .ent) is read -- this tool's
       parser (Biopython's PDBParser, via this server's own utils.pdb) does
       not read mmCIF. Convert first if you only have an mmCIF.
+
+      WHERE THIS COMES FROM -- An existing complex -- your own structure, or
+      one a folding tool returned (`run_boltz`, `run_chai1`,
+      `run_alphafold3`). Use `run_epitope_scan` instead when you have only
+      the unbound target.
     example: complex.pdb
   target_chain:
     type: string

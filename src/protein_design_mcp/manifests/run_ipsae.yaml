@@ -126,6 +126,10 @@ schema:
     pattern: '\.(pdb|cif)$'
     required: true
     description: The predicted structure the PAE matrix belongs to.
+
+      WHERE THIS COMES FROM -- The structure whose PAE you are passing, from
+      the same predictor run -- `run_alphafold2_multimer`, `run_boltz` (its
+      structures output) or `run_alphafold3` (its model_cif output).
     example: model.cif
   pae_cutoff:
     type: number

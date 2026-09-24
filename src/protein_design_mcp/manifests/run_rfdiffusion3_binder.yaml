@@ -159,6 +159,9 @@ schema:
     pattern: '\.(pdb|cif)$'
     required: true
     description: Path to the target structure (PDB or mmCIF).
+
+      WHERE THIS COMES FROM -- The target you want a binder against -- your
+      own structure file, or a path a previous step returned.
     example: target.pdb
   contig:
     type: string

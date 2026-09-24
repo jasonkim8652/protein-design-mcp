@@ -74,7 +74,7 @@ from). What is NOT present anywhere on this host (confirmed by an
 exhaustive search across every real mounted filesystem, 2026-09-22) is the
 local database set `colabfold_search` needs to search against --
 `uniref30_2302_db`, `colabfold_envdb_202108_db`, and the rest of
-ColabFold's own `setup_databases.sh` output. `/home/jk661/.cache/colabfold_dbs`
+ColabFold's own `setup_databases.sh` output. the ColabFold database directory the deployment mounts
 (this tool's fixed local `dbbase`) is currently an EMPTY placeholder
 directory this project created only so the manifest's mount-existence
 check (every `engine.mounts` entry must exist on this host, checked at

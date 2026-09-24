@@ -101,7 +101,7 @@ confirmation of what stayed fixed, not a guess). `num_designs`, and under
 
 | Parameter | Type | Required | Default | Constraints | Description |
 |---|---|---|---|---|---|
-| `target_structure` | string | yes | `—` | pattern: `\.(pdb\|cif)(\.gz)?$` | The target to design against. Its chains are conditioned on; the binder is a new chain this tool adds. Pass the path a previous step returned. |
+| `target_structure` | string | yes | `—` | pattern: `\.(pdb\|cif)(\.gz)?$` | The target to design against. Its chains are conditioned on; the binder is a new chain this tool adds. Pass the path a previous step returned. WHERE THIS COMES FROM -- The target you want a binder against -- your own structure file, or a path a previous step returned. |
 | `target_chains` | array | yes | `—` | minItems: `1` | Which chains of `target_structure` to condition on, e.g. ["A"]. At least one: an empty list conditions on nothing, which is unconditional generation wearing a binder tool's name. Read the chain ids off the structure rather than assuming -- they differ per file. |
 | `binder_length_min` | integer | no | `80` | minimum: `8`<br>maximum: `1000` | Shortest binder to sample. BoltzGen picks a length in [binder_length_min, binder_length_max] per design, so equal values fix the length and a wide range trades designability for diversity. |
 | `binder_length_max` | integer | no | `140` | minimum: `8`<br>maximum: `1000` | Longest binder to sample. Must be at least binder_length_min. |

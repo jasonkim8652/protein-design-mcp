@@ -64,6 +64,10 @@ schema:
     pattern: '\.(pdb|cif|ent)$'
     required: true
     description: Path to a structure file containing both partners.
+
+      WHERE THIS COMES FROM -- A complex whose interface you want scored --
+      your own structure, or one a folding tool returned (`run_boltz`,
+      `run_chai1`, `run_alphafold3`).
     example: complex.pdb
   chain_a:
     type: string

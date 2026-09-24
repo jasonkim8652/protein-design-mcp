@@ -169,6 +169,9 @@ schema:
     description: >-
       The target to design against. Its chains are conditioned on; the binder
       is a new chain this tool adds. Pass the path a previous step returned.
+
+      WHERE THIS COMES FROM -- The target you want a binder against -- your
+      own structure file, or a path a previous step returned.
     example: target.cif
   target_chains:
     type: array

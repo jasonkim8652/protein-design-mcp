@@ -92,4 +92,4 @@ counted from the file's own CA atoms). `num_backbones`, and under
 | `eta` | number | no | `1.0` | minimum: `0.0`<br>maximum: `1.0` | DDIM sampler only (ignored for model_variant=legacy). Stochasticity: 0 is deterministic (ODE-like), 1 is DDPM-equivalent stochastic sampling. Genie 3's own default is 1.0. |
 | `n_sample_step` | integer | no | `100` | minimum: `1`<br>maximum: `1000` | DDIM sampler only (ignored for model_variant=legacy). Number of denoising steps out of the model's fixed 1000-step training schedule. Genie 3's own default is 100; more steps is finer-grained at roughly linear cost. |
 | `noise_scale` | number | no | `1.0` | minimum: `0.0`<br>maximum: `2.0` | Scales injected noise at each denoising step. Applies to both samplers. Genie 3's own default is 1.0 for both. |
-| `seed` | integer | no | `0` | minimum: `0` | Random seed. |
+| `seed` | integer | no | `0` | minimum: `0` | Random seed for the diffusion trajectory. Two runs with the same seed and the same parameters return the same backbones, so change it to sample a different set rather than re-running and expecting variety. It does not affect quality, only which samples you get. |

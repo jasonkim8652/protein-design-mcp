@@ -88,7 +88,7 @@ doc: |
   ## What this is
   RFdiffusion 1.1.0 (Watson et al. 2023; Baker lab / IPD), the original
   RFdiffusion, run from the actual checkout at
-  `/file_server/data/jk661/pioneer/RFdiffusion` (the package's own pip
+  the RFdiffusion checkout the deployment mounts (the package's own pip
   metadata points at a now-nonexistent path -- see the manifest's engine
   comment; this tool works around that with an explicit PYTHONPATH, and
   ALSO works around a live nvrtc/JIT compilation crash on this host's
@@ -224,6 +224,9 @@ schema:
       own parser does not accept mmCIF). Crop it around the intended
       interface before diffusing against a large target; see the doc's note
       on O(N^2) runtime scaling.
+
+      WHERE THIS COMES FROM -- The target you want a binder against -- your
+      own structure file, or a path a previous step returned.
     example: target.pdb
   contig:
     type: string
