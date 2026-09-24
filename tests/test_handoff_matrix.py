@@ -72,3 +72,24 @@ def test_array_valued_path_parameters_are_seen(manifests):
     looked only at scalars reported its producer as having nowhere to go."""
     params = matrix.path_parameters(manifests["run_boltzgen_filter"])
     assert "metrics_files" in params
+
+
+def test_no_required_path_is_unobtainable_from_a_workflow(capsys):
+    """A required path that no declared output can satisfy cannot be filled from
+    a plan at all. `design_spec` is required by all six BoltzGen tools and
+    produced by none of them -- the caller authors it -- and a model that
+    planned run_boltzgen_fold after RFdiffusion3 failed on exactly that, with no
+    way to know the parameter was not something an earlier step provides.
+
+    Covered by the same run as the format check; this names the case so a new
+    tool with an unobtainable prerequisite fails here rather than in a round.
+    """
+    assert matrix.main([]) == 0, capsys.readouterr().out
+
+
+def test_a_caller_authored_parameter_is_exempt_once_it_says_so(manifests):
+    """The exemption is the documentation, not a list of names: a parameter is
+    allowed to be unobtainable precisely when it tells the caller to write it."""
+    description = manifests["run_boltzgen_fold"].schema["design_spec"]["description"].lower()
+    assert "you write this file" in description
+    assert "no tool on this server produces" in description

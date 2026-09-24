@@ -156,8 +156,44 @@ def main(argv: "list[str] | None" = None) -> int:
                                 for p, a in sorted(accepting.items()))
                 )
 
+    # A required path that NO declared output can satisfy cannot be filled from
+    # a workflow at all. `design_spec` is required by all six BoltzGen tools and
+    # produced by none of them -- it is authored by the caller -- and a model
+    # planning run_boltzgen_fold with no way to know that fails on it every
+    # time. Either the parameter says where it comes from, or the tool cannot be
+    # reached from a plan.
+    producible: set[str] = set()
+    for producer in manifests.values():
+        for output in (producer.outputs or ()):
+            producible |= output_suffixes(output.pattern)
+
+    unreachable: list[str] = []
+    for consumer in manifests.values():
+        for name, spec in (consumer.schema or {}).items():
+            if not isinstance(spec, dict) or not spec.get("required"):
+                continue
+            pattern = path_parameters(consumer).get(name)
+            if name not in path_parameters(consumer):
+                continue
+            allowed = suffixes_for(pattern, name)
+            if allowed & producible:
+                continue
+            described = (spec.get("description") or "").lower()
+            if any(k in described for k in ("you write", "author", "supply your own",
+                                            "caller-authored", "you provide",
+                                            "write this yourself")):
+                continue
+            unreachable.append(
+                f"{consumer.name}.{name} requires {sorted(allowed) or 'an unmatched shape'} "
+                "and no tool here produces one; say where it comes from or the tool "
+                "cannot be reached from a planned workflow"
+            )
+
     for problem in problems:
         print(f"MISMATCH {problem}")
+    for problem in unreachable:
+        print(f"UNREACHABLE {problem}")
+    problems = problems + unreachable
     print(f"\n{checked} named handoff(s) checked, {len(problems)} mismatch(es)")
     return 1 if problems else 0
 

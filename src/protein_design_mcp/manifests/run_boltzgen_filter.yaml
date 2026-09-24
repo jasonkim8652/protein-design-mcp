@@ -164,6 +164,13 @@ schema:
       spec it is given before running any step at all, `--steps filtering`
       included. Pass the same file you used (or would have used) to produce
       the designs metrics_files/refold_structures came from.
+
+      YOU WRITE THIS FILE: no tool on this server produces a BoltzGen design
+      spec, so it cannot come from a previous step of a planned workflow. A
+      workflow that reaches any run_boltzgen_* tool has to carry a spec path
+      the caller authored -- confirmed by a run that planned run_boltzgen_fold
+      after RFdiffusion3 and failed on this parameter, because there was
+      nothing upstream that could have supplied one.
     example: design.yaml
   generated_files:
     type: array
