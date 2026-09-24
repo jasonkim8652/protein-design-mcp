@@ -56,7 +56,12 @@ _TOOL_MENTION = re.compile(r"\brun_[a-z0-9_]+\b")
 #: that explicitly disclaim one.
 _NOT_A_HANDOFF = re.compile(
     r"(not parsed|same role as|unlike|rather than|instead of|as opposed to|"
-    r"is not (?:read|used|consumed))", re.I)
+    r"is not (?:read|used|consumed)|"
+    # A sentence about WHERE A DESIGN LANDS names several generators to say
+    # they disagree about chain order. That is not this output going to them:
+    # run_mpnn's designs_fasta named five and was read as five handoffs.
+    r"write (?:their|its) design|into chain|chain order|they disagree|"
+    r"depends on the generator)", re.I)
 
 
 def _sentences_naming(description: str, tool: str) -> list[str]:

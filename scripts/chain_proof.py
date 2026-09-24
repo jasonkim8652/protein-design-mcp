@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import gzip
 import json
 import sys
 import time
@@ -68,6 +69,46 @@ def chain_sequences(path: str | Path) -> dict[str, str]:
             continue
         seen.add(key)
         chains.setdefault(chain, []).append(THREE_TO_ONE.get(line[17:20].strip(), "?"))
+    return {c: "".join(v) for c, v in chains.items()}
+
+
+
+def chain_sequences_any(path: str | Path) -> dict[str, str]:
+    """``{chain: sequence}`` from a PDB or a (gzipped) mmCIF.
+
+    Column positions in an mmCIF come from the `_atom_site.` loop header, never
+    from a fixed index: a positional parse of one of these files silently
+    produced 504 one-residue "chains".
+    """
+    p = Path(path)
+    if p.suffix not in (".cif", ".gz") and p.suffixes[-2:] != [".cif", ".gz"]:
+        return chain_sequences(p)
+    opener = gzip.open if p.suffix == ".gz" else open
+    columns: list[str] = []
+    chains: dict[str, list[str]] = {}
+    seen: set[tuple[str, str]] = set()
+    with opener(p, "rt") as handle:  # type: ignore[operator]
+        for raw in handle:
+            line = raw.strip()
+            if line.startswith("_atom_site."):
+                columns.append(line.split(".", 1)[1])
+                continue
+            if not columns or not line.startswith(("ATOM", "HETATM")):
+                continue
+            parts = line.split()
+            if len(parts) != len(columns):
+                continue
+            row = dict(zip(columns, parts))
+            chain = row.get("auth_asym_id") or row.get("label_asym_id")
+            number = row.get("auth_seq_id") or row.get("label_seq_id")
+            comp = row.get("label_comp_id")
+            if not chain or number is None or comp is None:
+                continue
+            key = (chain, number)
+            if key in seen:
+                continue
+            seen.add(key)
+            chains.setdefault(chain, []).append(THREE_TO_ONE.get(comp, "?"))
     return {c: "".join(v) for c, v in chains.items()}
 
 
@@ -275,6 +316,45 @@ def _check_the_fold_is_of_the_design_alone(results: dict[int, Any]) -> None:
     )
 
 
+
+def _fold_the_complex_from_mpnn(results: dict[int, Any]) -> dict[str, Any]:
+    """Split run_mpnn's ':'-joined design into one entry PER CHAIN.
+
+    Observed live: a model stripped the ':' and passed 574 residues as one
+    chain -- a 70-residue design plus a 504-residue target folded as a fusion
+    protein. Nothing refuses that: ':' is not a rejected character and not a
+    chain break the folder honours, so the result is a plausible structure
+    with no interface, and the scorer after it has no chain pair to score.
+    """
+    designs = results[0].get("designs") or []
+    assert designs, f"run_mpnn returned no designs: {results[0]}"
+    sequence = designs[0]["sequence"]
+    assert ":" in sequence, "expected a two-chain design from a two-chain input"
+    return {"chains": [{"sequence": part, "msa": None, "copies": 1}
+                       for part in sequence.split(":")],
+            "diffusion_samples": 1, "recycling_steps": 1, "sampling_steps": 25}
+
+
+def _check_the_fold_has_an_interface(results: dict[int, Any]) -> None:
+    designs = results[0].get("designs") or []
+    parts = designs[0]["sequence"].split(":")
+    payload = results[1]
+    assert not payload.get("error"), str(payload["error"])[:300]
+
+    structures = (payload.get("outputs") or {}).get("structures") or []
+    assert structures, f"run_boltz returned no structure: {list(payload)}"
+    path = structures[0] if isinstance(structures, list) else structures
+    chains = chain_sequences_any(path)
+    assert len(chains) == len(parts), (
+        f"run_boltz folded {len(chains)} chain(s) from {len(parts)} sequences -- "
+        "the joined string was passed through and became a fusion protein"
+    )
+    for part, folded in zip(sorted(parts, key=len), sorted(chains.values(), key=len)):
+        assert len(folded) == len(part), (
+            f"a folded chain is {len(folded)} residues but its sequence is {len(part)}"
+        )
+
+
 CHAINS: list[Chain] = [
     Chain(
         name="mpnn_preserves_target",
@@ -367,6 +447,25 @@ CHAINS: list[Chain] = [
             Step("run_esmfold2", _fold_the_designed_chain),
         ],
         check=_check_the_fold_is_of_the_design_alone,
+    ),
+    Chain(
+        name="mpnn_design_folds_as_a_complex",
+        why=(
+            "run_mpnn joins a two-chain design with ':'. Passed on whole, or "
+            "with the ':' stripped, a folding tool returns one run-on chain: a "
+            "fusion protein with no interface, which nothing refuses and an "
+            "interface scorer cannot use."
+        ),
+        needs=[str(TWO_CHAIN_COMPLEX)],
+        steps=[
+            Step("run_mpnn", {
+                "backbone_pdb": str(TWO_CHAIN_COMPLEX),
+                "chains_to_design": "B", "num_sequences": 1,
+                "model_type": "soluble", "seed": 5,
+            }),
+            Step("run_boltz", _fold_the_complex_from_mpnn),
+        ],
+        check=_check_the_fold_has_an_interface,
     ),
 ]
 

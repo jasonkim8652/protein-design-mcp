@@ -93,3 +93,15 @@ def test_a_caller_authored_parameter_is_exempt_once_it_says_so(manifests):
     description = manifests["run_boltzgen_fold"].schema["design_spec"]["description"].lower()
     assert "you write this file" in description
     assert "no tool on this server produces" in description
+
+
+def test_a_sentence_about_chain_order_is_not_read_as_a_handoff():
+    """run_mpnn's designs_fasta names five generators to say they disagree
+    about which chain holds the design. That is where a design LANDS, not
+    where this file goes, and reading it as five handoffs reported four
+    mismatches that do not exist."""
+    sentence = ("run_genie3_binder and run_rfdiffusion3_binder write their "
+                "design into chain A, run_rfdiffusion2 into chain B")
+    assert matrix._NOT_A_HANDOFF.search(sentence)
+    assert not matrix._NOT_A_HANDOFF.search(
+        "Feed this straight into run_boltzgen_filter's metrics_files")

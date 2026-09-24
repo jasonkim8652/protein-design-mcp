@@ -14,7 +14,30 @@ requires:
 outputs:
   - name: designs_fasta
     pattern: "seqs/*.fa"
-    description: Designed sequences in FASTA format.
+    description: >-
+      Designed sequences in FASTA format, and the same sequences come back in
+      this tool's JSON reply under `designs`.
+
+      A MULTI-CHAIN INPUT COMES BACK JOINED BY ':'. Given a generator's
+      two-chain complex, a design reads `<chain A>:<chain B>` -- the chains in
+      the file's own order, with ':' as the chain separator, not an amino acid.
+
+      SPLIT IT ON ':' BEFORE FOLDING. A folding tool takes ONE sequence per
+      entry in its `chains` list, so each part becomes its own entry. Handing
+      the joined string over, or stripping the ':' and passing the rest,
+      folds the design and the target as a single run-on chain -- a FUSION
+      PROTEIN, not a complex. Nothing refuses it: ':' is not a character the
+      validator rejects and not a chain break the folder honours, so what
+      comes back is a plausible structure with no interface, and an interface
+      scorer run on it afterwards has no chain pair to score. Observed live,
+      2026-09-23: a 70-residue design and a 504-residue target folded as one
+      574-residue chain.
+
+      WHICH PART IS THE DESIGN depends on the generator's chain order, and
+      they disagree -- run_genie3_binder and run_rfdiffusion3_binder write
+      their design into chain A, run_rfdiffusion2, run_protpardelle and
+      run_proteina_complexa_generate into chain B. It is the same chain you
+      named in `chains_to_design`.
     multiple: true
 
 summary: >-
