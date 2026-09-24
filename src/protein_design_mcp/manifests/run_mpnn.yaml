@@ -98,9 +98,20 @@ schema:
   backbone_pdb:
     type: string
     format: path
-    pattern: '\.(pdb|cif)$'
+    pattern: '\.(pdb|cif)(\.gz)?$'
     required: true
-    description: Backbone structure to design a sequence for.
+    description: >-
+      Backbone structure to design a sequence for. A GZIPPED `.pdb.gz` or
+      `.cif.gz` is accepted as-is: `run_rfdiffusion3_binder` writes its
+      `structure_cif` compressed, and ProDy -- which LigandMPNN parses with --
+      reads it directly, so decompressing first would be work the caller does
+      for nothing. Confirmed in the mpnn environment on RFdiffusion3's own
+      output: 4234 atoms parsed, all of them selected as protein.
+
+      Most generators return a TWO-CHAIN complex here: target plus design.
+      Name the design with `chains_to_design` or every chain is redesigned,
+      including the target -- which chain that is differs per generator, so
+      read the one you used.
     example: backbone.pdb
   model_type:
     type: string
