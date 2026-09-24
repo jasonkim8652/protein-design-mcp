@@ -77,6 +77,16 @@ from protein_design_mcp.manifest.loader import load_manifests_resilient  # noqa:
 
 DEFAULT_IMAGE = "protein-design-mcp:envs"
 
+# Docker's default /dev/shm is 64MB, and PyTorch's DataLoader moves tensors
+# between its workers through shared memory. Overflowing it is silent: the
+# worker waits for space that never comes and the parent waits for the
+# worker, so the run shows 0% GPU, a frozen VRAM figure and an empty stderr
+# rather than an error. Measured through this image on one 504-residue chain
+# with run_boltz -- 64MB: still running at 900s; 16g: 166.7s (21.5s outside
+# the container). 252- and 302-token inputs complete under the default, so
+# the symptom reads as "large folds are slow" until someone checks /dev/shm.
+SHM_SIZE = "16g"
+
 #: Environment variable naming the GPU index to expose to the container.
 GPU_ENV_VAR = "PROTEIN_DESIGN_GPU"
 #: Index used when that variable is unset.
@@ -160,6 +170,12 @@ def build_command(
         # command could not be used as the `mcpServers` entry it exists to
         # produce. -t only ever suited running a proof script in a terminal.
         "docker", "run", "--rm", "-i",
+        # Docker's 64MB default for /dev/shm is smaller than the tensors a
+        # DataLoader worker hands to its parent for a large structure. Too
+        # small does not raise: the worker blocks on shared memory that never
+        # frees, the parent blocks on the worker, and the GPU idles with an
+        # empty stderr. See SHM_SIZE.
+        f"--shm-size={SHM_SIZE}",
         f"--device=nvidia.com/gpu={gpu}",
         f"--user={uid}:{gid}",
         "-e", f"HOME={CONTAINER_HOME}",

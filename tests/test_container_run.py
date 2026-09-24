@@ -255,3 +255,39 @@ def test_the_command_sets_a_writable_home_for_the_mapped_user(container_run, der
     argv = container_run.build_command(prefixes, mounts, "img", "7")
     idx = argv.index("-e")
     assert argv[idx + 1] == f"HOME={container_run.CONTAINER_HOME}"
+
+
+def test_the_command_raises_shared_memory_above_dockers_default(container_run, derived):
+    """Docker gives a container 64MB of /dev/shm. PyTorch's DataLoader passes
+    tensors between its workers through shared memory, so an input too large
+    for it does not raise -- the worker blocks waiting for space that never
+    comes, the parent waits for the worker, and the GPU sits at 0% with
+    nothing written to stderr.
+
+    Measured through this image, folding one 504-residue chain with
+    run_boltz: at the 64MB default it was still running at 900s; with 16g it
+    finished in 166.7s. The same fold takes 21.5s outside the container, and
+    252- and 302-token inputs DO complete under the default (177s, 71s),
+    which is why three separate runs (584, 564 and 554 tokens) were read as
+    "large folds are slow" before anyone looked at /dev/shm.
+    """
+    prefixes, mounts = derived
+    argv = container_run.build_command(prefixes, mounts, "img", "7")
+    assert f"--shm-size={container_run.SHM_SIZE}" in argv
+    assert int(container_run.SHM_SIZE.rstrip("g")) >= 16
+
+
+def test_shared_memory_is_a_docker_flag_not_an_image_argument(container_run, derived):
+    """After the image name it would be passed to the server as an argument
+    and the container would still be on 64MB while looking configured."""
+    prefixes, mounts = derived
+    argv = container_run.build_command(prefixes, mounts, "img", "7")
+    assert argv.index("--shm-size=" + container_run.SHM_SIZE) < argv.index("img")
+
+
+def test_the_ipc_namespace_is_not_shared_with_the_host(container_run, derived):
+    """``--ipc=host`` fixes the same hang by giving the container the host's
+    shm namespace -- a far wider grant on a shared box than one number."""
+    prefixes, mounts = derived
+    argv = container_run.build_command(prefixes, mounts, "img", "7")
+    assert not any(a.startswith("--ipc") for a in argv)
