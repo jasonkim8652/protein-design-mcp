@@ -33,7 +33,12 @@ standard as of late 2026.
   physics-based interface analysis, which is not yet implemented here.
 
 ## What you must supply
-The PAE JSON a predictor emitted, and the structure it goes with.
+The PAE JSON a predictor emitted, and the structure it goes with. The
+structure must contain AT LEAST TWO CHAINS -- ipSAE scores the interface
+between a pair, so a single-chain structure is refused before the engine
+runs. A binder generated without a chain break comes back fused to its
+target as one chain and lands here; fold the binder and target as separate
+chains instead.
 
 ## What you get back
 `ipsae`, `iptm_af`, `pdockq` and the `chain_pair` they describe, and under

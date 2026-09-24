@@ -38,6 +38,7 @@ from typing import Any
 
 from protein_design_mcp.dispatch.env import CompletedRun
 from protein_design_mcp.manifest.schema import Manifest
+from protein_design_mcp.validation import ToolInputError
 
 # Columns this adapter needs by name. ipSAE's real output carries many more
 # columns (PAE, Dist, Type, ipSAE_d0chn, ipSAE_d0dom, ipTM_d0chn, pDockQ2,
@@ -51,6 +52,59 @@ _PDOCKQ_COL = "pDockQ"
 _REQUIRED_COLUMNS = (_CHAIN1_COL, _CHAIN2_COL, _IPSAE_COL, _IPTM_COL, _PDOCKQ_COL)
 
 
+def _chain_ids(path: Path) -> set[str]:
+    """Chain identifiers in a PDB or mmCIF structure, best effort.
+
+    Deliberately shallow: this backs a precondition, so it has to be cheap
+    and it has to be silent about anything it cannot read. A structure it
+    fails to parse returns an empty set, which the caller treats as "say
+    nothing and let the engine speak".
+    """
+    try:
+        text = path.read_text(errors="replace")
+    except OSError:
+        return set()
+
+    chains: set[str] = set()
+    for line in text.splitlines():
+        if line.startswith("ENDMDL"):
+            break
+        if line.startswith(("ATOM", "HETATM")):
+            # Fixed-column PDB, or whitespace-separated mmCIF _atom_site rows.
+            # A PDB ATOM line is 80 columns with the chain at 21; an mmCIF row
+            # is short and space-separated, so column 21 does not exist.
+            if len(line) > 21 and line[21].strip():
+                chains.add(line[21])
+            else:
+                fields = line.split()
+                if len(fields) >= 4:
+                    chains.add(fields[3])
+    return chains
+
+
+def _require_an_interface(structure: Path) -> None:
+    """ipSAE scores an interface; one chain has none.
+
+    Handed a single-chain structure, ``ipsae==1.0.1`` dies inside its own
+    scoring loop with ``cannot access local variable 'n0res_byres_all'``,
+    which says nothing about the input. It is a third-party CLI and not ours
+    to patch, but the precondition is ours to state. A live round reached
+    here with a binder that had been generated fused to its target as one
+    chain, folded as one chain, and scored as nothing.
+    """
+    chains = _chain_ids(structure)
+    if len(chains) == 1:
+        only = chains.pop()
+        raise ToolInputError(
+            f"run_ipsae.structure = {str(structure)!r} has one chain "
+            f"({only!r}); ipSAE scores the interface BETWEEN two chains and "
+            "has none to score here. Fold the binder together with its "
+            "target, as separate chains, and score that structure -- a "
+            "generator asked for a binder without a chain break returns the "
+            "two fused into one."
+        )
+
+
 def build_args(manifest: Manifest, params: dict[str, Any]) -> list[str]:
     """Translate validated parameters into ipSAE's argv.
 
@@ -61,6 +115,7 @@ def build_args(manifest: Manifest, params: dict[str, Any]) -> list[str]:
     site.
     """
     del manifest
+    _require_an_interface(Path(str(params["structure"])))
     return [
         str(params["pae_file"]),
         str(params["structure"]),

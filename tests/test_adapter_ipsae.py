@@ -154,3 +154,95 @@ def test_validation_fills_the_default_cutoffs():
     )
     assert params["pae_cutoff"] == 10.0
     assert params["dist_cutoff"] == 10.0
+
+
+# --- a single-chain structure has no interface to score ---------------------
+
+
+def _write(path, lines):
+    path.write_text("\n".join(lines) + "\n")
+    return path
+
+
+def _ca(serial, resname, chain, resseq):
+    return (f"ATOM  {serial:5d}  CA  {resname} {chain}{resseq:4d}"
+            "      0.000   0.000   0.000  1.00  0.00           C")
+
+
+def test_a_single_chain_structure_is_refused_before_ipsae_runs(tmp_path):
+    """ipSAE scores an INTERFACE between two chains. Handed a structure with
+    one chain, ipsae==1.0.1 dies inside its own scoring loop with
+
+        cannot access local variable 'n0res_byres_all' where it is not
+        associated with a value
+
+    which tells the caller nothing about what it did wrong. A live round hit
+    exactly this: a binder generated without a chain break came back fused to
+    its target as one 554-residue chain, folded as one chain, and reached
+    ipSAE with no interface in it.
+
+    The precondition is ours to state, so state it here -- the upstream CLI
+    is a third-party package and not ours to patch.
+    """
+    from protein_design_mcp.adapters.ipsae import build_args
+    from protein_design_mcp.validation import ToolInputError
+
+    structure = _write(tmp_path / "one.pdb",
+                       [_ca(i, "ALA", "A", i) for i in range(1, 4)])
+    with pytest.raises(ToolInputError) as excinfo:
+        build_args(None, {"pae_file": str(tmp_path / "p.json"),
+                          "structure": str(structure),
+                          "pae_cutoff": 10.0, "dist_cutoff": 10.0})
+    message = str(excinfo.value)
+    assert "one chain" in message or "1 chain" in message
+    assert "A" in message
+
+
+def test_a_two_chain_structure_is_accepted(tmp_path):
+    from protein_design_mcp.adapters.ipsae import build_args
+
+    structure = _write(tmp_path / "two.pdb",
+                       [_ca(1, "ALA", "A", 1), _ca(2, "GLY", "B", 1)])
+    args = build_args(None, {"pae_file": "/p.json", "structure": str(structure),
+                             "pae_cutoff": 10.0, "dist_cutoff": 10.0})
+    assert args == ["/p.json", str(structure), "10.0", "10.0"]
+
+
+def test_a_cif_structure_is_counted_too(tmp_path):
+    """boltz and AF3 hand ipSAE an mmCIF, which is the common path here."""
+    from protein_design_mcp.adapters.ipsae import build_args
+    from protein_design_mcp.validation import ToolInputError
+
+    single = _write(tmp_path / "one.cif", [
+        "data_x", "loop_", "_atom_site.group_PDB", "_atom_site.label_atom_id",
+        "_atom_site.label_comp_id", "_atom_site.label_asym_id",
+        "_atom_site.label_seq_id",
+        "ATOM CA ALA A 1", "ATOM CA GLY A 2",
+    ])
+    with pytest.raises(ToolInputError):
+        build_args(None, {"pae_file": "/p.json", "structure": str(single),
+                          "pae_cutoff": 10.0, "dist_cutoff": 10.0})
+
+
+def test_an_unreadable_structure_is_left_to_the_engine(tmp_path):
+    """The check is a precondition, not a file validator. If it cannot read
+    the structure it must not invent a refusal -- the engine's own error is
+    then the honest one."""
+    from protein_design_mcp.adapters.ipsae import build_args
+
+    missing = tmp_path / "nope.pdb"
+    args = build_args(None, {"pae_file": "/p.json", "structure": str(missing),
+                             "pae_cutoff": 10.0, "dist_cutoff": 10.0})
+    assert args[1] == str(missing)
+
+
+def test_the_refusal_says_what_to_do_about_it(tmp_path):
+    from protein_design_mcp.adapters.ipsae import build_args
+    from protein_design_mcp.validation import ToolInputError
+
+    structure = _write(tmp_path / "one.pdb", [_ca(1, "ALA", "A", 1)])
+    with pytest.raises(ToolInputError) as excinfo:
+        build_args(None, {"pae_file": "/p.json", "structure": str(structure),
+                          "pae_cutoff": 10.0, "dist_cutoff": 10.0})
+    assert "chain" in str(excinfo.value).lower()
+    assert "fold" in str(excinfo.value).lower()
