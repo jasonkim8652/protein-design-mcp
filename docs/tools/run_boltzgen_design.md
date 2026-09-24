@@ -42,11 +42,11 @@ itself; nothing about "what kind of binder this is" is inferred from a
 protocol name.
 
 ## When to use this instead of the alternatives
-- `run_rfdiffusion_binder` (not yet implemented) and
-  `run_rfdiffusion2` (not yet implemented) and
-  `run_rfdiffusion3_binder` (not yet implemented) and
-  `run_genie3_binder` (not yet implemented) and
-  `run_protpardelle` (not yet implemented)
+- `run_rfdiffusion_binder` and
+  `run_rfdiffusion2` and
+  `run_rfdiffusion3_binder` and
+  `run_genie3_binder` and
+  `run_protpardelle`
   are the direct siblings -- backbone-only binder generators
   that need a separate sequence-design step afterward (`run_mpnn`) rather
   than BoltzGen's own joint all-atom sampling.
@@ -57,7 +57,7 @@ protocol name.
   chain for redesign, to get the sequence BoltzGen's own pipeline would
   actually keep.
 - After that, refold the result with a structure predictor (e.g.
-  `run_chai1` (not yet implemented), `run_boltz` (not yet implemented))
+  `run_chai1`, `run_boltz`)
   and score the interface (`run_ipsae`) before trusting any candidate --
   this tool computes no confidence metric of its own.
 

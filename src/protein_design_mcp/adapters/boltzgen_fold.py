@@ -68,7 +68,10 @@ def build_args(manifest: Manifest, params: dict[str, Any]) -> list[str]:
         "--output",
         ".",
         "--steps",
-        "folding",
+        # `folding` refolds in complex, `design_folding` refolds the design
+        # alone. One engine task with a mode, which is why these were merged
+        # from two tools that differed by nothing else.
+        ("folding" if params["with_target"] else "design_folding"),
         "--devices",
         "1",
         # checkpoint/moldir/use_kernels MUST go through the top-level flags,

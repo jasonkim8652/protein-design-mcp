@@ -9,7 +9,7 @@
 
 ## Summary
 
-Co-fold one or more protein chains together and score the result with Promera's own confidence heads (iCS, ipSAE, pLDDT, pTM/ipTM) in a single pass. Unlike run_ipsae, which scores any predictor's PAE after the fact, this tool both PREDICTS the structure and reports its own confidence in that specific prediction -- the same relationship run_chai1 (not yet implemented)'s own ipTM has to its own structure. Promera's `Design` task (minibinder/nanobody generation) is a separate, composite pipeline and is not exposed by this tool.
+Co-fold one or more protein chains together and score the result with Promera's own confidence heads (iCS, ipSAE, pLDDT, pTM/ipTM) in a single pass. Unlike run_ipsae, which scores any predictor's PAE after the fact, this tool both PREDICTS the structure and reports its own confidence in that specific prediction -- the same relationship run_chai1's own ipTM has to its own structure. Promera's `Design` task (minibinder/nanobody generation) is a separate, composite pipeline and is not exposed by this tool.
 
 ## What this is
 Promera (github.com/bjing2016/promera, MIT licence, Bowen Jing), a
@@ -29,7 +29,7 @@ has to its own prediction. Do not read this tool's confidence output as a
 second opinion on someone else's structure, and do not feed this tool's
 structure through `run_ipsae` expecting a materially different number for
 the same interface -- if you want an independent check, use
-`run_rosetta_interface` (not yet implemented) or `run_prodigy` instead,
+`run_rosetta_interface` or `run_prodigy` instead,
 which score the physics, not the model's own confidence.
 
 ## When to use this instead of the alternatives

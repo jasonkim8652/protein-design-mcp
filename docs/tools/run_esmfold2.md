@@ -42,8 +42,7 @@ robustness deliberately).
   (e.g. scoring a designed binder against its target), use
   `run_promera`, `run_rf3`, or `run_alphafold2_multimer` -- all of which
   co-fold multiple chains and take an explicit alignment.
-- If you already have, or can build with `run_mmseqs_search` (not yet
-  implemented), an alignment for this sequence, a co-folding tool fed
+- If you already have, or can build with `run_mmseqs_search`, an alignment for this sequence, a co-folding tool fed
   that alignment will generally be more accurate than this MSA-free
   prediction. Reach for ESMFold2 for speed, not for the best possible
   single-chain structure.

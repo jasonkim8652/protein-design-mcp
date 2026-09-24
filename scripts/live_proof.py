@@ -704,9 +704,12 @@ CASES: list[dict] = [
         # Confirmed live on GPU 7: isError=False, one refolds entry with a
         # real design_ptm/design_iptm (no target-relative fields, correctly
         # -- the target is absent from this step's input entirely).
-        "tool": "run_boltzgen_design_fold",
+        "tool": "run_boltzgen_fold",
         "device": "cuda",
         "arguments": {
+            # The design refolded ALONE -- what used to be the separate
+            # run_boltzgen_design_fold tool, now a stated mode.
+            "with_target": False,
             "design_spec": "tests/fixtures/boltzgen/design_spec.yaml",
             "generated_files": [
                 "tests/fixtures/boltzgen/generated_designs/design_spec.cif",
@@ -731,6 +734,8 @@ CASES: list[dict] = [
         "tool": "run_boltzgen_fold",
         "device": "cuda",
         "arguments": {
+            # Refolded IN COMPLEX with its target.
+            "with_target": True,
             "design_spec": "tests/fixtures/boltzgen/design_spec.yaml",
             "generated_files": [
                 "tests/fixtures/boltzgen/generated_designs/design_spec.cif",

@@ -25,13 +25,13 @@ tens of seconds to a few minutes at the defaults) relative to the other
 structure predictors here.
 
 ## When to use this instead of the alternatives
-- `run_chai1` (not yet implemented), `run_protenix` (not yet implemented),
-  `run_openfold3` (not yet implemented) are the direct siblings -- same
+- `run_chai1`, `run_protenix`,
+  `run_openfold3` are the direct siblings -- same
   job shape (chains + optional per-chain MSA), different underlying
   model. Comparing their outputs on the SAME `msa` input is exactly what
   this server's MSA-tool-first design exists to make possible; do not
   change engines and alignment source in the same comparison.
-- `run_esmfold2` (not yet implemented) takes no MSA at all and is faster
+- `run_esmfold2` takes no MSA at all and is faster
   still, at some cost to accuracy on hard interfaces.
 - This tool never runs Boltz-2's affinity head. If you need a
   protein-ligand binding-affinity estimate, that head exists in the
@@ -50,8 +50,7 @@ in isolation. Nothing is inferred from anything else you have called.
 `msa` has no default: pass `null` to run that chain MSA-free (a real,
 supported choice, with reduced accuracy), or a path to the `unpaired_a3m`
 file `run_mmseqs_search` wrote for that exact sequence. Passing a paired
-a3m, or an a3m from a different search tool (e.g. `run_colabfold_search`
-(not yet implemented)) here is a format/database mismatch this tool
+a3m, or an a3m from a different search tool (e.g. `run_colabfold_search`) here is a format/database mismatch this tool
 cannot detect -- it will usually just predict worse, not fail. This wrapper never
 lets Boltz reach its own MSA server or run a local search itself, no
 matter what `msa` is set to.

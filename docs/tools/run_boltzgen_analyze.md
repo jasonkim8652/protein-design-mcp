@@ -9,7 +9,7 @@
 
 ## Summary
 
-Compute CPU metrics over a design and aggregate them into the ranking table `run_boltzgen_filter` reads -- BoltzGen's own `analysis` pipeline step, run in isolation. This step runs no model: no GPU use, no `boltz` import, pure geometry/dataframe computation (ΔSASA, backbone RMSD, non-covalent contacts, hydrophobic patches, liability scoring) over structures `run_boltzgen_fold`/`run_boltzgen_design_fold` already produced. Feed it the WHOLE outputs of run_boltzgen_design (or run_boltzgen_inverse_fold) and run_boltzgen_fold -- every file, not just the structures.
+Compute CPU metrics over a design and aggregate them into the ranking table `run_boltzgen_filter` reads -- BoltzGen's own `analysis` pipeline step, run in isolation. This step runs no model: no GPU use, no `boltz` import, pure geometry/dataframe computation (ΔSASA, backbone RMSD, non-covalent contacts, hydrophobic patches, liability scoring) over structures `run_boltzgen_fold`/`run_boltzgen_fold` with `with_target: false` already produced. Feed it the WHOLE outputs of run_boltzgen_design (or run_boltzgen_inverse_fold) and run_boltzgen_fold -- every file, not just the structures.
 
 ## What this is
 BoltzGen's `analysis` pipeline step (`boltzgen.task.analyze.analyze.Analyze`),
@@ -26,7 +26,7 @@ it, filter has nothing to read.
 
 **This step runs no model.** No GPU use, no `boltz` import -- CPU-only
 dataframe and structure-geometry computation over numbers
-`run_boltzgen_fold`/`run_boltzgen_design_fold` already produced elsewhere.
+`run_boltzgen_fold`/`run_boltzgen_fold` with `with_target: false` already produced elsewhere.
 
 ## `--protocol` is not exposed, for the same reason it is not exposed on
 `run_boltzgen_filter`: every setting a protocol preset would otherwise
@@ -63,7 +63,7 @@ its computed top-level values in the same argv concatenation).
   `refolded_structures` and `refold_metrics` outputs, passed through
   unfiltered.
 - `design_refold_structures` + `design_refold_metrics` (optional):
-  `run_boltzgen_design_fold`'s own outputs, if you also ran that tool --
+  `run_boltzgen_fold` with `with_target: false`'s own outputs, if you also ran that tool --
   required together with `designfolding_metrics: true` to get
   `designfolding-*` columns; leave both unset otherwise.
 
@@ -94,8 +94,8 @@ job, over the table this tool produces.
 | `generated_files` | array | yes | `—` | minItems: `2` | The WHOLE `outputs.generated_designs` (from run_boltzgen_design) or `outputs.inverse_folded_designs` (from run_boltzgen_inverse_fold) list -- every `.cif` AND `.npz` path that call returned, unfiltered. |
 | `refold_structures` | array | yes | `—` | minItems: `1` | `run_boltzgen_fold`'s own `refolded_structures` output, passed through unfiltered. |
 | `refold_metrics` | array | yes | `—` | minItems: `1` | `run_boltzgen_fold`'s own `refold_metrics` output, passed through unfiltered -- required to compute `design_iptm`, `min_interaction_pae`, and every other confidence-based column. |
-| `design_refold_structures` | array | no | `—` | minItems: `1` | `run_boltzgen_design_fold`'s own `refolded_structures` output, if you also ran that tool. Supply together with `design_refold_metrics` and set `designfolding_metrics: true` to get `designfolding-*` columns; leave unset otherwise. |
-| `design_refold_metrics` | array | no | `—` | minItems: `1` | `run_boltzgen_design_fold`'s own `refold_metrics` output, if you also ran that tool. Supply together with `design_refold_structures`. |
+| `design_refold_structures` | array | no | `—` | minItems: `1` | `run_boltzgen_fold` with `with_target: false`'s own `refolded_structures` output, if you also ran that tool. Supply together with `design_refold_metrics` and set `designfolding_metrics: true` to get `designfolding-*` columns; leave unset otherwise. |
+| `design_refold_metrics` | array | no | `—` | minItems: `1` | `run_boltzgen_fold` with `with_target: false`'s own `refold_metrics` output, if you also ran that tool. Supply together with `design_refold_structures`. |
 | `affinity_metrics` | boolean | no | `False` | — | Compute affinity-related columns. Requires an `affinity` step's output (small-molecule-binder campaigns) which no tool in this server produces -- BoltzGen's affinity head is protein-ligand only and excluded here the same way Boltz-2's is. Leave false. |
 | `backbone_fold_metrics` | boolean | no | `True` | — | Compute backbone-only refolding RMSD metrics (`bb_rmsd*`, `bb_designability_rmsd_*`). true is BoltzGen's own default for a normal (inverse-folded) run. |
 | `allatom_fold_metrics` | boolean | no | `True` | — | Compute all-atom refolding RMSD metrics (`rmsd`, `rmsd_design`), in addition to (or instead of, if the design was not inverse-folded) the backbone-only ones. true is BoltzGen's own default. |
@@ -110,7 +110,7 @@ job, over the table this tool produces.
 | `liability_analysis` | boolean | no | `True` | — | Score each designed sequence for developability liabilities (deamidation, oxidation, protease cleavage sites, N-terminal cyclization). true is BoltzGen's own default. |
 | `liability_modality` | string | no | `peptide` | enum: `['peptide', 'antibody']` | Which liability-scoring rules apply (deamidation/oxidation/protease- site heuristics differ between a short peptide and an antibody CDR). "peptide" is BoltzGen's own default for this step and the right choice for a bulk protein binder too (there is no third "protein" option in the underlying engine). |
 | `liability_peptide_type` | string | no | `linear` | enum: `['linear', 'cyclic']` | Whether liability scoring treats the designed chain as linear or head-to-tail cyclic. Only matters when `liability_modality` is "peptide". "linear" is BoltzGen's own default. |
-| `designfolding_metrics` | boolean | no | `False` | — | Compute the `designfolding-*`-prefixed columns (the design-alone self-consistency comparison). Requires `design_refold_structures` and `design_refold_metrics` to also be supplied (from `run_boltzgen_design_fold`) -- true without them raises a FileNotFoundError from the underlying engine, not a clean skip. NOTE: this parameter and the `design_refold_structures`/ `design_refold_metrics` inputs are covered by this tool's own unit tests but have NOT yet been exercised in a live GPU run (the live end-to-end verification of the design -> fold -> analyze -> filter chain used `designfolding_metrics: false`, to keep that verification to one clean run) -- treat this specific path as unit-tested, not live-verified, until someone runs it for real. |
+| `designfolding_metrics` | boolean | no | `False` | — | Compute the `designfolding-*`-prefixed columns (the design-alone self-consistency comparison). Requires `design_refold_structures` and `design_refold_metrics` to also be supplied (from `run_boltzgen_fold` with `with_target: false`) -- true without them raises a FileNotFoundError from the underlying engine, not a clean skip. NOTE: this parameter and the `design_refold_structures`/ `design_refold_metrics` inputs are covered by this tool's own unit tests but have NOT yet been exercised in a live GPU run (the live end-to-end verification of the design -> fold -> analyze -> filter chain used `designfolding_metrics: false`, to keep that verification to one clean run) -- treat this specific path as unit-tested, not live-verified, until someone runs it for real. |
 | `use_design_mask_for_target` | boolean | no | `False` | — | Use the design mask (rather than the chain-design mask) to decide what counts as "target" for target-relative metrics -- BoltzGen's own `protein-redesign` protocol default, for redesigning/optimizing an existing protein where every chain may carry designed residues. false (BoltzGen's default otherwise) is correct for a normal binder-design campaign where the target is a separate, entirely fixed chain. |
 | `compute_lddts` | boolean | no | `False` | — | Compute per-residue lDDT scores against the refolded structure. Adds noticeable CPU time (BoltzGen's own docs: ~5-15s per design). false is BoltzGen's own default when run through its CLI (its Analyze class's own Python default is true, but the CLI's analysis.yaml config overrides it to false). |
 | `num_processes` | integer | no | `32` | minimum: `1`<br>maximum: `128` | Number of worker processes for the CPU metric computation (`ProcessPoolExecutor`). 32 is BoltzGen's own default; lower it on a host with fewer cores available, or if you are running several of this server's tools concurrently and want to leave CPU headroom. |

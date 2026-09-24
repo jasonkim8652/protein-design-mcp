@@ -49,7 +49,7 @@ tool came from.
 | `run_alphafold3` | AlphaFold 3 | optional (paired + unpaired) |
 | `run_alphafold2_multimer` | AF2-Multimer / ColabFold | optional |
 | `run_boltzgen_fold` | BoltzGen (refolding mode) | none |
-| `run_boltzgen_design_fold` | BoltzGen (designfolding mode) | none |
+| `run_boltzgen_fold` with `with_target: false` | BoltzGen (designfolding mode) | none |
 
 No tool here requires an alignment, and none builds its own — see below.
 

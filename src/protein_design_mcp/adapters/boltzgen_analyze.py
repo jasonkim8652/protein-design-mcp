@@ -2,7 +2,7 @@
 
 Reassembles up to THREE prior tool calls' outputs
 (``run_boltzgen_design``/``run_boltzgen_inverse_fold``, ``run_boltzgen_fold``,
-optionally ``run_boltzgen_design_fold``) into the specific directory tree
+optionally ``run_boltzgen_fold` with `with_target: false``) into the specific directory tree
 ``boltzgen.task.analyze.analyze.Analyze`` expects (``design_dir`` itself for
 the original files, ``design_dir/refold_cif``/``fold_out_npz`` for the
 fold outputs, ``design_dir/refold_design_cif``/``fold_out_design_npz`` for

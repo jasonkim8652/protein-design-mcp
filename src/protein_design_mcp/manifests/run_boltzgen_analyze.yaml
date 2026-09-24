@@ -18,7 +18,7 @@ engine:
   # collected under their OWN name (results.collect_outputs namespaces every
   # declared output by spec name) -- `stage`+`stage_subdir` reassembles them
   # into the specific tree analyze.py expects before this engine runs.
-  # Optionally a THIRD call's output (run_boltzgen_design_fold) goes to
+  # Optionally a THIRD call's output (run_boltzgen_fold (with_target=false)) goes to
   # design_dir/fold_out_design_npz for the designfolding-* metrics.
   stage: ["generated_files", "refold_structures", "refold_metrics", "design_refold_structures", "design_refold_metrics"]
   stage_subdir:
@@ -80,7 +80,7 @@ summary: >-
   step, run in isolation. This step runs no model: no GPU use, no `boltz`
   import, pure geometry/dataframe computation (ΔSASA, backbone RMSD,
   non-covalent contacts, hydrophobic patches, liability scoring) over
-  structures `run_boltzgen_fold`/`run_boltzgen_design_fold` already
+  structures `run_boltzgen_fold`/`run_boltzgen_fold` with `with_target: false` already
   produced. Feed it the WHOLE outputs of run_boltzgen_design (or
   run_boltzgen_inverse_fold) and run_boltzgen_fold -- every file, not just
   the structures.
@@ -101,7 +101,7 @@ doc: |
 
   **This step runs no model.** No GPU use, no `boltz` import -- CPU-only
   dataframe and structure-geometry computation over numbers
-  `run_boltzgen_fold`/`run_boltzgen_design_fold` already produced elsewhere.
+  `run_boltzgen_fold`/`run_boltzgen_fold` with `with_target: false` already produced elsewhere.
 
   ## `--protocol` is not exposed, for the same reason it is not exposed on
   `run_boltzgen_filter`: every setting a protocol preset would otherwise
@@ -138,7 +138,7 @@ doc: |
     `refolded_structures` and `refold_metrics` outputs, passed through
     unfiltered.
   - `design_refold_structures` + `design_refold_metrics` (optional):
-    `run_boltzgen_design_fold`'s own outputs, if you also ran that tool --
+    `run_boltzgen_fold` with `with_target: false`'s own outputs, if you also ran that tool --
     required together with `designfolding_metrics: true` to get
     `designfolding-*` columns; leave both unset otherwise.
 
@@ -223,7 +223,7 @@ schema:
       format: path
     required: false
     description: >-
-      `run_boltzgen_design_fold`'s own `refolded_structures` output, if you
+      `run_boltzgen_fold` with `with_target: false`'s own `refolded_structures` output, if you
       also ran that tool. Supply together with `design_refold_metrics` and
       set `designfolding_metrics: true` to get `designfolding-*` columns;
       leave unset otherwise.
@@ -236,7 +236,7 @@ schema:
       format: path
     required: false
     description: >-
-      `run_boltzgen_design_fold`'s own `refold_metrics` output, if you also
+      `run_boltzgen_fold` with `with_target: false`'s own `refold_metrics` output, if you also
       ran that tool. Supply together with `design_refold_structures`.
     example: ["design_spec_0.npz"]
   affinity_metrics:
@@ -383,7 +383,7 @@ schema:
       Compute the `designfolding-*`-prefixed columns (the design-alone
       self-consistency comparison). Requires `design_refold_structures` and
       `design_refold_metrics` to also be supplied (from
-      `run_boltzgen_design_fold`) -- true without them raises a
+      `run_boltzgen_fold` with `with_target: false`) -- true without them raises a
       FileNotFoundError from the underlying engine, not a clean skip.
       NOTE: this parameter and the `design_refold_structures`/
       `design_refold_metrics` inputs are covered by this tool's own unit

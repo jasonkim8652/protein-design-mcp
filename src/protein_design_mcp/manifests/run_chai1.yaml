@@ -51,8 +51,7 @@ doc: |
   the other co-folding tools here: `chains` lists exactly who's present.
 
   ## When to use this instead of the alternatives
-  - `run_boltz`, `run_protenix` (not yet implemented), `run_openfold3` (not
-    yet implemented) are the direct siblings -- same job shape, different
+  - `run_boltz`, `run_protenix`, `run_openfold3` are the direct siblings -- same job shape, different
     model. Compare them on the SAME `msa` input; do not change engine and
     alignment source in the same comparison.
   - **This tool cannot feed `run_ipsae`.** Chai-1's own CLI never writes
@@ -60,8 +59,7 @@ doc: |
     folding routine in `chai1.py` keeps `pae_scores` only in the in-memory
     `StructureCandidates` return value, which the CLI entry point never
     saves). Use `per_chain_pair_iptm` from this tool's own output to rank
-    interfaces, or predict with `run_boltz`/`run_protenix` (not yet
-    implemented)/`run_openfold3` (not yet implemented) when you need a
+    interfaces, or predict with `run_boltz`/`run_protenix`/`run_openfold3` when you need a
     PAE-based ipSAE score.
   - Templates and explicit contact/pocket constraints are not exposed by
     this tool (Chai-1 supports both, but scoping this tool to the

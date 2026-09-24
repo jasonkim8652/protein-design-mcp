@@ -40,7 +40,7 @@ row pairing across chains, its own header convention) -- a caller
 supplying an arbitrary per-chain a3m for a multi-chain `sequences` list
 must already have it in that exact shape; `run_mmseqs_search`'s plain
 per-chain `unpaired_a3m` is NOT pre-paired and is not a drop-in here.
-`run_colabfold_search` (not yet implemented) is the intended producer of
+`run_colabfold_search` is the intended producer of
 a correctly paired multimer a3m for this tool.
 
 ## `sequences` -- chain composition is explicit, never inferred

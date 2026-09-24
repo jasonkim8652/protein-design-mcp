@@ -299,7 +299,7 @@ schema:
       metrics table (`metrics_files`) to carry a `designfolding-rmsd`/
       `designfolding-bb_rmsd` column -- only present if `run_boltzgen_analyze`
       was run with `designfolding_metrics: true`, which itself requires
-      `run_boltzgen_design_fold` to have produced that data. true against
+      `run_boltzgen_fold` with `with_target: false` to have produced that data. true against
       metrics with no such column raises a KeyError from the underlying
       engine, not a clean filtered-out result -- leave this false unless
       you have confirmed that column exists.

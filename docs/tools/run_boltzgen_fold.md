@@ -16,7 +16,7 @@ BoltzGen's `folding` pipeline step
 (`boltzgen.task.predict.predict.Predict` over `fold.yaml`, writer
 `FoldingWriter`), run in isolation via `boltzgen run <design_spec>
 --steps folding`. Refolds each design WITH its target chain(s) present
-(unlike `run_boltzgen_design_fold`, which refolds the design ALONE) using
+(unlike `run_boltzgen_fold` with `with_target: false`, which refolds the design ALONE) using
 BoltzGen's own confidence model -- the same architecture family as
 Boltz-2, but this is BoltzGen's own weights, not a call to `run_boltz`.
 Reports the interface confidence metrics that make this the step
@@ -34,11 +34,11 @@ the path this tool actually takes would be misleading to document as a
 real choice.
 
 ## When to use this instead of the alternatives
-- `run_boltzgen_design_fold` refolds the design ALONE, target absent -- a
+- `run_boltzgen_fold` with `with_target: false` refolds the design ALONE, target absent -- a
   self-consistency check on the design's own shape, not an interface
   confidence estimate. Run both if you want each design's `analyze` step
   (`run_boltzgen_analyze`) to include `designfolding-*` columns.
-- `run_chai1`/`run_boltz` (not yet implemented) are general-purpose
+- `run_chai1`/`run_boltz` are general-purpose
   structure predictors that take an MSA; this tool is BoltzGen-specific
   and MSA-free, and its output feeds `run_boltzgen_analyze` in the exact
   shape that step expects -- do not substitute a different predictor's
@@ -73,6 +73,7 @@ field is 0-1, higher is better.
 
 | Parameter | Type | Required | Default | Constraints | Description |
 |---|---|---|---|---|---|
+| `with_target` | boolean | yes | `—` | — | Whether the target chain(s) are PRESENT while the design is refolded. Two different experiments, and the one this server refuses to pick for you -- docs/TOOLS.md's own rule is that whether a prediction runs with the target present or on the binder alone is the caller's decision. true  -- refold the design IN COMPLEX with its target. An estimate of          the INTERFACE: does the model place this binder on this target. false -- refold the design ALONE, target removed. A self-consistency          check on the design's own shape: does the sequence fold back          into what the generator drew, independent of any binding.  Run both when you want run_boltzgen_analyze to carry both the `folding-*` and the `designfolding-*` columns; run_boltzgen_filter can then rank on either. No default: defaulting would make the more consequential of the two the silent one. |
 | `design_spec` | string | yes | `—` | pattern: `\.(yaml\|yml)$` | The design specification YAML the designs came from. Its content has no effect on this step's own numbers -- required only because `boltzgen run` validates every design spec it is given before running any step, `--steps folding` included. YOU WRITE THIS FILE: no tool on this server produces a BoltzGen design spec, so it cannot come from a previous step of a planned workflow. A workflow that reaches any run_boltzgen_* tool has to carry a spec path the caller authored -- confirmed by a run that planned run_boltzgen_fold after RFdiffusion3 and failed on this parameter, because there was nothing upstream that could have supplied one. |
 | `generated_files` | array | yes | `—` | minItems: `2` | The WHOLE `outputs.generated_designs` (from run_boltzgen_design) or `outputs.inverse_folded_designs` (from run_boltzgen_inverse_fold) list -- every `.cif` AND `.npz` path that call returned, passed through unfiltered. Both file types for at least one design are required (hence minItems: 2); dropping the `.npz` half leaves this tool with no way to read the design back. |
 | `folding_checkpoint` | string | no | `huggingface:boltzgen/boltzgen-1:boltz2_conf_final.ckpt` | — | Path or huggingface:repo:file reference for the folding (confidence model) checkpoint. BoltzGen's own default, already cached on this host (~2.0G). |

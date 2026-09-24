@@ -21,7 +21,7 @@ Predicting how a set of protein chains fold together, same job shape as
 the other co-folding tools here.
 
 ## When to use this instead of the alternatives
-- `run_boltz`, `run_chai1`, `run_protenix` (not yet implemented) are the
+- `run_boltz`, `run_chai1`, `run_protenix` are the
   direct siblings -- same job shape, different model. Compare them on
   the SAME `msa` input; do not change engine and alignment source in the
   same comparison.

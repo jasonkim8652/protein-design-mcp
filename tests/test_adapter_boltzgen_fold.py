@@ -22,6 +22,9 @@ def _base_params(**overrides):
         {
             "design_spec": "design.yaml",
             "generated_files": ["a.cif", "a.npz"],
+            # Required and undefaulted: refolding in complex and refolding the
+            # design alone are different experiments, so the mode is stated.
+            "with_target": True,
             **overrides,
         },
     )
