@@ -1,4 +1,11 @@
 """
+Test HF implementation of ESM2 scoring vs fair-esm. HF is stilll maintained but fair-esm isn't
+"""
+
+
+#orignal fair-esm scorer
+
+"""
 ESM2 pseudo-log-likelihood scorer for protein stability estimation.
 
 Uses masked marginal scoring: mask each position, sum log-probabilities
@@ -10,9 +17,9 @@ import logging
 import os
 from dataclasses import dataclass, field
 from typing import Any
-
+from protein_design_mcp.pipelines.esm2_scorer import ESM2Scorer
 import numpy as np
-
+import asyncio
 logger = logging.getLogger(__name__)
 
 VALID_AA = set("ACDEFGHIKLMNPQRSTVWY")
@@ -30,7 +37,7 @@ def _default_device() -> str:
 class ESM2ScorerConfig:
     """Configuration for ESM2 scoring."""
 
-    model_name: str = os.environ.get("ESM2_MODEL", "facebook/esm2_t33_650M_UR50D")
+    model_name: str = os.environ.get("ESM2_MODEL", "esm2_t33_650M_UR50D")
     device: str | None = None
 
     def __post_init__(self):
@@ -38,7 +45,7 @@ class ESM2ScorerConfig:
             self.device = _default_device()
 
 
-class ESM2Scorer:
+class FairESM2Scorer:
     """Pseudo-log-likelihood scoring using ESM2.
 
     Computes a per-residue masked marginal probability: for each position,
@@ -63,18 +70,17 @@ class ESM2Scorer:
             return
 
         import torch
-        from transformers import AutoTokenizer, EsmForMaskedLM
+        import esm
 
-        # Load standard HF tokenizer and the Masked Language Model variant
-        tokenizer = AutoTokenizer.from_pretrained(self.config.model_name)
-        model = EsmForMaskedLM.from_pretrained(self.config.model_name)
+        model, alphabet = esm.pretrained.esm2_t33_650M_UR50D()
         model = model.eval()
 
         if self.config.device == "cuda" and torch.cuda.is_available():
-            model = model.to("cuda")
+            model = model.cuda()
 
         self._model = model
-        self._tokenizer = tokenizer
+        self._alphabet = alphabet
+        self._batch_converter = alphabet.get_batch_converter()
 
     # ------------------------------------------------------------------
     # Public API
@@ -84,7 +90,7 @@ class ESM2Scorer:
         """Compute wildtype marginal log-likelihood for a protein sequence.
 
         Single forward pass: run the unmasked sequence through ESM-2 and
-        collect log P(true_aa | context) at each position. This is ~L×
+        collect log P(true_aa | context) at each position.  This is ~L×
         faster than masked marginal scoring while correlating well with it
         for mutation scanning (Meier et al., 2021).
 
@@ -104,31 +110,27 @@ class ESM2Scorer:
 
         self._load_model()
 
-        # Tokenize using Hugging Face (adds special tokens <cls>/BOS and <eos> automatically)
-        inputs = self._tokenizer([sequence], return_tensors="pt")
-        batch_tokens = inputs["input_ids"]
+        data = [("protein", sequence)]
+        _, _, batch_tokens = self._batch_converter(data)
 
         if self.config.device == "cuda" and torch.cuda.is_available():
-            batch_tokens = batch_tokens.to("cuda")
+            batch_tokens = batch_tokens.cuda()
 
         with torch.no_grad():
             # Single forward pass — no masking
-            outputs = self._model(batch_tokens)
-            logits = outputs.logits  # (1, L+2, vocab_size)
-            
-            # Extract positions 1..L (skip BOS/cls at 0, EOS at L+1)
-            seq_logits = logits[0, 1 : len(sequence) + 1]  # (L, vocab_size)
-            log_probs = torch.log_softmax(seq_logits, dim=-1)  # (L, vocab_size)
+            logits = self._model(batch_tokens)["logits"]  # (1, L+2, vocab)
+            # Extract positions 1..L (skip BOS at 0, EOS at L+1)
+            seq_logits = logits[0, 1 : len(sequence) + 1]  # (L, vocab)
+            log_probs = torch.log_softmax(seq_logits, dim=-1)  # (L, vocab)
 
         # Per-residue score: log P(true_aa | context)
         per_residue: list[float] = []
         for i, aa in enumerate(sequence):
-            # Resolve the numeric token ID via the Hugging Face tokenizer mapping
-            token_idx = self._tokenizer.convert_tokens_to_ids(aa)
+            token_idx = self._alphabet.get_idx(aa)
             per_residue.append(log_probs[i, token_idx].item())
 
         # Extract logits for the 20 standard AAs (for fast mutation scanning)
-        aa_indices = [self._tokenizer.convert_tokens_to_ids(aa) for aa in "ACDEFGHIKLMNPQRSTVWY"]
+        aa_indices = [self._alphabet.get_idx(aa) for aa in "ACDEFGHIKLMNPQRSTVWY"]
         aa_log_probs = log_probs[:, aa_indices].cpu().numpy()  # (L, 20)
 
         mean_score = float(np.mean(per_residue))
@@ -139,6 +141,7 @@ class ESM2Scorer:
             "aa_log_probs": aa_log_probs,  # (L, 20) for fast mutation scan
             "sequence_length": len(sequence),
         }
+
     async def score_mutations(
         self,
         sequence: str,
@@ -218,3 +221,38 @@ class ESM2Scorer:
                 raise ValueError(f"Invalid mutation format: {m!r} (expected e.g. 'A42G')")
             parsed.append((match.group(1), int(match.group(2)), match.group(3)))
         return parsed
+
+async def verify_runners_convergence():
+    """
+    Verifies that the scorers converge
+    to the same structural outputs and confidence metrics.
+    """
+    test_sequence = "ACDEFGHIKLMNPQRSTVWY"
+    
+    # 1. Initialize and run FairESMFoldRunner
+    fair_scorer= FairESM2Scorer()
+    fair_result = await fair_scorer.score_sequence(test_sequence)
+    
+    # 2. Initialize and run HFESMFoldRunner
+    hf_scorer = ESM2Scorer()
+    hf_result = await hf_scorer.score_sequence(test_sequence)
+    
+    # 3. Assert close match on sequence scores
+    assert np.isclose(hf_result["sequence_score"], fair_result["sequence_score"], atol=1e-4), f"Sequence scores differ: HF={hf_result['sequence_score']}, Fair={fair_result['sequence_score']}"
+    # 4. Assert close match on per-residue scores
+    assert np.allclose(hf_result["per_residue_scores"], fair_result["per_residue_scores"], atol=1e-4), "Per-residue scores differ."
+    # 5. Assert close match on logits
+    assert np.allclose(hf_result["aa_log_probs"], fair_result["aa_log_probs"], atol=1e-4), "Logits differ."
+    # 6. Assert close match on sequence length
+    assert hf_result["sequence_length"] == fair_result["sequence_length"], "Sequence lengths differ." 
+
+def test_esmscore_runners_convergence():
+    """Synchronous wrapper for test runners."""
+    asyncio.run(verify_runners_convergence())
+
+if __name__ == "__main__":
+    try:
+        test_esmscore_runners_convergence()
+        print("Convergence validation successful: Both runners output equivalent geometries.")
+    except AssertionError as e:
+        print(f"Convergence validation failed:\n{e}")

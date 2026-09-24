@@ -70,37 +70,40 @@ class ESMFoldRunner:
         self._model = None
 
     def _load_model(self):
-        """Load ESMFold model (lazy loading)."""
+        """Load ESMFold model (lazy loading) via Hugging Face Transformers."""
         if self._model is None:
             try:
-                import sys
-                import types
                 import torch
+                from transformers import AutoTokenizer, EsmForProteinFolding
 
-                # Mock the missing openfold CUDA extension if not compiled.
-                # ESMFold falls back to pure PyTorch attention when this is absent.
-                if "attn_core_inplace_cuda" not in sys.modules:
-                    sys.modules["attn_core_inplace_cuda"] = types.ModuleType(
-                        "attn_core_inplace_cuda"
-                    )
+                # Hugging Face uses the unified identifier for ESMFold v1
+                model_name = "facebook/esmfold_v1"
 
-                import esm
+                # 1. Load the tokenizer (replaces the old alphabet/batch_converter)
+                self._tokenizer = AutoTokenizer.from_pretrained(model_name)
 
-                self._model = esm.pretrained.esmfold_v1()
-                self._model = self._model.eval()
+                # 2. Load the folding model architecture
+                self._model = EsmForProteinFolding.from_pretrained(model_name)
+                self._model.eval()
 
+                # 3. Handle device placement natively
                 if self.config.device == "cuda" and torch.cuda.is_available():
-                    self._model = self._model.cuda()
+                    self._model = self._model.to("cuda")
+                    # Optional: use half-precision on GPU for faster inference/lower VRAM footprint
+                    # self._model = self._model.half()
 
-                # Set chunk size for long sequences
+                # 4. Handle chunk size scaling for long sequences if configured
                 if self.config.chunk_size:
-                    self._model.set_chunk_size(self.config.chunk_size)
+                    # Hugging Face implementation uses 'esm.trunk.set_chunk_size' internally
+                    self._model.esm.trunk.set_chunk_size(self.config.chunk_size)
+
             except ImportError as e:
                 raise ESMFoldError(
-                    "ESMFold requires 'esm' package. Install with: pip install fair-esm"
+                    "ESMFold requires 'transformers' and 'accelerate' packages. "
+                    "Install with: uv add transformers accelerate"
                 ) from e
             except Exception as e:
-                raise ESMFoldError(f"Failed to load ESMFold model: {e}") from e
+                raise ESMFoldError(f"Failed to load Hugging Face ESMFold model: {e}") from e
 
         return self._model
 
@@ -123,12 +126,9 @@ class ESMFoldRunner:
         # Check all characters are valid amino acids
         return all(aa in VALID_AA for aa in seq_upper)
 
-    async def _predict_with_model(
-        self,
-        sequence: str,
-    ) -> PredictionResult:
+    async def _predict_with_model(self,sequence: str) -> PredictionResult:
         """
-        Run actual ESMFold prediction using model.infer() for accurate pTM.
+        Run actual ESMFold prediction using Hugging Face transformers.
 
         Args:
             sequence: Amino acid sequence
@@ -137,26 +137,41 @@ class ESMFoldRunner:
             PredictionResult with structure and metrics
         """
         import torch
+        import numpy as np
 
+        # 1. Ensure the model and its matching tokenizer are initialized
         model = self._load_model()
+        tokenizer = self._tokenizer
+
+        # 2. Tokenize the sequence (add_special_tokens=False mimics fair-esm behavior)
+        inputs = tokenizer([sequence], return_tensors="pt", add_special_tokens=False)
+        
+        # Move tokenized tensors to the target hardware device
+        if self.config.device == "cuda" and torch.cuda.is_available():
+            inputs = {k: v.to("cuda") for k, v in inputs.items()}
 
         with torch.no_grad():
-            # Use model.infer() to get full output including pTM tensor,
-            # then convert to PDB string via output_to_pdb().
-            raw_output = model.infer([sequence])
-            pdb_string = model.output_to_pdb(raw_output)[0]
+            # 3. Execute the forward pass
+            outputs = model(**inputs)
 
-            # Extract real pTM from model output
-            ptm = float(raw_output["ptm"].item())
+            # 4. Generate the PDB coordinates payload string using the native HF parser
+            pdb_strings = model.output_to_pdb(outputs)
+            pdb_string = pdb_strings[0]
 
-            # Extract pAE matrix if available
+            # 5. Extract structural confidence metrics natively
+            ptm = None
+            if hasattr(outputs, "ptm") and outputs.ptm is not None:
+                ptm = float(outputs.ptm.item())
+
+            # 6. Extract the Predicted Aligned Error (pAE) matrix
             pae_matrix = None
-            if "predicted_aligned_error" in raw_output:
-                pae = raw_output["predicted_aligned_error"]
-                if pae is not None and pae.numel() > 0:
+            if hasattr(outputs, "predicted_aligned_error") and outputs.predicted_aligned_error is not None:
+                pae = outputs.predicted_aligned_error
+                if pae.numel() > 0:
+                    # Shape is generally (batch_size, num_residues, num_residues)
                     pae_matrix = pae[0].cpu().numpy()
 
-        # Extract pLDDT from B-factor column of PDB
+        # 7. Extract pLDDT from the B-factor column of the generated PDB payload
         plddt_per_residue = self._extract_plddt_from_pdb(pdb_string)
         mean_plddt = float(np.mean(plddt_per_residue))
 

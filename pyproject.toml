@@ -42,6 +42,19 @@ dependencies = [
     "aiofiles>=23.0",
     "pyyaml>=6.0",
     "tqdm>=4.65",
+    "aiohttp>=3.14.1",
+    "fair-esm>=2.0.0",
+    "torch>=2.12.1",
+    "omegaconf>=2.3.1",
+    "openfold",
+    "ml-collections>=1.1.0",
+    "dm-tree>=0.1.8",
+    "scipy>=1.13.1",
+    "modelcif>=1.2",
+    "einops>=0.8.0",
+    "pytest>=9.1.0",
+    "transformers>=5.12.1",
+    "accelerate>=1.14.0",
 ]
 
 [project.optional-dependencies]
@@ -129,3 +142,9 @@ testpaths = ["tests"]
 pythonpath = ["src", "scripts"]
 asyncio_mode = "auto"
 addopts = "-v --tb=short"
+
+[tool.uv.sources]
+openfold = { git = "https://github.com/aqlaboratory/openfold.git" }
+
+[tool.uv.extra-build-dependencies]
+openfold = ["torch"]
