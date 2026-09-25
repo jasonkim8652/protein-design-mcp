@@ -244,3 +244,48 @@ def test_only_cc94_is_treated_as_all_atom():
     from protein_design_mcp.adapters import protpardelle
 
     assert protpardelle.ALL_ATOM_MODELS == {"cc94"}
+
+
+# --- a dangling chain break is not a chain ----------------------------------
+
+
+@pytest.mark.parametrize("contig,chains", [
+    ("B2-505;/;80-120", 2),   # the documented shape: a break BETWEEN segments
+    ("B2-505;/", 1),          # dangling break -- nothing follows it
+    ("/;80-120", 1),          # leading break -- nothing precedes it
+    ("B2-505", 1),            # no break at all
+    ("A1-50;/;20-30;/;40-60", 3),
+])
+def test_chain_count_matches_protpardelles_own(contig, chains):
+    """Protpardelle counts SEGMENTS, not separators. Our validator counted
+    `contig.count("/") + 1`, so `B2-505;/` read as two chains and a
+    `total_lengths` of two entries was accepted -- then Protpardelle refused it
+    from inside its own sampler:
+
+        AssertionError: Contig B2-505;/ has 1 chains but length ranges
+        specify 2 chains.
+
+    A live round sent exactly that. The count has to agree with the engine's,
+    or our validation passes malformed input through to an assertion.
+    """
+    from protein_design_mcp.adapters.protpardelle import contig_chain_count
+
+    assert contig_chain_count(contig) == chains
+
+
+def test_a_dangling_break_with_mismatched_lengths_is_refused(tmp_path):
+    from protein_design_mcp.adapters import protpardelle
+    from protein_design_mcp.validation import ToolInputError
+
+    target = tmp_path / "t.pdb"
+    target.write_text(
+        "ATOM      1  CA  ALA A   1       0.000   0.000   0.000  1.00  0.00           C\n")
+    with pytest.raises((ToolInputError, ValueError)) as excinfo:
+        protpardelle.build_args(None, {
+            "target_pdb": str(target), "contig": "B2-505;/",
+            "total_lengths": [[504, 504], [80, 120]], "hotspots": None,
+            "model": "cc83", "step_scale": 1.2, "schurn": 0.0,
+            "crop_cond_start": 0.0, "translation": [0.0, 0.0, 0.0],
+            "num_samples": 1, "batch_size": 1,
+        })
+    assert "1" in str(excinfo.value) and "2" in str(excinfo.value)

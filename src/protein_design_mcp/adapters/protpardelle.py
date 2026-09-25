@@ -46,6 +46,28 @@ def _validate_hotspots(hotspots: Any) -> list[str] | None:
     return hotspots
 
 
+def contig_chain_count(contig: str) -> int:
+    """How many chains a contig describes, counted the way Protpardelle counts.
+
+    Protpardelle counts SEGMENT GROUPS, not separators. Counting
+    ``contig.count("/") + 1`` instead made a DANGLING break -- ``"B2-505;/"``,
+    with nothing after it -- read as two chains, so a two-entry
+    ``total_lengths`` passed validation here and was then refused from inside
+    Protpardelle's own sampler:
+
+        AssertionError: Contig B2-505;/ has 1 chains but length ranges
+        specify 2 chains.
+
+    A live round sent exactly that. Our count has to agree with the engine's,
+    or validation waves malformed input through to an assertion.
+    """
+    groups = [
+        [token for token in group.split(";") if token]
+        for group in contig.split("/")
+    ]
+    return max(1, sum(1 for group in groups if group))
+
+
 def _validate_total_lengths(total_lengths: Any, contig: str) -> list[list[int]]:
     if not isinstance(total_lengths, list) or not total_lengths:
         raise ValueError(f"total_lengths must be a non-empty list, got {total_lengths!r}")
@@ -60,14 +82,14 @@ def _validate_total_lengths(total_lengths: Any, contig: str) -> list[list[int]]:
                 f"total_lengths entry {entry!r} must be a [min, max] pair of "
                 "integers with min <= max"
             )
-    # contig's own chain-break count ("/" segments) is one less than the
-    # number of chains it describes.
-    num_chains = contig.split(";").count("/") + 1
+    num_chains = contig_chain_count(contig)
     if len(total_lengths) != num_chains:
         raise ValueError(
             f"total_lengths has {len(total_lengths)} entries but contig "
-            f"{contig!r} describes {num_chains} chain(s) (one more than its "
-            "'/' chain-break count) -- these must match"
+            f"{contig!r} describes {num_chains} chain(s) -- these must match. "
+            "A chain is a SEGMENT, not a separator: '/' between two segments "
+            "makes two chains ('B2-505;/;80-120'), while a '/' with nothing "
+            "after it adds none ('B2-505;/' is one chain)."
         )
     return total_lengths
 
