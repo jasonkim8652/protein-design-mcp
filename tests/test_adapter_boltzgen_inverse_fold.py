@@ -213,3 +213,97 @@ def test_parse_output_ignores_npz_metadata_mixed_into_outputs(tmp_path):
 def test_manifest_inverse_folded_designs_pattern_also_collects_npz():
     pattern = _manifest().outputs[0].pattern
     assert pattern.endswith(".[cn][ip][fz]")
+
+
+# --- a generative spec is not a structure to inverse-fold -------------------
+
+
+def _spec(tmp_path, body):
+    import textwrap
+    path = tmp_path / "spec.yaml"
+    path.write_text(textwrap.dedent(body))
+    return path
+
+
+def test_a_length_range_entity_is_refused(tmp_path):
+    """BoltzGen's `--only_inverse_fold` reads `data.cfg.yaml_path=[spec]` and
+    inverse-folds THE STRUCTURE THE SPEC DESCRIBES -- it takes no structure
+    directory. A design spec describes a chain that does not exist yet:
+
+        entities:
+        - protein: {id: C, sequence: 80..140}
+
+    `80..140` is a length range, so there are no coordinates for chain C to
+    read. A live round chained run_boltzgen_design -> run_boltzgen_inverse_fold
+    and got a 94-residue sequence of nothing but T and G back, which every
+    later step then scored as if it were a design. `is_placeholder` cannot see
+    it: two distinct residues is not one.
+    """
+    from protein_design_mcp.adapters.boltzgen_inverse_fold import build_args
+    from protein_design_mcp.validation import ToolInputError
+
+    spec = _spec(tmp_path, """\
+        entities:
+        - protein:
+            id: C
+            sequence: 80..140
+        - file:
+            path: /t.pdb
+            include:
+            - chain:
+                id: B
+        """)
+    with pytest.raises(ToolInputError) as excinfo:
+        build_args(None, _params(spec))
+    message = str(excinfo.value)
+    assert "80..140" in message
+    assert "run_boltzgen_design" in message
+
+
+def test_a_fully_specified_spec_is_accepted(tmp_path):
+    from protein_design_mcp.adapters.boltzgen_inverse_fold import build_args
+
+    spec = _spec(tmp_path, """\
+        entities:
+        - protein:
+            id: C
+            sequence: WYFWYFWYFWYF
+        - file:
+            path: /t.pdb
+            include:
+            - chain:
+                id: B
+        """)
+    assert str(spec) in build_args(None, _params(spec))
+
+
+def test_a_spec_of_only_files_is_accepted(tmp_path):
+    """A structure supplied entirely by file is exactly this tool's case."""
+    from protein_design_mcp.adapters.boltzgen_inverse_fold import build_args
+
+    spec = _spec(tmp_path, """\
+        entities:
+        - file:
+            path: /complex.cif
+        """)
+    assert str(spec) in build_args(None, _params(spec))
+
+
+def test_an_unreadable_spec_is_left_to_the_engine(tmp_path):
+    """The check is a precondition, not a YAML validator."""
+    from protein_design_mcp.adapters.boltzgen_inverse_fold import build_args
+
+    missing = tmp_path / "nope.yaml"
+    assert str(missing) in build_args(None, _params(missing))
+
+
+def _params(spec):
+    return {
+        "design_spec": str(spec),
+        "inverse_fold_num_sequences": 8,
+        "inverse_fold_checkpoint": "ckpt",
+        "avoid_residues": "C",
+        "use_kernels": False,
+        "moldir": "/moldir",
+        "num_workers": 0,
+    }

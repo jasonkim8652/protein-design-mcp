@@ -17,6 +17,7 @@ CLI would have defaulted to.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -25,8 +26,55 @@ from Bio.SeqUtils import seq1
 
 from protein_design_mcp.dispatch.env import CompletedRun
 from protein_design_mcp.manifest.schema import Manifest
+from protein_design_mcp.validation import ToolInputError
 
 _CIF_PARSER = MMCIFParser(QUIET=True)
+
+#: A BoltzGen entity whose ``sequence`` is a LENGTH RANGE ("80..140") is a
+#: chain to be generated, not one that exists.
+_LENGTH_RANGE = re.compile(r"^\s*\d+\s*\.\.\s*\d+\s*$")
+
+
+def _refuse_generative_spec(spec: Path) -> None:
+    """Refuse a spec that describes a chain with no coordinates yet.
+
+    ``--only_inverse_fold`` passes ``data.cfg.yaml_path=[spec]`` and
+    inverse-folds THE STRUCTURE THE SPEC DESCRIBES; it takes no structure
+    directory. Handed run_boltzgen_design's own output spec -- whose binder
+    entity reads ``sequence: 80..140`` -- there are no coordinates for that
+    chain to read, and BoltzGen returned a 94-residue sequence of nothing but
+    T and G. Every later step then scored it as a design, and
+    ``is_placeholder`` could not see it: two distinct residues is not one.
+
+    Unreadable or unparseable specs pass through -- this is a precondition,
+    not a YAML validator, and the engine's own error is the honest one then.
+    """
+    try:
+        import yaml
+
+        data = yaml.safe_load(spec.read_text(errors="replace"))
+    except (OSError, ValueError):
+        return
+    if not isinstance(data, dict):
+        return
+    for entity in data.get("entities") or []:
+        if not isinstance(entity, dict):
+            continue
+        for kind, body in entity.items():
+            if kind == "file" or not isinstance(body, dict):
+                continue
+            sequence = body.get("sequence")
+            if isinstance(sequence, str) and _LENGTH_RANGE.match(sequence):
+                raise ToolInputError(
+                    f"run_boltzgen_inverse_fold.design_spec = {str(spec)!r} "
+                    f"describes chain {body.get('id')!r} as {sequence!r} -- a "
+                    "LENGTH RANGE, so that chain has no coordinates yet. This "
+                    "is a run_boltzgen_design spec (a design to generate), and "
+                    "inverse folding needs a structure that already exists. "
+                    "Generate the design first and inverse-fold its output, or "
+                    "pass a spec whose every protein entity has a real "
+                    "sequence or comes from a file."
+                )
 
 
 def build_args(manifest: Manifest, params: dict[str, Any]) -> list[str]:
@@ -36,6 +84,7 @@ def build_args(manifest: Manifest, params: dict[str, Any]) -> list[str]:
     ``protein_design_mcp.adapters.boltz`` for why.
     """
     del manifest
+    _refuse_generative_spec(Path(str(params["design_spec"])))
 
     return [
         str(params["design_spec"]),
