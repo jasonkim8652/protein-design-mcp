@@ -46,6 +46,38 @@ def _validate_hotspots(hotspots: Any) -> list[str] | None:
     return hotspots
 
 
+def assert_break_between_segments(contig: str) -> None:
+    """Every "/" must have a segment on BOTH sides.
+
+    Settled by a live matrix against the engine, not by reading one of its
+    parsers:
+
+        B2-505;/;80-120   ->  two chains (A:504, B:108)
+        B2-505;80-120     ->  ONE fused 613-mer -- runs, but not a binder
+        B2-505;/          ->  ValueError: invalid literal for int(): '/'
+
+    A dangling or leading "/" is a token with nothing to separate; it reaches
+    the engine's scaffold branch, which calls int("/"). The chain COUNT is
+    unaffected (segment groups, see below), which is why counting alone let
+    this through.
+    """
+    groups = contig.split("/")
+    if len(groups) == 1:
+        return
+    empty = [
+        i for i, group in enumerate(groups)
+        if not [token for token in group.split(";") if token]
+    ]
+    if empty:
+        raise ToolInputError(
+            f"run_protpardelle.contig = {contig!r} has a '/' with no segment on "
+            "one side of it. A chain break separates two segments -- "
+            "'B2-505;/;80-120' is the binder shape (target chain, break, "
+            "diffused length range). A trailing or leading '/' reaches the "
+            "engine's scaffold parser, which fails on int('/')."
+        )
+
+
 def contig_chain_count(contig: str) -> int:
     """How many chains a contig describes, counted the way Protpardelle counts.
 
@@ -82,6 +114,7 @@ def _validate_total_lengths(total_lengths: Any, contig: str) -> list[list[int]]:
                 f"total_lengths entry {entry!r} must be a [min, max] pair of "
                 "integers with min <= max"
             )
+    assert_break_between_segments(contig)
     num_chains = contig_chain_count(contig)
     if len(total_lengths) != num_chains:
         raise ValueError(

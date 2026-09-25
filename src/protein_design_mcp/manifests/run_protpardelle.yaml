@@ -176,9 +176,13 @@ schema:
     pattern: '^(?:/|[A-Za-z]?\d+-\d+)(?:;(?:/|[A-Za-z]?\d+-\d+))*$'
     required: true
     description: >-
-      Protpardelle-1c's own contig grammar (`;/;` for a chain break). See
-      the doc's worked examples. A malformed contig is rejected here rather
-      than failing deep inside the engine.
+      Protpardelle-1c's own contig grammar (`;/;` for a chain break). The
+      break is REQUIRED for a binder and must have a segment on BOTH sides.
+      Confirmed by running the engine: `B2-505;/;80-120` returns two chains
+      (A:504, B:108); `B2-505;80-120` runs but returns ONE fused 613-mer, not
+      a binder; `B2-505;/` dies inside the engine on int('/'). All three are
+      decided here rather than deep inside the engine. See the doc's worked
+      examples.
     example: "A1-128;/;120-120"
   total_lengths:
     type: array

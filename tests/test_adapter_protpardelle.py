@@ -289,3 +289,75 @@ def test_a_dangling_break_with_mismatched_lengths_is_refused(tmp_path):
             "num_samples": 1, "batch_size": 1,
         })
     assert "1" in str(excinfo.value) and "2" in str(excinfo.value)
+
+
+# --- a chain break needs a segment on both sides -----------------------------
+#
+# Settled by a live matrix against the engine (2026-09-25), not by reading one
+# of its parsers:
+#
+#   contig            total_lengths          result
+#   B2-505;80-120     [[584,624]]            PASS -- ONE fused 613-mer
+#   B2-505;/;80-120   [[504,504],[80,120]]   PASS -- two chains, A:504 B:108
+#   B2-505;/          [[504,504]]            int('/') ValueError
+#
+# So "/" IS the chain separator and is REQUIRED for a binder: without it the
+# design comes back fused to the target, exactly like an RFdiffusion3 contig
+# missing its "/0". `contig_to_motif_placement`'s docstring shows a grammar
+# with no "/" because it is one of several paths, not the whole grammar --
+# reading it as the whole grammar is what made the previous analysis wrong.
+#
+# The one rule still missing: a "/" with nothing on one side of it reaches the
+# engine's scaffold branch, which calls int("/").
+
+
+@pytest.mark.parametrize("contig", ["B2-505;/", "/;B2-505", "B2-505;/;", "/"])
+def test_a_chain_break_without_a_segment_on_both_sides_is_refused(contig, tmp_path):
+    from protein_design_mcp.adapters import protpardelle
+    from protein_design_mcp.validation import ToolInputError
+
+    target = tmp_path / "t.pdb"
+    target.write_text(
+        "ATOM      1  CA  ALA A   1       0.000   0.000   0.000  1.00  0.00           C\n")
+    with pytest.raises((ToolInputError, ValueError)) as excinfo:
+        protpardelle.build_args(None, {
+            "target_pdb": str(target), "contig": contig,
+            "total_lengths": [[80, 120]], "hotspots": None, "model": "cc83",
+            "step_scale": 1.2, "schurn": 0.0, "crop_cond_start": 0.0,
+            "translation": [0.0, 0.0, 0.0], "num_samples": 1, "batch_size": 1,
+        })
+    assert "/" in str(excinfo.value)
+
+
+def test_a_break_between_two_segments_is_accepted(tmp_path):
+    """The shape that produced two chains live."""
+    from protein_design_mcp.adapters import protpardelle
+
+    target = tmp_path / "t.pdb"
+    target.write_text(
+        "ATOM      1  CA  ALA A   1       0.000   0.000   0.000  1.00  0.00           C\n")
+    args = protpardelle.build_args(None, {
+        "target_pdb": str(target), "contig": "B2-505;/;80-120",
+        "total_lengths": [[504, 504], [80, 120]], "hotspots": None,
+        "model": "cc83", "step_scale": 1.2, "schurn": 0.0,
+        "crop_cond_start": 0.0, "translation": [0.0, 0.0, 0.0],
+        "num_samples": 1, "batch_size": 1,
+    })
+    assert "B2-505;/;80-120" in args
+
+
+def test_a_contig_with_no_break_at_all_is_still_accepted(tmp_path):
+    """It runs -- it just fuses the chains, which is the caller's call to make
+    and is what the parameter description now warns about."""
+    from protein_design_mcp.adapters import protpardelle
+
+    target = tmp_path / "t.pdb"
+    target.write_text(
+        "ATOM      1  CA  ALA A   1       0.000   0.000   0.000  1.00  0.00           C\n")
+    args = protpardelle.build_args(None, {
+        "target_pdb": str(target), "contig": "B2-505;80-120",
+        "total_lengths": [[584, 624]], "hotspots": None, "model": "cc83",
+        "step_scale": 1.2, "schurn": 0.0, "crop_cond_start": 0.0,
+        "translation": [0.0, 0.0, 0.0], "num_samples": 1, "batch_size": 1,
+    })
+    assert "B2-505;80-120" in args
