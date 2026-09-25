@@ -85,7 +85,13 @@ doc: |
   tool will fail on the same file, and the cause is still visible here.
 
   ## What it does not do
-  Side chains are not rebuilt. The chain is about to be redesigned, so
+  Side chains are not rebuilt, so the result is NOT a molecular-mechanics
+  input: `run_openmm_minimize` needs every residue's complete heavy-atom set
+  and refuses a backbone (a live round reached OpenMM's own
+  `ValueError: HIS residue (118) has the wrong set of atoms` this way).
+  Minimise the FOLDED complex a co-folding tool produces downstream, not this.
+
+  The chain is about to be redesigned, so
   invented side chains would be discarded by the next tool, and ProteinMPNN
   derives a virtual CB from N/CA/C regardless. The reconstructed backbone is
   an approximation of an unobserved geometry, not a measurement -- score the
