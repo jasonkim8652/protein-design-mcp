@@ -98,6 +98,10 @@ def main() -> None:
         "gpu",
         "--devices",
         "1",
+        # Avoid stalled multiprocessing DataLoader queues in the container.
+        # This changes input loading only, not prediction settings.
+        "--num_workers",
+        "0",
         "--recycling_steps",
         str(job["recycling_steps"]),
         "--sampling_steps",
@@ -131,9 +135,9 @@ def main() -> None:
     if job["subsample_msa"]:
         cmd.append("--subsample_msa")
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    sys.stdout.write(result.stdout)
-    sys.stderr.write(result.stderr)
+    # The dispatcher tees these inherited streams to retained logs. Buffering
+    # here would hide progress and discard it if the process group times out.
+    result = subprocess.run(cmd)
     sys.exit(result.returncode)
 
 
