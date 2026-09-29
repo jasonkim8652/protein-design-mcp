@@ -56,7 +56,7 @@ def test_build_args_serialises_all_job_fields():
     import json
 
     params = {
-        "complex_pdb": "/tmp/c.pdb",
+        "complex_pdb": str(Path(__file__).parent / "fixtures/test_pdbs/1BRS.pdb"),
         "interface": "A_B",
         "score_function": "ref2015",
         "pack_separated": True,
@@ -68,6 +68,19 @@ def test_build_args_serialises_all_job_fields():
     args = build_args(_manifest(), params)
     assert len(args) == 1
     assert json.loads(args[0]) == params
+
+
+def test_build_args_refuses_an_interface_with_a_missing_chain(tmp_path):
+    path = tmp_path / "monomer.pdb"
+    path.write_text("ATOM      1  CA  GLY A   1       1.000   1.000   1.000  1.00 50.00           C\nEND\n")
+    with pytest.raises(ValueError, match="missing.*B"):
+        build_args(_manifest(), validate_and_fill(_manifest(), {"complex_pdb": str(path), "interface": "A_B"}))
+
+
+def test_build_args_refuses_overlapping_interface_groups():
+    path = Path(__file__).parent / "fixtures/test_pdbs/1BRS.pdb"
+    with pytest.raises(ValueError, match="disjoint"):
+        build_args(_manifest(), validate_and_fill(_manifest(), {"complex_pdb": str(path), "interface": "AB_B"}))
 
 
 def test_parse_output_extracts_all_headline_fields():

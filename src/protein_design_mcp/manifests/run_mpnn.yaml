@@ -7,6 +7,10 @@ engine:
   repo: mpnn
   env: mpnn
   entry: ["python", "-m", "ligandmpnn.run"]
+  # Small sequential decoder operations are much slower with 64 CPU workers.
+  env_vars:
+    OMP_NUM_THREADS: "4"
+    MKL_NUM_THREADS: "4"
 
 requires:
   gpu: false

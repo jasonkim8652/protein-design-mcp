@@ -17,6 +17,7 @@ working PyRosetta install (see the manifest doc and the wave report).
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 from protein_design_mcp.dispatch.env import CompletedRun
@@ -38,6 +39,22 @@ def build_args(manifest: Manifest, params: dict[str, Any]) -> list[str]:
     every adapter's signature (see ``adapters_discovery``).
     """
     del manifest
+    # InterfaceAnalyzerMover can return zero-valued scores for a monomer
+    # whose requested partner does not exist. Refuse that input before launch.
+    from Bio.PDB import MMCIFParser, PDBParser
+
+    groups = [set(group) for group in params["interface"].split("_")]
+    if len(groups) != 2 or not all(groups) or groups[0] & groups[1]:
+        raise ValueError("Interface chain groups must be nonempty and disjoint")
+    path = Path(params["complex_pdb"])
+    parser = MMCIFParser(QUIET=True) if path.suffix.lower() == ".cif" else PDBParser(QUIET=True)
+    structure = parser.get_structure("interface", str(path))
+    model = next(structure.get_models())
+    present = {chain.id for chain in model if any(residue.id[0] == " " for residue in chain)}
+    missing = set.union(*groups) - present
+    if missing:
+        raise ValueError(f"Interface {params['interface']} has missing protein chains {sorted(missing)}; "
+                         f"chains present: {sorted(present)}. Supply the predicted complex structure.")
     job = {
         "complex_pdb": params["complex_pdb"],
         "interface": params["interface"],
