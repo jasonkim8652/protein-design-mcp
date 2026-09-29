@@ -27,13 +27,23 @@ Ten deployment-contract failures were subsequently fixed and their focused
 checks passed. Fifteen legacy host-suite failures remain: old pipeline output
 paths/host dependencies, inaccessible nonexistent-path fixtures, and an old
 AF2 default expectation. These are not represented as a passing full suite.
+The final host-suite rerun after the Rosetta/MPNN fixes reported **1,425 passed,
+six skipped and the same 15 legacy failures** (201.9 seconds). The 42-test
+Rosetta/MPNN selection passed, including missing and overlapping partner chains.
 
 ## Image and live execution
 
-Final image: `sha256:35038a524d97f8027b135a6a985612a91086f488d00c07416804bca27e28f772`.
+Final image: `sha256:843d7bced6ebf3f9c99b8270292d75245fd4861beb659d8c32c7768666fd9cb7`.
 Installed package and OCI version: **2.4.0**. Source revision:
-`5b94468` (full revision retained in the OCI image label).
-Uncompressed Docker image size: 234,210,225,184 bytes (approximately 218 GiB).
+`c0eec0b` (full revision retained in the OCI image label).
+Uncompressed Docker image size: 234,210,237,128 bytes (approximately 218 GiB).
+
+The runtime matrix and offline assay checks below used the preceding image
+`35038a524d97`, with the same runtime/weight payload. Follow-up live campaign
+checks exposed and fixed Rosetta's acceptance of absent partner chains and
+MPNN CPU oversubscription. The final image rejects a monomer requesting `A_B`,
+successfully scores the actual two-chain complex, and generates eight MPNN
+sequences through MCP in 7.19 seconds with four engine-local CPU workers.
 
 - A fresh, network-disabled container running as UID/GID 65532 loaded all
   **26 runtime groups**. No host environment, engine checkout or public-weight
