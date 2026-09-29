@@ -33,9 +33,9 @@ Rosetta/MPNN selection passed, including missing and overlapping partner chains.
 
 ## Image and live execution
 
-Final runtime image: `sha256:c949bd52edf611a96fb2078c0438ec1c5d1633b9013b5236cf7f64d8672def04`.
+Final runtime image: `sha256:46a7dcb772d5c4a1f16f856b4cead22c80e4dc6f9e2eb281c891780657c01053`.
 Installed package and OCI version: **2.4.0**. Source revision:
-`521b8cd` (full revision retained in the OCI image label).
+`3c127d3` (full revision retained in the OCI image label).
 Uncompressed Docker image size: approximately 218 GiB.
 
 The runtime matrix and offline assay checks below used the preceding image
@@ -105,3 +105,31 @@ The final image also passed fresh MCP discovery as UID/GID 65532 with networking
 disabled, an unrelated `/tmp` workspace, and no developer home mount: 37 tools,
 including AF2-Multimer and OpenMM, were available. This checks discovery rather
 than asserting successful inference for every tool.
+
+## Chai and campaign archival follow-up
+
+A full campaign exposed a Chai manifest pointing at `/opt/models/chai1`, while
+its packaged assets live in the Chai environment's native `downloads` directory.
+The manifest now points at those bundled files and checks all required assets
+at discovery. The exact failing 72-residue binder plus 504-residue target
+completed successfully in 227.15 seconds; ESM scoring followed in 14.31 seconds.
+
+The final image enables optional retained scratch with
+`PROTEIN_MCP_KEEP_WORKDIR=1`. Full stdout/stderr is tee-copied from subprocess
+pipes, preserving descendant lifetime and timeout cleanup. Success, engine
+failure, timeout, and parser failures expose retained paths for client archival.
+MCP request metadata may shorten the engine deadline, allowing cleanup and
+partial-file metadata to reach the client before its transport timeout.
+
+On this final image, a real epitope scan and a deliberately timed-out ESM call
+both returned retained files that ProteinMEM copied and hashed in its campaign
+archive. Discovery returned all 41 tools with external assets, and 37 in a
+fresh network-disabled container as UID/GID 65532 with only an unrelated writable
+workspace mounted. No developer-home mount was needed for the latter check.
+
+The 74-test retention, transport timeout, portable-path and wiring selection
+passed. The final full host suite reported **1,442 passed, six skipped and 15
+legacy failures** in 203.77 seconds. The failures remain in old AlphaFold2,
+ESMFold, ProteinMPNN and RFdiffusion pipeline expectations and inaccessible
+nonexistent-path fixtures in PDB/SASA tests; the full host suite is not green.
+Image publication is tracked separately from these local-image validations.
