@@ -589,7 +589,7 @@ schema:
       Path to an autoguidance ("bad") model checkpoint. Required when
       ag_ratio > 0 and guidance_w != 1.0 (generate.py's own assertion);
       unset otherwise, this engine's own default.
-    example: /home/jk661/projects/proteina-complexa/ckpts/complexa_bad.ckpt
+    example: autoguidance.ckpt
   save_trajectory_every:
     type: integer
     minimum: 0

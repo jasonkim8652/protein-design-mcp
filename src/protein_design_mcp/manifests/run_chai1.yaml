@@ -10,10 +10,19 @@ engine:
   - python
   - /app/scripts/engines/chai1.py
   env_vars:
-    CHAI_DOWNLOADS_DIR: /opt/models/chai1
+    CHAI_DOWNLOADS_DIR: /opt/conda/envs/chai1/lib/python3.10/site-packages/downloads
 
 requires:
   gpu: true
+  files:
+  - /opt/conda/envs/chai1/lib/python3.10/site-packages/downloads/conformers_v1.apkl
+  - /opt/conda/envs/chai1/lib/python3.10/site-packages/downloads/esm/traced_sdpa_esm2_t36_3B_UR50D_fp16.pt
+  - /opt/conda/envs/chai1/lib/python3.10/site-packages/downloads/models_v2/confidence_head.pt
+  - /opt/conda/envs/chai1/lib/python3.10/site-packages/downloads/models_v2/trunk.pt
+  - /opt/conda/envs/chai1/lib/python3.10/site-packages/downloads/models_v2/feature_embedding.pt
+  - /opt/conda/envs/chai1/lib/python3.10/site-packages/downloads/models_v2/diffusion_module.pt
+  - /opt/conda/envs/chai1/lib/python3.10/site-packages/downloads/models_v2/token_embedder.pt
+  - /opt/conda/envs/chai1/lib/python3.10/site-packages/downloads/models_v2/bond_loss_input_proj.pt
 
 outputs:
   - name: structures

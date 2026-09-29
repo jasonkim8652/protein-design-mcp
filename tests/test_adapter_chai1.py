@@ -174,3 +174,16 @@ def test_parse_output_does_not_rely_on_implicit_array_to_scalar_conversion(tmp_p
     assert result["ptm"] == pytest.approx(0.1)
     assert result["iptm"] == pytest.approx(0.1)
     assert result["has_inter_chain_clashes"] is False
+
+
+def test_bundled_download_directory_matches_installed_chai_layout():
+    from protein_design_mcp.app import manifest_dir
+    from protein_design_mcp.manifest.loader import load_manifests
+    manifest = next(m for m in load_manifests(manifest_dir()) if m.name == 'run_chai1')
+    root = '/opt/conda/envs/chai1/lib/python3.10/site-packages/downloads'
+    assert manifest.engine.env_vars['CHAI_DOWNLOADS_DIR'] == root
+    expected = {'conformers_v1.apkl', 'esm/traced_sdpa_esm2_t36_3B_UR50D_fp16.pt',
+                *('models_v2/' + name + '.pt' for name in (
+                    'confidence_head', 'trunk', 'feature_embedding', 'diffusion_module',
+                    'token_embedder', 'bond_loss_input_proj'))}
+    assert set(manifest.requires.files) == {root + '/' + path for path in expected}
