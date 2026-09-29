@@ -1,38 +1,17 @@
-"""The live-proof driver must cover every registered tool, on every device.
+"""The live-proof driver covers the declared tool surface on each device.
 
-This runs on the host without Docker: it checks the driver's coverage map
-against the registry, so an engine added without a live check fails here
-rather than being silently unproven.
-
-"registered" here means the FULL live server surface, not just
-``build_registry(...).tools()``: that registry-derived listing covers every
-manifest-backed engine, but ``describe_tool`` is a meta-tool with its own
-manifest (``meta_tools.DESCRIBE_TOOL_MANIFEST``) that ``ServerApp.list_tools``
-adds separately (see src/protein_design_mcp/app.py) and is never part of the
-registry. It is still a real tool a client can call through the same
-handler, and ``scripts/live_proof.py`` exercises it, so it belongs in the
-coverage set too.
-
-The tool surface is DEVICE-DEPENDENT: ``build_registry(device="cpu")``
-excludes every ``requires.gpu: true`` manifest (see
-``ToolRegistry._exclusion_reason``), so a coverage check pinned to one
-device can never see a GPU-only tool at all -- it would silently miss the
-majority of the server as GPU engines land. So "registered" is the UNION of
-what ``build_registry`` returns for every device ``scripts/live_proof.py``
-itself knows how to dispatch against (``live_proof.DEVICES``), computed
-independently of ``live_proof._registered_tool_names_by_device`` (not by
-importing and reusing it) so a bug in that helper cannot hide itself from
-both the script's own runtime check and this host-side one.
-
-Nothing here hardcodes a tool name: the expected set is built from the
-registry at import time, so it tracks whatever manifests currently exist
-instead of breaking the moment a wave of new tools lands.
+Coverage is a property of the shipped manifests, independent of which optional
+host environments happen to be installed where this test runs. Runtime path
+availability is exercised separately by test_manifest_registry.
 """
 
 import sys
+from dataclasses import replace
 from pathlib import Path
 
-from protein_design_mcp.app import build_registry
+from protein_design_mcp.app import manifest_dir
+from protein_design_mcp.manifest.loader import load_manifests
+from protein_design_mcp.manifest.registry import ToolRegistry
 from protein_design_mcp.meta_tools import DESCRIBE_TOOL_MANIFEST, GET_JOB_STATUS_MANIFEST
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
@@ -51,9 +30,13 @@ def _registered_tools_by_device() -> dict[str, set[str]]:
     naming it would fail ``test_no_case_references_an_unregistered_tool``
     even though it is a real tool ``ServerApp.call_tool`` dispatches.)
     """
+    manifests = [
+        replace(m, engine=replace(m.engine, prefix=None, prefix_host=None, env="coverage"))
+        for m in load_manifests(manifest_dir())
+    ]
     registered: dict[str, set[str]] = {}
     for device in DEVICES:
-        for tool in build_registry(device=device).tools():
+        for tool in ToolRegistry(manifests, device=device).tools():
             registered.setdefault(tool.name, set()).add(device)
     registered.setdefault(DESCRIBE_TOOL_MANIFEST.name, set()).update(DEVICES)
     registered.setdefault(GET_JOB_STATUS_MANIFEST.name, set()).update(DEVICES)

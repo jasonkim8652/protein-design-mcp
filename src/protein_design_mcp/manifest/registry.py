@@ -9,6 +9,8 @@ provide.
 from __future__ import annotations
 
 from collections.abc import Iterable
+import os
+from pathlib import Path
 from typing import Any
 
 from mcp.types import Tool
@@ -79,6 +81,15 @@ class ToolRegistry:
                 self._reasons[name] = reason
 
     def _exclusion_reason(self, manifest: Manifest) -> str | None:
+        if manifest.engine.prefix:
+            prefix = Path(manifest.engine.prefix)
+            try:
+                usable = prefix.is_dir() and os.access(prefix, os.R_OK | os.X_OK)
+            except OSError:
+                usable = False
+            if not usable:
+                return (f"{manifest.name} needs an engine environment at {str(prefix)!r}, "
+                        "which is missing or inaccessible in this runtime.")
         if manifest.composite:
             return (
                 f"{manifest.name} is a composite pipeline and is not exposed. "

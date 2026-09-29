@@ -51,8 +51,10 @@ def test_manifest_loads_and_requires_gpu():
     assert m.requires.gpu is True
 
 
-def test_manifest_uses_a_mounted_prefix():
-    assert _manifest().engine.prefix.endswith("/colabfold")
+def test_manifest_uses_the_in_image_environment():
+    assert _manifest().engine.env == "colabfold"
+    assert _manifest().engine.prefix is None
+    assert not _manifest().engine.mounts
 
 
 def test_manifest_forbids_remote_msa_modes_in_the_doc():

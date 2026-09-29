@@ -5,29 +5,10 @@ timeout_s: 3600
 
 engine:
   repo: colabfold
-  prefix: /home/jk661/.conda/envs/colabfold
+  env: colabfold
   entry: ["python", "/app/scripts/engines/alphafold2_multimer.py"]
-  # Plain, non-editable `pip install "colabfold[alphafold]"` from PyPI --
-  # `python -m protein_design_mcp.mounts /home/jk661/.conda/envs/colabfold
-  # colabfold` (run live, 2026-09-22) resolves entirely inside the prefix's
-  # own site-packages, no __editable__*.pth, no mounts needed for module
-  # resolution.
-  mounts:
-    # The 5 multimer_v3 parameter files (373MB each, public, not gated) and
-    # every other cached AF2 weight live under the host cache directory,
-    # outside the prefix. Passed explicitly as colabfold_batch's own
-    # `--data` flag by the wrapper (NOT via XDG_CACHE_HOME): colabfold
-    # resolves its cache root through `appdirs.user_cache_dir("colabfold")`,
-    # which reads XDG_CACHE_HOME -- and dispatch.env.EnvDispatcher defaults
-    # THAT into this run's scratch workdir so nothing writes into a
-    # read-only mount. Overriding XDG_CACHE_HOME back to the real cache
-    # root instead would also redirect every OTHER cache colabfold/jax
-    # touches (matplotlib, jax's own compilation cache, ...) into this
-    # read-only mount and fail the first time one of them tries to write.
-    # `--data` sidesteps the conflict entirely: only the weights path is
-    # redirected, everything else still defaults into the writable scratch
-    # workdir.
-    - /home/jk661/.cache/colabfold
+  # Runtime and all five multimer_v3 parameter sets are included in the image.
+  # COLABFOLD_WEIGHTS_DIR can override /opt/weights/colabfold at deployment.
 
 requires:
   gpu: true
@@ -58,8 +39,8 @@ summary: >-
 doc: |
   ## What this is
   AlphaFold2-Multimer, run through ColabFold's `colabfold_batch` CLI with
-  the `alphafold2_multimer_v3` model (all 5 parameter sets cached on this
-  host). Given a set of protein chains it predicts one joint structure and
+  the `alphafold2_multimer_v3` model (all 5 parameter sets included in the
+  image). Given a set of protein chains it predicts one joint structure and
   reports AlphaFold's own confidence (pLDDT, pTM, ipTM, PAE).
 
   ## `msa` -- remote search is never permitted, enforced in code

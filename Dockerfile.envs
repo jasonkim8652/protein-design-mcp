@@ -11,7 +11,7 @@
 # ENGINE, and a thin outer environment for the MCP server itself that shares
 # no dependencies with any engine.
 #
-# FIVE environments live in this image:
+# Isolated environments live in this image, including AF2-Multimer below:
 #   - "scoring": prodigy-prot AND ipsae — both pure-Python/CPU-only with no
 #     conflicting pins, so they share one environment (spec §5.1 only
 #     requires isolation where pins would otherwise collide). This is what
@@ -118,9 +118,8 @@ RUN micromamba create -y -n scoring -c conda-forge python=3.11 pip \
 # back to 1.7, including 1.11, so both packages are pinned together in one
 # `micromamba create` so the solver resolves compatible builds instead of
 # each being installed independently and potentially disagreeing.
-# pdbfixer is not imported by scripts/engines/openmm_minimize.py today (it
-# only uses openmm.app directly) — it is pinned now because the task
-# requires it, for a fixer-based cleanup step expected to land later.
+# pdbfixer supplies missing terminal heavy atoms (AF2 omits OXT) before
+# force-field matching; it does not rebuild loops or side chains.
 RUN micromamba create -y -n md -c conda-forge python=3.11 openmm=8.6.1 pdbfixer=1.11 \
     && micromamba run -n md python -c "import openmm; import pdbfixer; print('openmm', openmm.__version__); print('pdbfixer module imported OK:', pdbfixer.__file__)" \
     && micromamba clean --all --yes
@@ -201,6 +200,28 @@ RUN mkdir -p /opt/conda/envs/mpnn/etc/conda/activate.d \
 # binary would pin a build that the host's databases may outgrow.
 RUN micromamba create -y -n mmseqs -c conda-forge python=3.11 \
     && micromamba clean --all --yes
+
+# AF2-Multimer runs without host environments or a per-user weights cache.
+# Pins match the verified ColabFold runtime; keep CUDA/JAX isolated from MPNN.
+RUN micromamba create -y -n colabfold -c conda-forge python=3.10 pip \
+    && micromamba run -n colabfold pip install --no-cache-dir \
+        "colabfold[alphafold]==1.6.3" "alphafold-colabfold==2.3.20" \
+        "jax[cuda12]==0.6.2" "numpy==2.2.6" "chex==0.1.90" \
+    && micromamba run -n colabfold colabfold_batch --help > /dev/null \
+    && micromamba clean --all --yes
+
+ENV COLABFOLD_WEIGHTS_DIR=/opt/weights/colabfold
+USER root
+RUN mkdir -p /opt/weights/colabfold && chown -R $MAMBA_USER:$MAMBA_USER /opt/weights
+USER $MAMBA_USER
+RUN mkdir -p /opt/weights/colabfold \
+    && micromamba run -n colabfold python -c \
+        "from pathlib import Path; from colabfold.download import download_alphafold_params; download_alphafold_params('alphafold2_multimer_v3', Path('/opt/weights/colabfold'))" \
+    && micromamba run -n colabfold python -c \
+        "from pathlib import Path; p=Path('/opt/weights/colabfold/params'); assert all((p / f'params_model_{i}_multimer_v3.npz').stat().st_size > 100000000 for i in range(1,6))" \
+    && micromamba run -n colabfold python -c \
+        "from pathlib import Path; [p.unlink() for p in Path('/opt/weights/colabfold/params').glob('*.npz') if not p.name.endswith('_multimer_v3.npz')]" \
+    && chmod -R a+rX /opt/weights/colabfold
 
 RUN micromamba create -y -n server -c conda-forge python=3.11 pip \
     && micromamba clean --all --yes

@@ -123,11 +123,11 @@ def _check_doc_references(manifests: list[Manifest]) -> None:
 def _load_one(path: Path) -> Manifest:
     try:
         data = yaml.safe_load(path.read_text())
-    except yaml.YAMLError as exc:
+    except (yaml.YAMLError, OSError) as exc:
         raise ManifestError(f"{path.name}: invalid YAML: {exc}") from exc
     try:
         return parse_manifest(data)
-    except ManifestError as exc:
+    except (ManifestError, OSError) as exc:
         raise ManifestError(f"{path.name}: {exc}") from exc
 
 
@@ -145,7 +145,7 @@ def _probe_name(path: Path) -> str | None:
     """
     try:
         data = yaml.safe_load(path.read_text())
-    except yaml.YAMLError:
+    except (yaml.YAMLError, OSError):
         return None
     if not isinstance(data, dict):
         return None
@@ -272,11 +272,16 @@ def _sibling_doc_exclusions(manifests: list[Manifest]) -> dict[str, str]:
     return reasons
 
 
-def _doc_reference_exclusions(manifests: list[Manifest]) -> dict[str, str]:
+def _doc_reference_exclusions(
+    manifests: list[Manifest], *, known_names: set[str] | None = None
+) -> dict[str, str]:
     """Same rule as ``_check_doc_references``, but excludes only the
     manifest carrying the bad reference, not the tool it names.
     """
-    known = {m.name for m in manifests}
+    # A documented alternative can exist in the distribution without its
+    # optional runtime being installed on this machine. That does not make
+    # the referring tool unusable (or the reference a typo).
+    known = {m.name for m in manifests} | (known_names or set())
     reasons: dict[str, str] = {}
 
     for manifest in manifests:
@@ -340,6 +345,7 @@ def load_manifests_resilient(directory: Path) -> ManifestLoadResult:
 
     reasons: dict[str, str] = {}
     pairs: list[tuple[Path, Manifest]] = []
+    known_names: set[str] = set()
     for path in sorted(directory.glob("*.yaml")):
         try:
             pairs.append((path, _load_one(path)))
@@ -347,6 +353,7 @@ def load_manifests_resilient(directory: Path) -> ManifestLoadResult:
             message = str(exc)
             probed_name = _probe_name(path)
             if probed_name is not None:
+                known_names.add(probed_name)
                 # The name parsed before something later failed (bad
                 # category, empty summary, etc.) — key by it so a caller
                 # asking for THAT tool gets told why, not "unknown tool".
@@ -382,7 +389,9 @@ def load_manifests_resilient(directory: Path) -> ManifestLoadResult:
     reasons.update(sibling_reasons)
     manifests = [m for m in manifests if m.name not in sibling_reasons]
 
-    reference_reasons = _doc_reference_exclusions(manifests)
+    reference_reasons = _doc_reference_exclusions(
+        manifests, known_names=known_names | {m.name for _, m in pairs}
+    )
     reasons.update(reference_reasons)
     manifests = [m for m in manifests if m.name not in reference_reasons]
 

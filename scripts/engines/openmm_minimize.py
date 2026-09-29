@@ -11,6 +11,7 @@ import argparse
 
 from openmm import LangevinMiddleIntegrator, unit
 from openmm.app import PDBFile, ForceField, Modeller, Simulation, HBonds, NoCutoff
+from pdbfixer import PDBFixer
 
 FORCEFIELDS = {
     "amber14": ("amber14-all.xml", "amber14/tip3pfb.xml"),
@@ -26,7 +27,17 @@ def main() -> None:
     parser.add_argument("--forcefield", default="amber14", choices=sorted(FORCEFIELDS))
     args = parser.parse_args()
 
-    pdb = PDBFile(args.input_pdb)
+    # AF2's unrelaxed PDB omits OXT. Supply terminal heavy atoms before
+    # force-field matching; do not invent loops, residues or side chains.
+    pdb = PDBFixer(filename=args.input_pdb)
+    pdb.findMissingResidues()
+    pdb.missingResidues = {}
+    pdb.findMissingAtoms()
+    if pdb.missingAtoms:
+        raise ValueError("Input is missing non-terminal heavy atoms; supply a complete structure")
+    added_terminal_atoms = sum(len(atoms) for atoms in pdb.missingTerminals.values())
+    if added_terminal_atoms:
+        pdb.addMissingAtoms()
     forcefield = ForceField(*FORCEFIELDS[args.forcefield])
     modeller = Modeller(pdb.topology, pdb.positions)
     modeller.addHydrogens(forcefield)
@@ -55,6 +66,7 @@ def main() -> None:
     print(f"initial_potential_energy_kj_mol: {initial:.4f}")
     print(f"final_potential_energy_kj_mol: {final:.4f}")
     print(f"iterations: {args.max_iterations}")
+    print(f"added_terminal_atoms: {added_terminal_atoms}")
     print(f"output_pdb: {args.output_pdb}")
 
 

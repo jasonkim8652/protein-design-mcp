@@ -96,21 +96,39 @@ never a scientific choice.
 
 ## Running it
 
-v2 runs as a container whose engines live in **host environments mounted read-only**,
-rather than one image with everything pip-installed into a single Python. The engines
-here disagree about torch, CUDA and numpy in ways no single environment resolves.
+The image uses isolated micromamba environments for engines with conflicting
+Python, CUDA, torch and numpy requirements. AF2-Multimer, its five multimer_v3
+parameter sets, OpenMM/PDBFixer, LigandMPNN, PULCHRA, PRODIGY and ipSAE are
+included. No developer home directory or runtime weight download is needed for
+AF2 → OpenMM evaluation.
 
-### Quick start — no mounts
+### Quick start — no engine mounts
 
 ```bash
-docker run -i --rm jasonkim8652/protein-design-mcp:2.2.0
+docker run -i --rm --device=nvidia.com/gpu=0 \
+  jasonkim8652/protein-design-mcp:2.3.6
 ```
 
-This speaks MCP over stdio immediately and gives you **7 tools**: the five engines baked
-into the image (`run_prodigy`, `run_ipsae`, `run_openmm_minimize`, `run_mpnn`,
-`run_rosetta_interface`) plus the two meta tools. The other 34 are excluded, each with a
-reason you can read — a missing mount degrades the registry, it never crashes the
-server.
+This speaks MCP over stdio. On a GPU machine the portable image provides eight
+scientific tools (`run_alphafold2_multimer`, `run_openmm_minimize`, `run_mpnn`,
+`run_rebuild_backbone`, `run_prodigy`, `run_ipsae`, `run_epitope_scan`,
+`run_interface_residues`) plus the two discovery tools. Use a writable workspace
+mount for input and output files. AF2 accepts `msa: null` for offline prediction
+or a caller-supplied paired A3M; it does not query a remote MSA service. Set
+`COLABFOLD_WEIGHTS_DIR` only if you deliberately supply different deployment
+storage for the weights; the default is `/opt/weights/colabfold` inside the image.
+
+OpenMM fills missing terminal atoms such as OXT before adding hydrogens. It
+reports `added_terminal_atoms` and never rebuilds missing loops or side chains.
+The reported energies are force-field potential energies, not binding free
+energies; a difference of three minimized energies remains a computational proxy.
+
+Other engines still require their own environments, weights, databases or licenses.
+The full deployment manifests describe the development host; use a deployment
+manifest directory (`PROTEIN_MCP_MANIFEST_DIR`) for another installation. Missing
+or inaccessible optional engines are excluded with a reason and cannot prevent
+the bundled tools from loading. A documentation reference to an unavailable
+alternative does not exclude a working tool.
 
 ### Full surface — with mounts
 

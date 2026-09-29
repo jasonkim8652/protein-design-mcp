@@ -2,7 +2,7 @@
 
 **Category:** structure_prediction  
 **Engine:** `colabfold`  
-**Environment:** `/home/jk661/.conda/envs/colabfold`  
+**Environment:** `colabfold`  
 **GPU required:** yes
 
 > This file is generated from `src/protein_design_mcp/manifests/run_alphafold2_multimer.yaml`. Edit the manifest, then run `python scripts/generate_tool_docs.py`.
@@ -13,8 +13,8 @@ Co-fold one or more protein chains with AlphaFold2-Multimer via ColabFold (`cola
 
 ## What this is
 AlphaFold2-Multimer, run through ColabFold's `colabfold_batch` CLI with
-the `alphafold2_multimer_v3` model (all 5 parameter sets cached on this
-host). Given a set of protein chains it predicts one joint structure and
+the `alphafold2_multimer_v3` model (all 5 parameter sets included in the
+image). Given a set of protein chains it predicts one joint structure and
 reports AlphaFold's own confidence (pLDDT, pTM, ipTM, PAE).
 
 ## `msa` -- remote search is never permitted, enforced in code

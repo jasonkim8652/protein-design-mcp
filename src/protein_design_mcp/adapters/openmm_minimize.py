@@ -68,6 +68,7 @@ def _require_complete_residues(structure: Path) -> None:
 _INITIAL_RE = re.compile(r"initial_potential_energy_kj_mol:\s*(-?[\d.]+)")
 _FINAL_RE = re.compile(r"final_potential_energy_kj_mol:\s*(-?[\d.]+)")
 _ITER_RE = re.compile(r"iterations:\s*(\d+)")
+_TERMINAL_RE = re.compile(r"added_terminal_atoms:\s*(\d+)")
 
 
 def build_args(manifest: Manifest, params: dict[str, Any]) -> list[str]:
@@ -100,9 +101,11 @@ def parse_output(manifest: Manifest, run: CompletedRun) -> dict[str, Any]:
     initial_value = float(initial.group(1))
     final_value = float(final.group(1))
     iterations = _ITER_RE.search(run.stdout)
+    terminals = _TERMINAL_RE.search(run.stdout)
     return {
         "initial_potential_energy_kj_mol": initial_value,
         "final_potential_energy_kj_mol": final_value,
         "energy_change_kj_mol": final_value - initial_value,
         "iterations": int(iterations.group(1)) if iterations else None,
+        "added_terminal_atoms": int(terminals.group(1)) if terminals else None,
     }

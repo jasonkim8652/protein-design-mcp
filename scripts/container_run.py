@@ -135,14 +135,20 @@ def collect_paths(
     manifests, failures = load_manifests_resilient(manifest_dir)
     prefixes: set[tuple[str, str]] = set()
     mounts: set[tuple[str, str]] = set()
+    problems = [f"{name}: {reason}" for name, reason in sorted(failures.items())]
     for manifest in manifests:
         engine = manifest.engine
         if getattr(engine, "prefix", None):
             host = getattr(engine, "prefix_host", None) or engine.prefix
+            try:
+                if not Path(host).is_dir() or not os.access(host, os.R_OK | os.X_OK):
+                    raise OSError(f"environment directory is missing or inaccessible: {host}")
+            except OSError as exc:
+                problems.append(f"{manifest.name}: {exc}")
+                continue
             prefixes.add((host, engine.prefix))
         for mount in getattr(engine, "mounts", ()) or ():
             mounts.add((mount, mount))
-    problems = [f"{name}: {reason}" for name, reason in sorted(failures.items())]
     return prefixes, mounts, problems
 
 
@@ -228,7 +234,7 @@ def main() -> int:
             f"{len(missing)} missing",
             file=sys.stderr,
         )
-        return 1 if missing else 0
+        return 1 if missing or problems else 0
 
     print(" \\\n  ".join(shlex.quote(a) for a in build_command(prefixes, mounts, args.image, args.gpu)))
     return 0

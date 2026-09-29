@@ -25,6 +25,15 @@ def test_plain_tool_is_listed_and_resolvable():
     assert reg.resolve("run_prodigy").name == "run_prodigy"
 
 
+def test_missing_host_environment_is_not_advertised(tmp_path):
+    manifest = _m("run_optional", engine={"repo": "optional",
+        "prefix": str(tmp_path / "absent"), "entry": ["python"]})
+    reg = ToolRegistry([manifest])
+    assert reg.tools() == []
+    with pytest.raises(ToolNotAvailable, match="environment"):
+        reg.resolve("run_optional")
+
+
 def test_composite_tool_is_not_listed():
     reg = ToolRegistry([_m("run_boltzgen_run", composite=True)])
     assert reg.tools() == []

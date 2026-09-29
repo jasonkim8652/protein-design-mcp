@@ -12,21 +12,21 @@ into ``protein_design_mcp.adapters.alphafold2_multimer.build_args``.
 
 Invokes the `colabfold_batch` console script directly (on PATH inside this
 environment -- the verified invocation from the install report), pointing
-`--data` at the host's existing weights cache explicitly rather than via
-XDG_CACHE_HOME (see run_alphafold2_multimer.yaml's `engine.mounts` comment
-for why).
+`--data` at the image's bundled weights (or COLABFOLD_WEIGHTS_DIR).
+Other caches remain in writable scratch via XDG_CACHE_HOME.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 _JOBNAME = "query"
-_DATA_DIR = "/home/jk661/.cache/colabfold"
+_DATA_DIR = "/opt/weights/colabfold"
 
 
 def main() -> None:
@@ -66,7 +66,7 @@ def main() -> None:
     cmd = [
         "colabfold_batch",
         "--data",
-        _DATA_DIR,
+        os.environ.get("COLABFOLD_WEIGHTS_DIR") or _DATA_DIR,
         "--model-type",
         "alphafold2_multimer_v3",
         "--num-recycle",

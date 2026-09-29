@@ -9,11 +9,13 @@
 
 ## Summary
 
-Relax a structure with OpenMM molecular mechanics, removing the clashes and strained geometry that generative models routinely produce. Run this before any physics-based scoring; scoring an unrelaxed model measures its clashes more than its interface. Returns the energy before and after, and writes the relaxed structure.
+Relax a structure with OpenMM molecular mechanics, removing the clashes and strained geometry in predicted structures. Potential energy is sensitive to clashes and geometry. Returns the energy before and after, and writes the relaxed structure.
 
 ## What this is
 Gradient-based energy minimisation under an Amber or CHARMM force field,
-using OpenMM. Hydrogens are added before minimising.
+using OpenMM. Missing terminal heavy atoms (such as OXT, which AF2
+predictions omit) are added with PDBFixer before hydrogens are added.
+Missing internal residues or side chains are not reconstructed.
 
 ## What it is for
 Cleaning up a predicted or generated structure so that a physics-based score
@@ -23,8 +25,8 @@ atom clashes that dominate any energy term computed on them directly.
 ## When to use this instead of the alternatives
 - This is preparation, not scoring. It tells you the structure's internal
   energy improved; it says nothing about whether two chains bind.
-- For an interface score after relaxing, use `run_prodigy` for an absolute
-  free energy or `run_ipsae` for predictor confidence.
+- `run_prodigy` estimates binding affinity from structural contacts;
+  `run_ipsae` reports predictor confidence using the prediction and its PAE.
 - Minimisation moves atoms. If you need the original coordinates preserved
   exactly, score the input instead of the output.
 
@@ -33,7 +35,8 @@ A PDB file. Multi-chain inputs are relaxed as one system.
 
 ## What you get back
 `initial_potential_energy_kj_mol`, `final_potential_energy_kj_mol`,
-`energy_change_kj_mol`, `iterations`, and under `outputs` the path to
+`energy_change_kj_mol`, `iterations`, `added_terminal_atoms`, and under
+`outputs` the path to
 `minimized_pdb`.
 
 ## Parameters

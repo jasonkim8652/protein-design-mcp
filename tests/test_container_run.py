@@ -291,3 +291,26 @@ def test_the_ipc_namespace_is_not_shared_with_the_host(container_run, derived):
     prefixes, mounts = derived
     argv = container_run.build_command(prefixes, mounts, "img", "7")
     assert not any(a.startswith("--ipc") for a in argv)
+
+
+def test_inaccessible_prefix_is_excluded_from_generated_mounts(container_run, tmp_path, monkeypatch):
+    monkeypatch.setenv("STRICT_MANIFESTS", "0")
+    (tmp_path / "run_private.yaml").write_text('''
+name: run_private
+category: scoring
+engine: {repo: private, prefix: /private/env, entry: [python]}
+summary: Score.
+doc: Score.
+schema: {}
+''')
+    original = Path.is_dir
+
+    def is_dir(path):
+        if str(path) == "/private/env":
+            raise PermissionError("permission denied: /private/env")
+        return original(path)
+
+    monkeypatch.setattr(Path, "is_dir", is_dir)
+    prefixes, mounts, problems = container_run.collect_paths(tmp_path)
+    assert not prefixes and not mounts
+    assert any("/private/env" in problem for problem in problems)
