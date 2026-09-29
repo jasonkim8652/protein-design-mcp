@@ -526,3 +526,47 @@ async def test_manifest_env_vars_can_still_override_home(tmp_path):
         engine, ["-c", "import os; print(os.environ['HOME'])"], timeout=30
     )
     assert result.stdout.strip() == "/somewhere/else"
+
+
+@pytest.mark.asyncio
+async def test_retention_preserves_undeclared_intermediates_and_full_logs(tmp_path, monkeypatch):
+    monkeypatch.setenv("PROTEIN_MCP_KEEP_WORKDIR", "1")
+    dispatcher = EnvDispatcher(runner=None, scratch_root=tmp_path)
+    engine = EngineSpec(repo="py", env="unused", entry=(sys.executable,))
+    result = await dispatcher.run(engine, ["-c", "from pathlib import Path; import sys; Path('intermediate.pdb').write_text('ATOM\\n'); print('x'*12000); print('diagnostic', file=sys.stderr)"], timeout=30)
+    assert result.workdir.is_dir()
+    assert (result.workdir / "intermediate.pdb").read_text() == "ATOM\n"
+    assert Path(result.execution_artifacts["stdout"]).read_text() == "x" * 12000 + "\n"
+    assert Path(result.execution_artifacts["stderr"]).read_text() == "diagnostic\n"
+    assert result.execution_artifacts["workdir"] == str(result.workdir)
+    assert result.stdout == "x" * 12000 + "\n"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["exit", "timeout"])
+async def test_retention_preserves_partial_outputs_and_logs_on_failure(tmp_path, monkeypatch, failure):
+    monkeypatch.setenv("PROTEIN_MCP_KEEP_WORKDIR", "1")
+    dispatcher = EnvDispatcher(runner=None, scratch_root=tmp_path)
+    engine = EngineSpec(repo="py", env="unused", entry=(sys.executable,))
+    ending = "sys.exit(3)" if failure == "exit" else "time.sleep(30)"
+    script = "from pathlib import Path; import sys,time; Path('partial.cif').write_text('partial'); print('started', flush=True); print('diagnostic', file=sys.stderr, flush=True); " + ending
+    with pytest.raises(EngineError) as exc:
+        await dispatcher.run(engine, ["-c", script], timeout=0.5)
+    artifacts = exc.value.execution_artifacts
+    assert Path(artifacts["workdir"], "partial.cif").read_text() == "partial"
+    assert Path(artifacts["stdout"]).read_text() == "started\n"
+    assert Path(artifacts["stderr"]).read_text() == "diagnostic\n"
+
+
+@pytest.mark.asyncio
+async def test_retention_waits_for_and_kills_descendants_after_parent_exit(tmp_path, monkeypatch):
+    monkeypatch.setenv('PROTEIN_MCP_KEEP_WORKDIR', '1')
+    sentinel = tmp_path / 'leaked_child'
+    child = f"import time; time.sleep(0.8); open({str(sentinel)!r}, 'w').write('leaked')"
+    script = f"import subprocess,sys; subprocess.Popen([sys.executable, '-c', {child!r}])"
+    dispatcher = EnvDispatcher(runner=None, scratch_root=tmp_path)
+    engine = EngineSpec(repo='py', env='unused', entry=(sys.executable,))
+    with pytest.raises(EngineError, match='timed out'):
+        await dispatcher.run(engine, ['-c', script], timeout=0.3)
+    await asyncio.sleep(1)
+    assert not sentinel.exists()

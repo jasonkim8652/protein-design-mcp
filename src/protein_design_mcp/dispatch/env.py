@@ -34,6 +34,10 @@ _OOM_MARKERS = ("out of memory", "outofmemoryerror", "cuda error: out of memory"
 class EngineError(RuntimeError):
     """An engine subprocess failed, timed out, or could not be started."""
 
+    def __init__(self, message: str, *, execution_artifacts: dict[str, str] | None = None):
+        super().__init__(message)
+        self.execution_artifacts = execution_artifacts or {}
+
 
 @dataclass(frozen=True)
 class CompletedRun:
@@ -42,6 +46,7 @@ class CompletedRun:
     stderr: str
     workdir: Path
     outputs: dict[str, str | list[str]] = field(default_factory=dict)
+    execution_artifacts: dict[str, str] = field(default_factory=dict)
 
 
 def _excerpt(text: str, head: int = 1200, tail: int = 1800) -> str:
@@ -122,11 +127,42 @@ class EnvDispatcher:
         ``workdir``, if given, must come from ``new_workdir()`` (typically
         after staging files into it) and is used as-is instead of a fresh
         directory being created here. Its lifecycle — preserved on failure,
-        removed on success — is identical either way.
+        removed on success — is identical either way. Set
+        PROTEIN_MCP_KEEP_WORKDIR=1 to retain all intermediates and full logs
+        on both successful and failed calls for campaign archival.
         """
-        command = self.build_command(engine, args)
         if workdir is None:
             workdir = self._make_workdir()
+        keep_workdir = os.environ.get("PROTEIN_MCP_KEEP_WORKDIR", "").lower() in {
+            "1", "true", "yes",
+        }
+        artifacts = {"workdir": str(workdir)} if keep_workdir else {}
+        # Tee subprocess pipes to disk, including partial output before a
+        # timeout or cancellation. Keeping pipes preserves descendant lifecycle
+        # semantics: the call cannot finish while children still hold them open.
+        with contextlib.ExitStack() as log_files:
+            stdout_target = stderr_target = asyncio.subprocess.PIPE
+            if keep_workdir:
+                for name in ("stdout", "stderr"):
+                    artifacts[name] = str(workdir / f"engine.{name}.log")
+                stdout_target = log_files.enter_context(open(artifacts["stdout"], "wb"))
+                stderr_target = log_files.enter_context(open(artifacts["stderr"], "wb"))
+            try:
+                return await self._run(
+                    engine, args, timeout=timeout, outputs=outputs,
+                    workdir=workdir, execution_artifacts=artifacts,
+                    stdout_target=stdout_target, stderr_target=stderr_target,
+                )
+            except EngineError as exc:
+                exc.execution_artifacts = artifacts
+                raise
+
+    async def _run(
+        self, engine: EngineSpec, args: Sequence[Any], *, timeout: float,
+        outputs: Sequence[OutputSpec], workdir: Path,
+        execution_artifacts: dict[str, str], stdout_target: Any, stderr_target: Any,
+    ) -> CompletedRun:
+        command = self.build_command(engine, args)
 
         # env_vars is merged over a COPY of this process's environment —
         # never passed alone as env=, which would strip PATH and the
@@ -180,9 +216,20 @@ class EnvDispatcher:
 
         try:
             try:
-                stdout_b, stderr_b = await asyncio.wait_for(
-                    process.communicate(), timeout=timeout
-                )
+                if execution_artifacts:
+                    async def capture(stream, destination):
+                        while chunk := await stream.read(65536):
+                            destination.write(chunk)
+                            destination.flush()
+                    await asyncio.wait_for(asyncio.gather(
+                        process.wait(), capture(process.stdout, stdout_target),
+                        capture(process.stderr, stderr_target),
+                    ), timeout=timeout)
+                    stdout_b = stderr_b = b""
+                else:
+                    stdout_b, stderr_b = await asyncio.wait_for(
+                        process.communicate(), timeout=timeout
+                    )
             except asyncio.TimeoutError as exc:
                 try:
                     os.killpg(process.pid, signal.SIGKILL)
@@ -196,15 +243,18 @@ class EnvDispatcher:
                     f"Working directory preserved for diagnosis: {workdir}"
                 ) from exc
         except BaseException:
-            if process.returncode is None:
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                with contextlib.suppress(asyncio.CancelledError):
-                    await process.wait()
+            # The leader can exit before its workers; always kill the group.
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            with contextlib.suppress(asyncio.CancelledError):
+                await process.wait()
             raise
 
+        if execution_artifacts:
+            stdout_b = Path(execution_artifacts["stdout"]).read_bytes()
+            stderr_b = Path(execution_artifacts["stderr"]).read_bytes()
         stdout = stdout_b.decode("utf-8", errors="replace")
         stderr = stderr_b.decode("utf-8", errors="replace")
 
@@ -243,7 +293,8 @@ class EnvDispatcher:
         # Only a clean run's scratch directory is removed: a failed run
         # keeps its workdir (see the EngineError branches above) so it can
         # be inspected, since it may hold partial output or logs.
-        shutil.rmtree(workdir, ignore_errors=True)
+        if not execution_artifacts:
+            shutil.rmtree(workdir, ignore_errors=True)
 
         return CompletedRun(
             returncode=process.returncode,
@@ -251,4 +302,5 @@ class EnvDispatcher:
             stderr=stderr,
             workdir=workdir,
             outputs=collected,
+            execution_artifacts=execution_artifacts,
         )

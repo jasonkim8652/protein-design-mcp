@@ -156,6 +156,14 @@ OpenMM adds missing terminal atoms such as OXT before hydrogens, and reports
 `E_complex - E_binder - E_target` is a computational proxy, not a measured
 binding free energy.
 
+For campaign archival, set `PROTEIN_MCP_KEEP_WORKDIR=1` and place `TMPDIR`
+on a writable workspace mount. Calls then retain all engine intermediates and
+full `engine.stdout.log` / `engine.stderr.log` files, including partial output
+on failure or timeout. Tool responses expose their paths in
+`execution_artifacts`; callers can copy them into a campaign archive. Without
+this option, successful scratch directories are removed after declared outputs
+are collected. Retained work directories consume additional disk space.
+
 ## Building the image
 
 `Dockerfile.envs` builds the core environments. `Dockerfile.integrated` adds

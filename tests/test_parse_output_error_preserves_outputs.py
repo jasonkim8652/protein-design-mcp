@@ -123,3 +123,59 @@ async def test_parse_failure_with_no_collected_outputs_does_not_crash(monkeypatc
     assert "error" in payload
     assert "regex did not match engine stdout" in payload["error"]
     assert not payload.get("outputs")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('mode', ['success', 'parse_error', 'engine_error', 'reserved_output'])
+async def test_retained_execution_files_reachable_from_tool_response(tmp_path, monkeypatch, mode):
+    import sys
+    from protein_design_mcp.dispatch.env import EnvDispatcher
+
+    monkeypatch.setenv('PROTEIN_MCP_KEEP_WORKDIR', '1')
+    manifest = parse_manifest({
+        'name': 'run_retained', 'category': 'scoring',
+        'engine': {'repo': 'local', 'env': 'unused', 'entry': [sys.executable]},
+        'summary': 'Retained output test.', 'doc': '## Test\nRetained output test.\n',
+        'schema': {},
+    })
+    script = "from pathlib import Path; Path('intermediate.pdb').write_text('ATOM'); print('complete')"
+    if mode == 'engine_error':
+        script += '; raise SystemExit(3)'
+    parser = _parse_output_raises if mode == 'parse_error' else lambda m, r: {'score': 1}
+    if mode == 'reserved_output':
+        parser = lambda m, r: {'outputs': 'invalid adapter contract'}
+    monkeypatch.setattr(app_module, 'ADAPTERS', {manifest.name: (lambda m, p: ['-c', script], parser)})
+    app = ServerApp(ToolRegistry([manifest]), dispatcher=EnvDispatcher(runner=None, scratch_root=tmp_path))
+    result = await app.call_tool(manifest.name, {})
+    payload = json.loads(_text(result))
+    assert bool(getattr(result, 'isError', False)) == (mode != 'success')
+    assert Path(payload['execution_artifacts']['workdir'], 'intermediate.pdb').read_text() == 'ATOM'
+    assert Path(payload['execution_artifacts']['stdout']).read_text() == 'complete\n'
+
+
+@pytest.mark.asyncio
+async def test_transport_timeout_returns_retained_partial_files_before_client_deadline(tmp_path, monkeypatch):
+    import sys
+    import time
+    from types import SimpleNamespace
+    from protein_design_mcp.dispatch.env import EnvDispatcher
+    import protein_design_mcp.server as server_module
+
+    monkeypatch.setenv('PROTEIN_MCP_KEEP_WORKDIR', '1')
+    manifest = parse_manifest({
+        'name': 'run_retained_timeout', 'category': 'scoring',
+        'engine': {'repo': 'local', 'env': 'unused', 'entry': [sys.executable]},
+        'summary': 'Timeout test.', 'doc': '## Test\nTimeout test.\n', 'schema': {},
+    })
+    script = "from pathlib import Path; import time; Path('partial.pdb').write_text('ATOM'); print('started',flush=True); time.sleep(3)"
+    monkeypatch.setattr(app_module, 'ADAPTERS', {manifest.name: (lambda m, p: ['-c', script], lambda m, r: {})})
+    monkeypatch.setattr(server_module, '_app', ServerApp(ToolRegistry([manifest]), dispatcher=EnvDispatcher(runner=None, scratch_root=tmp_path)))
+    monkeypatch.setattr(server_module, 'server', SimpleNamespace(request_context=SimpleNamespace(meta=SimpleNamespace(protein_design_mcp_timeout_s=0.5))))
+    started = time.monotonic()
+    result = await server_module.call_tool(manifest.name, {})
+    assert time.monotonic() - started < 2
+    assert result.isError
+    payload = json.loads(_text(result))
+    assert 'timed out' in payload['error']
+    assert Path(payload['execution_artifacts']['workdir'], 'partial.pdb').read_text() == 'ATOM'
+    assert Path(payload['execution_artifacts']['stdout']).read_text() == 'started\n'

@@ -109,7 +109,17 @@ async def call_tool(name: str, arguments: dict[str, Any]):
     # to name the offending parameter, state the constraint, and show a
     # correct example for a model that will read the error and retry — so
     # our validator, not jsonschema, must be the actual boundary.
-    return await _app.call_tool(name, arguments)
+    # A caller may shorten engine execution so cleanup and retained artifact
+    # metadata can arrive before its transport deadline. This never extends the
+    # manifest limit and is separate from the model-facing tool arguments.
+    try:
+        meta = server.request_context.meta
+    except LookupError:
+        meta = None
+    timeout = getattr(meta, "protein_design_mcp_timeout_s", None)
+    if timeout is None:
+        return await _app.call_tool(name, arguments)
+    return await _app.call_tool(name, arguments, timeout_seconds=timeout)
 
 
 # =============================================================================

@@ -36,7 +36,7 @@ def test_model_and_database_locations_are_explicit():
     assert docs["run_colabfold_search"]["engine"]["env"] == "colabfold"
     assert docs["run_boltz"]["engine"]["env_vars"]["BOLTZ_CACHE"] == "/opt/models/boltz"
     assert docs["run_protenix"]["engine"]["env_vars"]["PROTENIX_ROOT_DIR"] == "/opt/models/protenix"
-    assert docs["run_chai1"]["engine"]["env_vars"]["CHAI_DOWNLOADS_DIR"] == "/opt/models/chai1"
+    assert docs["run_chai1"]["engine"]["env_vars"]["CHAI_DOWNLOADS_DIR"] == "/opt/conda/envs/chai1/lib/python3.10/site-packages/downloads"
     for name in ("run_rf3", "run_rfdiffusion3_binder", "run_rfdiffusion3_scaffold"):
         assert docs[name]["engine"]["env_vars"]["FOUNDRY_CHECKPOINT_DIRS"] == "/opt/models/foundry"
     assert docs["run_promera"]["engine"]["env_vars"]["TINYPROT_CACHE"] == "/data/databases/tinyprot"

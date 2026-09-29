@@ -9,6 +9,7 @@ from __future__ import annotations
 import importlib.resources
 import json
 import logging
+import math
 import os
 from pathlib import Path
 from typing import Any
@@ -304,7 +305,7 @@ class ServerApp:
         return tools
 
     async def call_tool(
-        self, name: str, arguments: dict[str, Any] | None
+        self, name: str, arguments: dict[str, Any] | None, *, timeout_seconds: float | None = None
     ) -> list[TextContent] | CallToolResult:
         arguments = arguments or {}
         logger.info("tool call: %s %s", name, arguments)
@@ -368,6 +369,28 @@ class ServerApp:
             )
 
         build_args, parse_output = adapter
+        engine_timeout = manifest.timeout_s
+        if timeout_seconds is not None:
+            if (isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, (int, float))
+                    or not math.isfinite(timeout_seconds) or timeout_seconds <= 0):
+                return _error("Request timeout must be a finite positive number")
+            engine_timeout = min(engine_timeout, timeout_seconds)
+        workdir = None
+        run = None
+
+        def failure(message, execution_artifacts=None):
+            details = {"error": message}
+            if run is not None:
+                if run.outputs:
+                    details["outputs"] = run.outputs
+                execution_artifacts = run.execution_artifacts or execution_artifacts
+            if (not execution_artifacts and workdir is not None
+                    and os.environ.get("PROTEIN_MCP_KEEP_WORKDIR", "").lower() in {"1", "true", "yes"}):
+                execution_artifacts = {"workdir": str(workdir)}
+            if execution_artifacts:
+                details["execution_artifacts"] = execution_artifacts
+            return _error_payload(details)
+
         try:
             # Most engines write wherever their subprocess's cwd is, which
             # the dispatcher already sets to a scratch workdir it creates
@@ -405,7 +428,7 @@ class ServerApp:
             run = await self._dispatcher.run(
                 manifest.engine,
                 build_args(manifest, params),
-                timeout=manifest.timeout_s,
+                timeout=engine_timeout,
                 outputs=manifest.outputs,
                 workdir=workdir,
             )
@@ -424,9 +447,7 @@ class ServerApp:
                 # The error must still clearly say parsing failed -- this
                 # is not swallowed into a success.
                 message = f"adapter for {name} failed to parse output: {exc}"
-                if run.outputs:
-                    return _error_payload({"error": message, "outputs": run.outputs})
-                return _error(message)
+                return failure(message)
             if "outputs" in payload:
                 raise ValueError(
                     f"adapter for {name} returned 'outputs' key, which is "
@@ -434,13 +455,15 @@ class ServerApp:
                 )
             if run.outputs:
                 payload = {**payload, "outputs": run.outputs}
+            if run.execution_artifacts:
+                payload = {**payload, "execution_artifacts": run.execution_artifacts}
             return _ok(payload)
         except EngineError as exc:
-            return _error(str(exc))
+            return failure(str(exc), exc.execution_artifacts)
         except Exception as exc:
             # Catches ValueError (e.g. "could not parse engine output") and,
             # critically, KeyError: the most likely adapter mistake, since
             # validate_and_fill omits optional parameters that have no
             # default. Either must produce a clear error payload, not an
             # opaque protocol-level failure.
-            return _error(f"adapter for {name} failed: {exc}")
+            return failure(f"adapter for {name} failed: {exc}")
