@@ -2,7 +2,7 @@
 
 **Category:** monomer_generation  
 **Engine:** `multiflow`  
-**Environment:** `/home/jk661/.conda/envs/multiflow_fixed`  
+**Environment:** `/opt/conda/envs/multiflow_fixed`  
 **GPU required:** yes
 
 > This file is generated from `src/protein_design_mcp/manifests/run_multiflow.yaml`. Edit the manifest, then run `python scripts/generate_tool_docs.py`.

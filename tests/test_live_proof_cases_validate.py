@@ -46,19 +46,14 @@ def cases():
 
 @pytest.fixture(scope="module")
 def manifests_by_name():
-    from protein_design_mcp.app import build_registry
-    from protein_design_mcp.meta_tools import DESCRIBE_TOOL_MANIFEST
+    from protein_design_mcp.app import manifest_dir
+    from protein_design_mcp.manifest.loader import load_manifests
+    from protein_design_mcp.meta_tools import DESCRIBE_TOOL_MANIFEST, GET_JOB_STATUS_MANIFEST
 
-    by_name = {}
-    # Union of both devices: a case declares the device it needs, and a
-    # GPU-only tool is absent from the cpu registry.
-    for device in ("cpu", "cuda"):
-        registry = build_registry(device=device)
-        for manifest in registry.tools_as_manifests() if hasattr(registry, "tools_as_manifests") else []:
-            by_name[manifest.name] = manifest
-        for name in getattr(registry, "_available", {}):
-            by_name[name] = registry._available[name]
-    by_name[DESCRIBE_TOOL_MANIFEST.name] = DESCRIBE_TOOL_MANIFEST
+    # Schema validation is independent of installed environments and assets.
+    by_name = {manifest.name: manifest for manifest in load_manifests(manifest_dir())}
+    for manifest in (DESCRIBE_TOOL_MANIFEST, GET_JOB_STATUS_MANIFEST):
+        by_name[manifest.name] = manifest
     return by_name
 
 

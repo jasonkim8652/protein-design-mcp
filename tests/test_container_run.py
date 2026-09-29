@@ -142,14 +142,14 @@ def test_the_gpu_index_is_selectable_by_environment(monkeypatch, container_run):
     assert container_run.default_gpu() == "7"
 
 
-def test_every_mount_is_read_only(container_run, derived):
+def test_every_mount_is_read_only(container_run):
     """Engine environments and weight caches are inputs. A writable mount lets a
     run mutate the host's shared environments — and several of these paths are
     the user's own project checkouts."""
-    prefixes, mounts = derived
-    argv = container_run.build_command(prefixes, mounts, "img", "7")
+    argv = container_run.build_command({("/custom/env", "/custom/env")},
+                                       {("/data/models", "/data/models")}, "img", "7")
     volumes = [argv[i + 1] for i, a in enumerate(argv) if a == "-v"]
-    assert volumes, "expected at least one mount"
+    assert len(volumes) == 2
     not_ro = [v for v in volumes if not v.endswith(":ro")]
     assert not not_ro, f"mounts must be read-only: {not_ro}"
 
@@ -314,3 +314,58 @@ schema: {}
     prefixes, mounts, problems = container_run.collect_paths(tmp_path)
     assert not prefixes and not mounts
     assert any("/private/env" in problem for problem in problems)
+
+
+@pytest.mark.parametrize("prefix", ["/opt/conda/envs/boltz", "/alphafold3_venv"])
+def test_bundled_prefix_is_not_probed_or_mounted_on_host(container_run, tmp_path, monkeypatch, prefix):
+    (tmp_path / "run_bundled.yaml").write_text(f'''
+name: run_bundled
+category: scoring
+engine: {{repo: bundled, prefix: {prefix}, entry: [python]}}
+summary: Score.
+doc: Score.
+schema: {{}}
+''')
+    original = Path.is_dir
+    def is_dir(path):
+        if str(path) == prefix:
+            pytest.fail("bundled image prefix was probed on the host")
+        return original(path)
+    monkeypatch.setattr(Path, "is_dir", is_dir)
+    assert container_run.collect_paths(tmp_path) == (set(), set(), [])
+
+
+def test_external_mounts_are_filtered_without_hiding_accessible_assets(container_run, tmp_path):
+    asset = tmp_path / "weights"
+    asset.mkdir()
+    missing = tmp_path / "missing"
+    (tmp_path / "run_external.yaml").write_text(f'''
+name: run_external
+category: scoring
+engine:
+  repo: external
+  env: bundled
+  entry: [python]
+  mounts: [{asset}, {missing}]
+summary: Score.
+doc: Score.
+schema: {{}}
+''')
+    prefixes, mounts, problems = container_run.collect_paths(tmp_path)
+    assert not prefixes
+    assert mounts == {(str(asset), str(asset))}
+    assert len(problems) == 1 and str(missing) in problems[0]
+
+
+def test_legacy_custom_prefix_keeps_identical_host_mount(container_run, tmp_path):
+    prefix = tmp_path / "custom_env"
+    prefix.mkdir()
+    (tmp_path / "run_legacy.yaml").write_text(f'''
+name: run_legacy
+category: scoring
+engine: {{repo: legacy, prefix: {prefix}, entry: [python]}}
+summary: Score.
+doc: Score.
+schema: {{}}
+''')
+    assert container_run.collect_paths(tmp_path) == ({(str(prefix), str(prefix))}, set(), [])

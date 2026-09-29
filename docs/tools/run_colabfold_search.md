@@ -2,7 +2,7 @@
 
 **Category:** msa  
 **Engine:** `colabfold`  
-**Environment:** `/home/jk661/.conda/envs/colabfold`  
+**Environment:** `colabfold`  
 **GPU required:** no
 
 > This file is generated from `src/protein_design_mcp/manifests/run_colabfold_search.yaml`. Edit the manifest, then run `python scripts/generate_tool_docs.py`.

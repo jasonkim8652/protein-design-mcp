@@ -20,9 +20,9 @@ from protein_design_mcp.dispatch.env import CompletedRun
 from protein_design_mcp.manifest.schema import Manifest
 
 _CKPT_PATH = {
-    "pdb": "/home/jk661/projects/frameflow/weights/pdb/published.ckpt",
-    "pdb_amortization": "/home/jk661/projects/frameflow/weights/pdb_amortization/published.ckpt",
-    "scope": "/home/jk661/projects/frameflow/weights/scope/published.ckpt",
+    "pdb": "/opt/engines/frameflow/weights/pdb/published.ckpt",
+    "pdb_amortization": "/opt/engines/frameflow/weights/pdb_amortization/published.ckpt",
+    "scope": "/opt/engines/frameflow/weights/scope/published.ckpt",
 }
 
 

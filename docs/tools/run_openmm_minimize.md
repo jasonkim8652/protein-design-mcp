@@ -16,6 +16,8 @@ Gradient-based energy minimisation under an Amber or CHARMM force field,
 using OpenMM. Missing terminal heavy atoms (such as OXT, which AF2
 predictions omit) are added with PDBFixer before hydrogens are added.
 Missing internal residues or side chains are not reconstructed.
+The system is minimized in vacuum: no explicit water or implicit-solvent
+model is added. Loading water parameter definitions does not add solvent.
 
 ## What it is for
 Cleaning up a predicted or generated structure so that a physics-based score
@@ -35,7 +37,8 @@ A PDB file. Multi-chain inputs are relaxed as one system.
 
 ## What you get back
 `initial_potential_energy_kj_mol`, `final_potential_energy_kj_mol`,
-`energy_change_kj_mol`, `iterations`, `added_terminal_atoms`, and under
+`energy_change_kj_mol`, `iterations`, `added_terminal_atoms`, `force_field`,
+`solvent_model` (`none`), `energy_units` (`kJ/mol`), and under
 `outputs` the path to
 `minimized_pdb`.
 

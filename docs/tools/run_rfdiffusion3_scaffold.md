@@ -2,14 +2,14 @@
 
 **Category:** monomer_generation  
 **Engine:** `rfd3`  
-**Environment:** `/home/jk661/.conda/envs/foundry`  
+**Environment:** `/opt/conda/envs/foundry`  
 **GPU required:** yes
 
 > This file is generated from `src/protein_design_mcp/manifests/run_rfdiffusion3_scaffold.yaml`. Edit the manifest, then run `python scripts/generate_tool_docs.py`.
 
 ## Summary
 
-Generate a de novo monomer backbone with RFdiffusion3 (RosettaCommons `rc-foundry`'s rfd3, inference_engine=rfdiffusion3) -- RosettaCommons' current production scaffold model. No target/binding partner (use run_rfdiffusion3_binder for that); either fully unconditional at a given length, or scaffolding around a fixed functional motif pulled from an existing small structure. Backbone only (pair with run_mpnn). CONFIRMED LIVE (unconditional path) on this host, GPU 7.
+Generate a de novo monomer backbone with RFdiffusion3 (RosettaCommons `rc-foundry`'s rfd3, inference_engine=rfdiffusion3) -- RosettaCommons' current production scaffold model. No target/binding partner (use run_rfdiffusion3_binder for that); either fully unconditional at a given length, or scaffolding around a fixed functional motif pulled from an existing small structure. Backbone geometry only; sequence design is a separate capability. CONFIRMED LIVE (unconditional path) on this host, GPU 7.
 
 ## What this is
 RFdiffusion3, the monomer/scaffold path: no target chain, so no

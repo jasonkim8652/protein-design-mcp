@@ -66,7 +66,7 @@ def test_manifest_dispatches_through_conda_prefix_by_default():
     """
     m = _manifest()
     assert m.engine.prefix.endswith("/rfd2_fixed")
-    assert any(mount.endswith("/RFdiffusion2") for mount in m.engine.mounts)
+    assert m.engine.mounts == ()
     assert m.engine.env_vars.get("PYTHONPATH", "").endswith("/RFdiffusion2")
 
 

@@ -5,25 +5,12 @@ timeout_s: 7200
 
 engine:
   repo: genie3
-  # Runs under the genie2 environment's own python, NOT a dedicated genie3
-  # env -- confirmed working live (controller-verified): Genie 3 imports
-  # under genie2's interpreter with an explicit PYTHONPATH (see env_vars
-  # below). Genie 2 (run_genie2) stays registered as its own tool
-  # separately; sharing an interpreter here is purely an import-path fact,
-  # not a merging of the two engines.
-  prefix: /home/jk661/.conda/envs/genie2
-  entry: ["python", "/app/scripts/engines/genie3_scaffold.py"]
+  prefix: /opt/conda/envs/genie2
+  entry:
+  - python
+  - /app/scripts/engines/genie3_scaffold.py
   env_vars:
-    PYTHONPATH: /home/jk661/projects/genie3/.deps:/home/jk661/projects/genie3/src
-  # `discover_mounts(prefix, "genie3", env=env_vars)` (confirmed live, with
-  # the PYTHONPATH above passed through) resolves only to
-  # genie3/src/genie3 -- the package's own directory, not `.deps` (a
-  # manually vendored dependency bundle discover_mounts has no module to
-  # probe for) nor the repo root. Both the derived path and the whole repo
-  # root (which covers `.deps` too) are listed.
-  mounts:
-    - /home/jk661/projects/genie3
-    - /home/jk661/projects/genie3/src/genie3
+    PYTHONPATH: /opt/engines/genie3/.deps:/opt/engines/genie3/src
 
 requires:
   gpu: true
@@ -35,14 +22,7 @@ outputs:
     multiple: true
 
 summary: >-
-  Generate an unconditional monomer backbone with Genie 3, an all-atom
-  SE(3)-equivariant diffusion model (backbone frames only here -- no
-  sequence, no side chains). The backbone is CA-ONLY -- one CA atom per
-  generated residue, named UNK -- and run_mpnn cannot read it at all, so
-  run_rebuild_backbone has to run in between: run_genie3_scaffold ->
-  run_rebuild_backbone -> run_mpnn. Only unconditional generation is exposed; Genie 3's
-  motif-scaffolding and binder-design entry points are separate (the latter
-  is `run_genie3_binder`).
+  Generate an unconditional monomer CA trace with Genie 3. Generated residues are named UNK and contain only CA atoms. Consumers requiring N, CA, C and O atoms need a reconstructed backbone; no designed sequence or side chains are supplied.
 
 doc: |
   ## What this is

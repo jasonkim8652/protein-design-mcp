@@ -328,7 +328,7 @@ def test_bad_mounts_entry_excludes_only_its_own_manifest(tmp_path, monkeypatch):
           repo: boltz
           prefix: /home/jk661/.conda/envs/boltz
           entry: [boltz]
-          mounts: [/does/not/exist/anywhere]
+          mounts: [relative/weights]
         summary: Cofold a structure.
         doc: |
           ## What this is
@@ -342,12 +342,12 @@ def test_bad_mounts_entry_excludes_only_its_own_manifest(tmp_path, monkeypatch):
     assert [m.name for m in result.manifests] == ["run_prodigy"]
     assert "run_boltz" in result.reasons
     reason = result.reasons["run_boltz"]
-    assert "/does/not/exist/anywhere" in reason
-    assert "does not exist" in reason
+    assert "relative/weights" in reason
+    assert "absolute" in reason
 
     registry = ToolRegistry(result.manifests, load_failures=result.reasons)
     assert registry.resolve("run_prodigy").name == "run_prodigy"
-    with pytest.raises(ToolNotAvailable, match="does not exist"):
+    with pytest.raises(ToolNotAvailable, match="absolute"):
         registry.resolve("run_boltz")
 
 

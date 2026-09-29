@@ -4,45 +4,14 @@ composite: false
 timeout_s: 1800
 
 engine:
-  # `repo` names the actually-importable module (by convention, see
-  # tests/test_mounts.py), which for this engine is `esm` (esm==3.4.0, the
-  # EvolutionaryScale SDK) -- NOT "esmfold2", which is a submodule inside
-  # it (`esm.models.esmfold2`), not a top-level importable package.
   repo: esm
-  prefix: /home/jk661/.conda/envs/esmfold2
-  entry: ["python", "/app/scripts/engines/esmfold2.py"]
-  # PYTHONNOUSERSITE=1 is the single most dangerous trap in this engine:
-  # without it, `import esm` under this prefix silently resolves to
-  # ~/.local/lib/python3.12/site-packages' fair-esm 2.0.0 (Meta's ESMFold v1)
-  # INSTEAD OF the environment's own esm==3.4.0 (EvolutionaryScale SDK, the
-  # real "ESMFold2" -- esm.models.esmfold2.EsmFold2Model). Confirmed live:
-  # `~/.conda/envs/esmfold2/bin/python -c "import esm; print(esm.__file__)"`
-  # WITHOUT this var resolves outside the prefix; WITH it, esm.__file__ is
-  # inside `<prefix>/lib/python3.12/site-packages/esm/__init__.py`, no
-  # __editable__*.pth involved, so this engine needs NO extra `mounts` at
-  # all beyond its prefix. Do not run `python -m protein_design_mcp.mounts`
-  # for this one without PYTHONNOUSERSITE=1 set in that shell first -- the
-  # discovery probe does not know about `env_vars`, so an unset-var run of
-  # it reports the WRONG (shadowed) import's mounts
-  # (~/.local/lib/python3.12/site-packages and an unrelated stray
-  # ~/projects/protein-design-mcp/src entry that is on sys.path for every
-  # py3.12 env on this host, not specific to esm) -- checked live, both
-  # ways, 2026-09-22.
+  prefix: /opt/conda/envs/esmfold2
+  entry:
+  - python
+  - /app/scripts/engines/esmfold2.py
   env_vars:
-    PYTHONNOUSERSITE: "1"
-    # The correct esm==3.4.0 loads its ESMFold2 weights from the HOST's
-    # existing HuggingFace cache (~/.cache/huggingface/hub/models--biohub--
-    # ESMFold2, local_files_only=True -- confirmed live, no network hit
-    # needed). dispatch.env.EnvDispatcher defaults HF_HOME into this run's
-    # scratch workdir so nothing writes into a read-only mount; that default
-    # would also make `from_pretrained(..., local_files_only=True)` fail to
-    # find the already-downloaded weights, so HF_HOME is overridden back to
-    # the real host cache here instead. This mount is read-only, and this
-    # engine never downloads (local_files_only=True in the wrapper), so nothing
-    # can write into it.
-    HF_HOME: /home/jk661/.cache/huggingface
-  mounts:
-    - /home/jk661/.cache/huggingface
+    PYTHONNOUSERSITE: '1'
+    HF_HOME: /opt/models/huggingface
 
 requires:
   gpu: true

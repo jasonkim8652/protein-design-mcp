@@ -5,37 +5,21 @@ timeout_s: 3600
 
 engine:
   repo: promera
-  prefix: /home/jk661/.conda/envs/promera
-  entry: ["python", "/app/scripts/engines/promera.py"]
-  # Promera is an editable install (`pip install -e .` from a git clone of
-  # github.com/bjing2016/promera) -- `python -m protein_design_mcp.mounts
-  # /home/jk661/.conda/envs/promera promera` (run live, 2026-09-22) resolves
-    # its module to /home/jk661/projects/promera, a durable checkout.
-    # (Originally installed into this session's scratchpad; re-cloned and
-    # re-installed editable at the durable path on 2026-09-22, and
-    # `python -m promera --help` verified from an unrelated cwd.)
+  prefix: /opt/conda/envs/promera
+  entry:
+  - python
+  - /app/scripts/engines/promera.py
   mounts:
-    - /home/jk661/projects/promera
-    # Present on every python3.12 env's sys.path on this host regardless of
-    # which module is imported (confirmed live via `python -m
-    # protein_design_mcp.mounts <prefix> <module>` against promera, rf3 AND
-    # esmfold2's envs alike, and independently noted in
-    # docs/superpowers/reviews/2026-09-22-gpu-engine-survey.md's ESMFold2
-    # section) -- not promera source, but discover_mounts is the
-    # authoritative source per WAVE-COMMON.md ("do not hand-write them")
-    # and it genuinely is on this env's sys.path.
-    # Weights (1.9G, downloaded, not gated) and tinyprot's CCD/taxonomy
-    # caches (9.1G) live under the host home directory, outside the
-    # prefix -- both required at import/run time regardless of the `msa`
-    # parameter below (tinyprot.structure.Structure.from_schema needs the
-    # CCD mirror for residue templates even for a plain protein chain).
-    - /home/jk661/promera_weights
-    - /home/jk661/.cache/tinyprot
+  - /data/databases/tinyprot
   env_vars:
-    PROMERA_WEIGHTS: /home/jk661/promera_weights/promera_2606.ckpt
+    PROMERA_WEIGHTS: /opt/models/promera/promera_2606.ckpt
+    TINYPROT_CACHE: /data/databases/tinyprot
 
 requires:
   gpu: true
+  files:
+  - /data/databases/tinyprot/ccd.lmdb/data.mdb
+  - /data/databases/tinyprot/taxonomy.lmdb/data.mdb
 
 outputs:
   - name: structure_cif

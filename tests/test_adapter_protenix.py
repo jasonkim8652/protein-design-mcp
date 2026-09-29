@@ -43,17 +43,10 @@ def test_manifest_documents_the_remote_msa_service_workaround():
 
 
 def test_manifest_uses_prefix_with_no_import_time_extra_mounts():
-    """No module discover_mounts can see needs an extra mount (confirmed
-    live via `python -m protein_design_mcp.mounts .../protenix protenix`) --
-    but a RUNTIME JIT compile does (task-13-report.md: `CUDA_HOME
-    environment variable is not set` in-container). That mount and its
-    CUDA_HOME env_vars are invisible to discover_mounts by construction
-    (it only walks Python's import machinery, see run_rfdiffusion2.yaml's
-    identical case) and are hand-declared with a comment saying so -- this
-    asserts on that mount rather than requiring none at all."""
+    """The integrated image includes runtime dependencies and model assets."""
     engine = _manifest().engine
-    assert engine.prefix == "/home/jk661/.conda/envs/protenix"
-    assert engine.mounts == ("/usr/local/cuda-12.6",)
+    assert engine.prefix == "/opt/conda/envs/protenix"
+    assert engine.mounts == ()
     assert engine.env_vars["CUDA_HOME"] == "/usr/local/cuda-12.6"
 
 

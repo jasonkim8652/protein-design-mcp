@@ -2,7 +2,7 @@
 
 **Category:** sequence_design  
 **Engine:** `boltzgen`  
-**Environment:** `/home/jk661/miniforge3/envs/boltzgen`  
+**Environment:** `/opt/conda/envs/boltzgen`  
 **GPU required:** yes
 
 > This file is generated from `src/protein_design_mcp/manifests/run_boltzgen_inverse_fold.yaml`. Edit the manifest, then run `python scripts/generate_tool_docs.py`.

@@ -1,0 +1,221 @@
+{
+  "components": [
+    {
+      "image_path": "/opt/engines/frameflow/weights",
+      "classification": "bundle",
+      "type": "weights",
+      "license_evidence": "https://github.com/microsoft/protein-frame-flow"
+    },
+    {
+      "image_path": "/opt/engines/genie2/results",
+      "classification": "bundle",
+      "type": "weights",
+      "license_evidence": "https://github.com/aqlaboratory/genie2"
+    },
+    {
+      "image_path": "/opt/engines/genie3/pretrained",
+      "classification": "bundle",
+      "type": "weights",
+      "license_evidence": "https://github.com/aqlaboratory/genie3"
+    },
+    {
+      "image_path": "/opt/engines/la-proteina/checkpoints_laproteina",
+      "classification": "bundle",
+      "type": "weights",
+      "license_evidence": "https://github.com/NVIDIA-Digital-Bio/la-proteina#license"
+    },
+    {
+      "image_path": "/opt/engines/multiflow/weights",
+      "classification": "bundle",
+      "type": "weights",
+      "license_evidence": "https://github.com/jasonkyuyim/multiflow"
+    },
+    {
+      "image_path": "/opt/engines/proteina-complexa/ckpts",
+      "classification": "bundle",
+      "type": "weights",
+      "license_evidence": "https://github.com/NVIDIA-Digital-Bio/proteina-complexa/tree/main/licenses"
+    },
+    {
+      "image_path": "/opt/engines/RFdiffusion2/rf_diffusion/model_weights",
+      "classification": "bundle",
+      "type": "weights",
+      "license_evidence": "https://github.com/RosettaCommons/RFdiffusion2"
+    },
+    {
+      "image_path": "/opt/engines/protpardelle-1c/model_params",
+      "classification": "bundle",
+      "type": "weights",
+      "license_evidence": "https://github.com/ProteinDesignLab/protpardelle-1c"
+    },
+    {
+      "image_path": "/opt/models/promera",
+      "classification": "bundle",
+      "type": "weights",
+      "license_evidence": "https://huggingface.co/bjing-mit/promera"
+    },
+    {
+      "image_path": "/opt/engines/RFdiffusion/models",
+      "classification": "bundle",
+      "type": "weights",
+      "license_evidence": "https://github.com/RosettaCommons/RFdiffusion"
+    },
+    {
+      "image_path": "/opt/models/foundry",
+      "classification": "bundle",
+      "type": "weights",
+      "license_evidence": "https://github.com/RosettaCommons/foundry"
+    },
+    {
+      "image_path": "/opt/models/openfold3",
+      "classification": "bundle",
+      "type": "weights",
+      "license_evidence": "https://github.com/aqlaboratory/openfold-3"
+    },
+    {
+      "image_path": "/opt/models/boltz/boltz2_conf.ckpt",
+      "classification": "bundle",
+      "type": "weights",
+      "license_evidence": "https://github.com/jwohlwend/boltz"
+    },
+    {
+      "image_path": "/opt/models/boltz/boltz2_aff.ckpt",
+      "classification": "bundle",
+      "type": "weights",
+      "license_evidence": "https://github.com/jwohlwend/boltz"
+    },
+    {
+      "image_path": "/opt/models/protenix/checkpoint/protenix_base_default_v1.0.0.pt",
+      "classification": "bundle",
+      "type": "weights",
+      "license_evidence": "https://github.com/bytedance/Protenix#license"
+    },
+    {
+      "image_path": "/opt/conda/envs/chai1/lib/python3.10/site-packages/downloads/models_v2",
+      "classification": "bundle",
+      "type": "weights",
+      "license_evidence": "https://github.com/chaidiscovery/chai-lab#licence"
+    },
+    {
+      "image_path": "/opt/conda/envs/chai1/lib/python3.10/site-packages/downloads/esm",
+      "classification": "bundle",
+      "type": "weights",
+      "license_evidence": "https://github.com/facebookresearch/esm"
+    },
+    {
+      "image_path": "/opt/models/torch/hub/checkpoints/esm2_t33_650M_UR50D.pt",
+      "classification": "bundle",
+      "type": "weights",
+      "license_evidence": "https://github.com/facebookresearch/esm"
+    },
+    {
+      "image_path": "/opt/models/torch/hub/checkpoints/esm2_t33_650M_UR50D-contact-regression.pt",
+      "classification": "bundle",
+      "type": "weights",
+      "license_evidence": "https://github.com/facebookresearch/esm"
+    },
+    {
+      "image_path": "/opt/models/huggingface/hub/models--biohub--ESMFold2",
+      "classification": "bundle",
+      "type": "weights",
+      "license_evidence": "https://github.com/Biohub/esm#licenses",
+      "revision": "8fc3ff471022fdce52c77030685eb775de0c00a3"
+    },
+    {
+      "image_path": "/opt/models/huggingface/hub/models--biohub--ESMC-6B",
+      "classification": "bundle",
+      "type": "weights",
+      "license_evidence": "https://github.com/Biohub/esm#licenses",
+      "revision": "af1602ba7406f521b11bf8f81d52af378cde09e4"
+    },
+    {
+      "image_path": "/opt/models/huggingface/hub/models--boltzgen--boltzgen-1",
+      "classification": "bundle",
+      "type": "weights",
+      "license_evidence": "https://huggingface.co/boltzgen/boltzgen-1",
+      "revision": "c1be29e1f82ffcc72264f64b993c43fb4e0d17f0"
+    },
+    {
+      "image_path": "/opt/models/huggingface/hub/models--biohub--ESMFold2-Fast",
+      "classification": "bundle_optional",
+      "type": "weights",
+      "license_evidence": "https://huggingface.co/biohub/ESMFold2-Fast"
+    },
+    {
+      "image_path": "/opt/engines/proteina-complexa/community_models/ckpts",
+      "classification": "bundle",
+      "type": "weights",
+      "license_evidence": "https://github.com/google-deepmind/alphafold#model-parameters"
+    },
+    {
+      "image_path": "/opt/models/boltz/mols.tar",
+      "classification": "bundle",
+      "type": "required_chemical_dictionary",
+      "license_evidence": "https://www.wwpdb.org/about/usage-policies",
+      "upstream_asset": "https://huggingface.co/boltz-community/boltz-2/resolve/main/mols.tar"
+    },
+    {
+      "image_path": "/opt/models/boltz/mols",
+      "classification": "bundle",
+      "type": "required_chemical_dictionary",
+      "license_evidence": "https://www.wwpdb.org/about/usage-policies",
+      "upstream_asset": "https://huggingface.co/boltz-community/boltz-2/resolve/main/mols.tar"
+    },
+    {
+      "image_path": "/opt/models/torch/hub/checkpoints/esmfold_3B_v1.pt",
+      "classification": "bundle",
+      "type": "weights",
+      "license_evidence": "https://github.com/facebookresearch/esm",
+      "bytes": 2771653574
+    },
+    {
+      "image_path": "/opt/models/torch/hub/checkpoints/esm2_t36_3B_UR50D.pt",
+      "classification": "bundle",
+      "type": "weights",
+      "license_evidence": "https://github.com/facebookresearch/esm",
+      "bytes": 5678116398
+    },
+    {
+      "image_path": "/opt/models/torch/hub/checkpoints/esm2_t36_3B_UR50D-contact-regression.pt",
+      "classification": "bundle",
+      "type": "weights",
+      "license_evidence": "https://github.com/facebookresearch/esm",
+      "bytes": 6759
+    },
+    {
+      "image_path": "/opt/models/huggingface/hub/models--facebook--esmfold_v1",
+      "classification": "bundle",
+      "type": "weights",
+      "license_evidence": "https://github.com/facebookresearch/esm",
+      "revision": "75a3841ee059df2bf4d56688166c8fb459ddd97a"
+    },
+    {
+      "image_path": "/opt/models/huggingface/hub/models--facebook--esm2_t33_650M_UR50D",
+      "classification": "bundle",
+      "type": "weights",
+      "license_evidence": "https://github.com/facebookresearch/esm",
+      "revision": "08e4846e537177426273712802403f7ba8261b6c"
+    },
+    {
+      "image_path": "/opt/engines/proteina-complexa/community_models/LigandMPNN/model_params",
+      "classification": "bundle",
+      "type": "weights",
+      "license_evidence": "https://github.com/dauparas/LigandMPNN"
+    },
+    {
+      "image_path": "/opt/models/huggingface/hub/datasets--boltzgen--inference-data",
+      "classification": "bundle",
+      "type": "required_chemical_dictionary",
+      "license_evidence": "https://huggingface.co/datasets/boltzgen/inference-data",
+      "revision": "c3d36fd276e9caf098c75d4113c6d5eb320b1a4c"
+    }
+  ],
+  "license_note": "Each component retains its own upstream license and notices. Pinned AF3 source is CC-BY-NC-SA-4.0. AF3 parameters and licensed PyRosetta software are supplied separately. This image is not represented as unrestricted for commercial use.",
+  "external_assets": {
+    "alphafold3_parameters": "/data/models/alphafold3",
+    "pyrosetta_packages": "/data/licenses/pyrosetta",
+    "mmseqs_database": "/data/databases/mmseqs",
+    "colabfold_database_optional": "/data/databases/colabfold",
+    "tinyprot_database": "/data/databases/tinyprot"
+  }
+}

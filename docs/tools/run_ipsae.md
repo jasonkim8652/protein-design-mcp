@@ -9,7 +9,7 @@
 
 ## Summary
 
-Score how confident a structure predictor was about a protein-protein interface, from the PAE matrix it already produced (ipSAE). This is the field's standard discriminator between real and spurious binders and is the metric to rank designs by. It scores a prediction you already have: run a co-folding tool first and feed this its PAE output.
+Score confidence in a predicted protein-protein interface from its PAE matrix using ipSAE. Requires a compatible predicted complex and PAE output; returns confidence metrics for the interface.
 
 ## What this is
 ipSAE (interface Score from Aligned Errors) reads a structure predictor's

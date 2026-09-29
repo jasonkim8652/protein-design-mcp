@@ -67,6 +67,10 @@ def main() -> None:
     print(f"final_potential_energy_kj_mol: {final:.4f}")
     print(f"iterations: {args.max_iterations}")
     print(f"added_terminal_atoms: {added_terminal_atoms}")
+    print(f"force_field: {FORCEFIELDS[args.forcefield][0]}")
+    # Water parameter definitions alone do not add water or implicit solvent.
+    print("solvent_model: none")
+    print("energy_units: kJ/mol")
     print(f"output_pdb: {args.output_pdb}")
 
 

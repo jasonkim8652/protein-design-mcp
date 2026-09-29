@@ -269,3 +269,11 @@ def test_validation_rejects_sensitivity_out_of_range():
         validate_and_fill(
             _manifest(), {"sequence": "MKT", "backend": "local", "sensitivity": 0.5}
         )
+
+
+def test_deployment_can_override_local_database_root(monkeypatch):
+    monkeypatch.setenv("COLABFOLD_DB_ROOT", "/data/custom-colabfold")
+    manifest = _manifest()
+    params = validate_and_fill(manifest, {"sequence": "MKT", "backend": "local"})
+    args = build_args(manifest, params)
+    assert args[args.index("--db-root") + 1] == "/data/custom-colabfold"

@@ -5,23 +5,12 @@ timeout_s: 7200
 
 engine:
   repo: genie3
-  # `genie2_fixed`, not `genie2`: a clone of the original environment (see
-  # this wave's report, wave-I) with Biopython installed via the clone's
-  # own bin/pip -- never `conda activate`, and the original `genie2` env
-  # was never modified (confirmed live: different inodes, `import Bio`
-  # still fails there). This is what makes `expand_interface: true` below
-  # possible: `compute_extended_interface` needs `Bio.PDB`.
-  prefix: /home/jk661/.conda/envs/genie2_fixed
-  entry: ["python", "/app/scripts/engines/genie3_binder.py"]
+  prefix: /opt/conda/envs/genie2_fixed
+  entry:
+  - python
+  - /app/scripts/engines/genie3_binder.py
   env_vars:
-    PYTHONPATH: /home/jk661/projects/genie3/.deps:/home/jk661/projects/genie3/src
-  # `discover_mounts(prefix, "genie3", env=env_vars)` (confirmed live
-  # against genie2_fixed) resolves only to genie3/src/genie3 -- see
-  # run_genie3_scaffold.yaml's identical mounts comment for the full
-  # reasoning (same engine, same PYTHONPATH).
-  mounts:
-    - /home/jk661/projects/genie3
-    - /home/jk661/projects/genie3/src/genie3
+    PYTHONPATH: /opt/engines/genie3/.deps:/opt/engines/genie3/src
 
 requires:
   gpu: true

@@ -9,7 +9,7 @@
 
 ## Summary
 
-Reconstruct a full protein backbone (N, CA, C, O) from a CA-only trace with PULCHRA, and rename placeholder residues so a sequence designer can read the result. Run this between a CA-trace generator and run_mpnn: run_genie3_binder and run_genie3_scaffold emit CA-only backbones that run_mpnn cannot consume at all. Every other generator here already emits a full backbone and does not need this step.
+Reconstruct protein backbone atoms N, CA, C and O from a CA-only trace using PULCHRA, and rename placeholder residues for compatibility with sequence-design tools. Inputs already containing a complete backbone do not need this conversion.
 
 ## What this is
 PULCHRA (the published CA-trace reconstruction method) places the missing

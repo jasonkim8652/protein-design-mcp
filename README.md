@@ -94,113 +94,94 @@ never a scientific choice.
 
 ---
 
-## Running it
+## Running the 2.4.0 integrated image
 
-The image uses isolated micromamba environments for engines with conflicting
-Python, CUDA, torch and numpy requirements. AF2-Multimer, its five multimer_v3
-parameter sets, OpenMM/PDBFixer, LigandMPNN, PULCHRA, PRODIGY and ipSAE are
-included. No developer home directory or runtime weight download is needed for
-AF2 → OpenMM evaluation.
+The image contains isolated engine environments, engine code, CUDA toolkit
+components, and redistributable public model weights. Engine executables and
+editable source mappings use fixed in-image paths; no developer home or host
+conda environment is required.
 
-### Quick start — no engine mounts
-
-```bash
-docker run -i --rm --device=nvidia.com/gpu=0 \
-  jasonkim8652/protein-design-mcp:2.3.6
-```
-
-This speaks MCP over stdio. On a GPU machine the portable image provides eight
-scientific tools (`run_alphafold2_multimer`, `run_openmm_minimize`, `run_mpnn`,
-`run_rebuild_backbone`, `run_prodigy`, `run_ipsae`, `run_epitope_scan`,
-`run_interface_residues`) plus the two discovery tools. Use a writable workspace
-mount for input and output files. AF2 accepts `msa: null` for offline prediction
-or a caller-supplied paired A3M; it does not query a remote MSA service. Set
-`COLABFOLD_WEIGHTS_DIR` only if you deliberately supply different deployment
-storage for the weights; the default is `/opt/weights/colabfold` inside the image.
-
-OpenMM fills missing terminal atoms such as OXT before adding hydrogens. It
-reports `added_terminal_atoms` and never rebuilds missing loops or side chains.
-The reported energies are force-field potential energies, not binding free
-energies; a difference of three minimized energies remains a computational proxy.
-
-Other engines still require their own environments, weights, databases or licenses.
-The full deployment manifests describe the development host; use a deployment
-manifest directory (`PROTEIN_MCP_MANIFEST_DIR`) for another installation. Missing
-or inaccessible optional engines are excluded with a reason and cannot prevent
-the bundled tools from loading. A documentation reference to an unavailable
-alternative does not exclude a working tool.
-
-### Full surface — with mounts
-
-The mount list is **derived from the manifests, not maintained by hand**:
+The packaged runtime versions are listed in
+[`docs/integrated-environments.json`](docs/integrated-environments.json);
+public asset locations and upstream license references are recorded in
+[`docs/integrated-assets.json`](docs/integrated-assets.json).
 
 ```bash
-python scripts/container_run.py            # prints the exact `docker run` invocation
-PROTEIN_DESIGN_GPU=3 python scripts/container_run.py
+mkdir -p "$PWD/workspace"
+docker run -i --rm --device=nvidia.com/gpu=0 --shm-size=16g \
+  --user "$(id -u):$(id -g)" -e HOME=/tmp \
+  -e TMPDIR="$PWD/workspace" -v "$PWD/workspace:$PWD/workspace" \
+  jasonkim8652/protein-design-mcp:2.4.0
 ```
 
-On the development machine that is 54 read-only mounts. Three properties are enforced by
-[`tests/test_container_run.py`](tests/test_container_run.py) rather than by convention:
+This starts the MCP stdio server. Keep the input/output workspace mounted at
+its identical absolute path so returned artifact paths are readable by the
+client. Choose an allocated GPU and provide a compatible NVIDIA host driver
+and Docker GPU support.
 
-- **Exactly one GPU**, via `--device=nvidia.com/gpu=N`. The container sees one device, so
-  an engine that ignores `CUDA_VISIBLE_DEVICES` still cannot reach another index. Not
-  `--gpus all`.
-- **Every mount read-only, at its identical host path.** An environment must be mounted
-  where it believes it lives; editable installs and compiled extensions hardcode
-  absolute paths.
-- **The server's own package is never mounted**, so the container runs the installed
-  server rather than silently picking up a host checkout.
+### External assets
 
-`/var/run/docker.sock` is deliberately **not** mounted. Nothing in this server needs it,
-and combined with an exposed HTTP port it would be an unauthenticated path to root.
+Only external databases and user-obtained licensed materials need additional
+read-only mounts. The host folders can have arbitrary names and locations.
 
-### MCP client config
+| Container destination | Required content | Tool |
+|---|---|---|
+| `/data/databases/mmseqs` | Prepared MMseqs database prefixes, indexes and `.dbtype` files | `run_mmseqs_search` |
+| `/data/databases/colabfold` | ColabFold local search DBs matching the requested `db1`/`db3` | Local mode of `run_colabfold_search` |
+| `/data/databases/tinyprot` | `ccd.lmdb/data.mdb` and `taxonomy.lmdb/data.mdb` | `run_promera` |
+| `/data/models/alphafold3` | User-obtained `af3.bin` | `run_alphafold3` |
+| `/data/licenses/pyrosetta` | Licensed `pyrosetta/` and companion `rosetta/`, compatible with Python 3.10/Linux | `run_rosetta_interface` |
 
-```json
-{
-  "mcpServers": {
-    "protein-design": {
-      "command": "docker",
-      "args": ["run", "-i", "--rm",
-               "--device=nvidia.com/gpu=0",
-               "jasonkim8652/protein-design-mcp:2.2.0"]
-    }
-  }
-}
-```
+For example, add `--mount type=bind,source=/your/af3-weights,target=/data/models/alphafold3,readonly`
+before the image name. An empty directory is not a completed database or
+weight installation. All parent directories must allow traversal and files
+must be readable by the invoking account. The image imports only the licensed
+PyRosetta packages from its mount, preserving the bundled dependencies.
 
-Add the `-v` flags from `scripts/container_run.py` for the full tool surface.
+Missing external assets exclude dependent tools with a startup explanation.
+ColabFold remote search remains available without its optional local DB;
+local mode checks its selected database files before launching. AF2-Multimer
+includes all five multimer_v3 parameter sets and needs none of these external
+assets when passed `msa: null` or a supplied A3M.
 
-### Optional: AlphaFold 3
+ProteinMEM provides an asset-path JSON template, a config generator, and
+`scripts/check_runtime_paths.py --require-all` to inspect paths and discover
+all 41 tools before a campaign. Discovery verifies availability declarations;
+actual inference and database searches require separate smoke tests.
 
-`run_alphafold3` needs an ~8 GB venv and its databases mounted. Without them that one
-tool is excluded and the other 40 work normally. AlphaFold 3's weights are not
-redistributable, so they are mounted, never baked into the image — the same is true of
-PyRosetta.
-
----
+OpenMM adds missing terminal atoms such as OXT before hydrogens, and reports
+`added_terminal_atoms`. Its energies are force-field potential energies;
+`E_complex - E_binder - E_target` is a computational proxy, not a measured
+binding free energy.
 
 ## Building the image
 
-```bash
-docker build -f Dockerfile.envs -t protein-design-mcp:envs .
-```
-
-One micromamba environment per engine, plus a thin `server` environment that shares no
-dependencies with any of them. The server is installed **non-editable** on purpose, so
-the build proves `manifests/*.yaml` actually ship inside the distribution rather than
-being reachable only through a symlink back to the checkout.
-
-The image's verification harness stays available as an explicit override:
+`Dockerfile.envs` builds the core environments. `Dockerfile.integrated` adds
+curated and relocated engine environments, source and public weights:
 
 ```bash
-docker run --rm <mounts...> protein-design-mcp:envs \
-  micromamba run -n server python scripts/live_proof.py
+docker build -f Dockerfile.envs -t protein-design-mcp:2.4.0-core .
+# After staging and auditing all engine environments and public assets:
+python scripts/assemble_integrated_payload.py \
+  --rootfs /your/staged/rootfs --output /your/prepared-payload/rootfs.tar
+docker build -f Dockerfile.integrated \
+  --build-context payload=/your/prepared-payload \
+  -t jasonkim8652/protein-design-mcp:2.4.0 .
 ```
+
+The staging helpers `scripts/prepare_integrated_envs.py` and
+`scripts/prepare_integrated_assets.py` accept explicit machine-local input
+inventories. They copy installed runtimes without changing source files,
+relocate prefixes and editable installs, and allowlist public assets.
+Restricted weights, PyRosetta distributions, credentials, unrelated caches
+and user databases must be excluded **before** creating the archive; deleting
+them in a later Docker layer would still distribute them. Preserve component
+licenses and `/opt/models/licenses/upstream/ASSET-MANIFEST.json` with the
+payload. AF3's bundled, pinned source revision retains its own CC BY-NC-SA
+license; the server's Apache license does not replace component licenses.
 
 `Dockerfile`, `Dockerfile.full`, `Dockerfile.lite`, `Dockerfile.colabfold` and
-`Dockerfile.patch` build the **v1** all-in-one images, and are kept for reproducing
-`v1.0.0` only.
+`Dockerfile.patch` are historical v1 recipes, not the integrated release.
 
 ---
 

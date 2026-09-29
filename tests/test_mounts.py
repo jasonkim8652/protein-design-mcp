@@ -158,9 +158,12 @@ def test_declared_mounts_of_every_prefix_manifest_match_the_helper():
     # host-side import probe.
     prefix_manifests = [
         m for m in manifests if m.engine.prefix is not None and m.engine.prefix_host is None
+        and not m.engine.prefix.startswith("/opt/conda/envs/")
+        and m.engine.prefix != "/alphafold3_venv"
     ]
 
-    # Today: zero non-relocated ones beyond the pre-existing GPU engines.
+    # Bundled canonical prefixes are checked inside the image by
+    # scripts/verify_integrated_runtime.py, not by a host import probe.
     for manifest in prefix_manifests:
         # engine.env_vars is passed through: an engine like esmfold2 whose
         # correct import depends on PYTHONNOUSERSITE=1 would otherwise be

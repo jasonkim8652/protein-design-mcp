@@ -65,7 +65,7 @@ from pathlib import Path
 
 import yaml
 
-_REPO_ROOT = Path("/home/jk661/projects/la-proteina")
+_REPO_ROOT = Path("/opt/engines/la-proteina")
 _CKPT_DIR = _REPO_ROOT / "checkpoints_laproteina"
 _CKPT_NAME = "LD1_ucond_notri_512.ckpt"
 _AE_CKPT_PATH = _CKPT_DIR / "AE1_ucond_512.ckpt"

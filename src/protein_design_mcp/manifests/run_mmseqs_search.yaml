@@ -6,21 +6,11 @@ timeout_s: 7200
 engine:
   repo: mmseqs
   env: mmseqs
-  entry: ["python", "/app/scripts/engines/run_mmseqs_search.py"]
-  # This engine needs no Python package beyond the standard library (it only
-  # shells out to the standalone `mmseqs` binary), so it needs no `prefix` /
-  # `python -m protein_design_mcp.mounts` module-resolution mount (that
-  # machinery — see EngineSpec.mounts' own docstring and
-  # protein_design_mcp.mounts — is for an editable install's source checkout
-  # or a leaked user-site directory, discovered by IMPORTING a module under
-  # the target environment; there is no module here to import). What it does
-  # need, and what `mounts` is used for here instead, is two plain host
-  # paths this engine reads from directly: the mmseqs binary itself (not
-  # baked into this environment) and the local database root. Both are
-  # read-only and validated to exist on this host at manifest-load time.
+  entry:
+  - python
+  - /app/scripts/engines/run_mmseqs_search.py
   mounts:
-    - /usr/local/bin/mmseqs
-    - /opt/alphafold3_data/mmseqs_db
+  - /data/databases/mmseqs
 
 requires:
   gpu: true
@@ -76,13 +66,7 @@ outputs:
       built from.
 
 summary: >-
-  Search the local MMseqs2 databases and build the alignment AlphaFold 3 and
-  every other structure-prediction tool here needs, so a folding tool never
-  builds its own. Emits an unpaired a3m (valid for every co-folding tool's
-  plain `msa` input), a paired a3m (AlphaFold 3's cross-chain pairing input
-  only), and a templates a3m. Every search knob MMseqs2 exposes -- which
-  databases, sensitivity, e-value, coverage, identity, iterations, max hits
-  -- is a parameter here, not a fixed default.
+  Search local MMseqs2 databases and produce unpaired, paired and template A3M alignments. Alignment compatibility depends on the consuming predictor; some predictors also support MSA-free inference. Database selection, sensitivity, coverage, identity and search limits are configurable.
 
 doc: |
   ## What this is

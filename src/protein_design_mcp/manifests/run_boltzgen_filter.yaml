@@ -5,44 +5,20 @@ timeout_s: 900
 
 engine:
   repo: boltzgen
-  # Plain, non-editable `pip install boltzgen` (PyPI 0.3.2) -- verified live
-  # (install report: no __editable__*.pth in site-packages, package lives at
-  # boltzgen-0.3.2.dist-info under this prefix's own site-packages). `python
-  # -m protein_design_mcp.mounts /home/jk661/miniforge3/envs/boltzgen
-  # boltzgen` returns an EMPTY mount list -- confirmed live 2026-09-22 -- so
-  # no `mounts:` beyond the prefix itself is needed for module resolution.
-  prefix: /home/jk661/miniforge3/envs/boltzgen
-  entry: ["boltzgen", "run"]
-  # Filter needs a design_dir that contains THREE different prior tool
-  # calls' outputs, reassembled: run_boltzgen_design/inverse_fold's own
-  # original .cif (Filter.write_outdir's own `self.design_dir / filename`
-  # copy -- verified live, it reads this directly, not just the refolded
-  # copy) at design_dir's ROOT alongside run_boltzgen_analyze's metrics
-  # (aggregate_metrics_*.csv, ca_coords_sequences.pkl.gz -- also ROOT), and
-  # run_boltzgen_fold's refolded structures under design_dir/refold_cif/
-  # specifically. Each already split into its own collected subdirectory
-  # (results.collect_outputs namespaces every declared output by spec
-  # name) -- `stage`+`stage_subdir` reassembles them before this engine
-  # runs, same mechanism as run_boltzgen_analyze.
-  stage: ["generated_files", "metrics_files", "refold_structures"]
+  prefix: /opt/conda/envs/boltzgen
+  entry:
+  - boltzgen
+  - run
+  stage:
+  - generated_files
+  - metrics_files
+  - refold_structures
   stage_subdir:
     generated_files: design_dir
     metrics_files: design_dir
     refold_structures: design_dir/refold_cif
   env_vars:
-    # BoltzGen's own weights/mol-library artifacts are cached under the
-    # HOST's real HuggingFace cache (~5.6G, already downloaded -- see
-    # install-boltzgen-chai1.md). dispatch.env.EnvDispatcher defaults
-    # HF_HOME into this run's disposable scratch workdir so nothing writes
-    # into a read-only mount; that default would make every call re-resolve
-    # (and on a cold cache, re-download) multi-GB checkpoints. This filter
-    # step does not even touch a model, but `boltzgen run` still resolves
-    # every OTHER step's checkpoint path while building its (unexecuted,
-    # `--steps filtering`-trimmed) pipeline object, so HF_HOME is pointed
-    # back at the real host cache to keep that resolution a cache hit.
-    HF_HOME: /home/jk661/.cache/huggingface
-  mounts:
-    - /home/jk661/.cache/huggingface
+    HF_HOME: /opt/models/huggingface
 
 requires:
   gpu: false

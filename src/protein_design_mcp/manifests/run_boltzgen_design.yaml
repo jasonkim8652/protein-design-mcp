@@ -5,28 +5,12 @@ timeout_s: 3600
 
 engine:
   repo: boltzgen
-  # Plain, non-editable `pip install boltzgen` (PyPI 0.3.2) -- see
-  # run_boltzgen_filter's manifest comment for the identity-verification and
-  # mount-discovery detail; identical for every tool on this engine.
-  prefix: /home/jk661/miniforge3/envs/boltzgen
-  # The WRAPPER, not `boltzgen run` directly. BoltzGen takes a design-spec
-  # YAML, and this tool's parameters describe the design rather than naming a
-  # spec file -- so something has to build the spec from them, and that is
-  # scripts/engines/boltzgen_design.py. Pointed straight at `boltzgen run`,
-  # the adapter's own `--target-structure ... --passthrough` argv reached
-  # BoltzGen, which rejected every call with "unrecognized arguments" for
-  # live_proof's arguments as much as for a model's.
-  entry: ["python", "/app/scripts/engines/boltzgen_design.py"]
+  prefix: /opt/conda/envs/boltzgen
+  entry:
+  - python
+  - /app/scripts/engines/boltzgen_design.py
   env_vars:
-    # Weights (~5.6G: two design checkpoints + the moldir library) are
-    # already downloaded to the host's real HuggingFace cache -- see
-    # install-boltzgen-chai1.md. Without this override,
-    # dispatch.env.EnvDispatcher's own default (HF_HOME inside this run's
-    # disposable scratch workdir) would force a multi-GB re-download on
-    # every single call.
-    HF_HOME: /home/jk661/.cache/huggingface
-  mounts:
-    - /home/jk661/.cache/huggingface
+    HF_HOME: /opt/models/huggingface
 
 requires:
   gpu: true

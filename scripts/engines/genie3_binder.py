@@ -47,7 +47,7 @@ from pathlib import Path
 
 import yaml
 
-_REPO_ROOT = Path("/home/jk661/projects/genie3")
+_REPO_ROOT = Path("/opt/engines/genie3")
 _CHECKPOINTS = {
     "v1": {
         "checkpoint": str(_REPO_ROOT / "pretrained" / "v1" / "checkpoints" / "step=600000.ckpt"),

@@ -41,9 +41,10 @@ def test_manifest_documents_the_fork_and_affinity_exclusion():
 
 def test_manifest_uses_prefix_not_env():
     engine = _manifest().engine
-    assert engine.prefix == "/home/jk661/.conda/envs/boltz"
+    assert engine.prefix == "/opt/conda/envs/boltz"
     assert engine.env is None
-    assert "/home/jk661/projects/lightning-boltz-dev/src" in engine.mounts
+    assert engine.mounts == ()
+    assert engine.env_vars["BOLTZ_CACHE"] == "/opt/models/boltz"
 
 
 # --- validation (corner cases: 0, empty, single item, boundary) ---

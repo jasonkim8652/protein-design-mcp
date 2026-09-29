@@ -33,7 +33,7 @@ from typing import Any
 from protein_design_mcp.dispatch.env import CompletedRun
 from protein_design_mcp.manifest.schema import Manifest
 
-_CONFIG_PATH = "/home/jk661/projects/proteina-complexa/configs/search_binder_local_pipeline.yaml"
+_CONFIG_PATH = "/opt/engines/proteina-complexa/configs/search_binder_local_pipeline.yaml"
 
 # Matches the destination subdirectory engine.stage's staging convention
 # creates for a parameter named "rewards_csv" (workdir/rewards_csv/...) --

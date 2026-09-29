@@ -41,10 +41,9 @@ def test_engine_uses_env_not_prefix():
     assert engine.prefix is None
 
 
-def test_engine_mounts_the_binary_and_the_database_root():
+def test_engine_mounts_only_the_external_database_root():
     assert set(_manifest().engine.mounts) == {
-        "/usr/local/bin/mmseqs",
-        "/opt/alphafold3_data/mmseqs_db",
+        "/data/databases/mmseqs",
     }
 
 

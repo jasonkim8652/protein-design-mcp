@@ -31,7 +31,8 @@ def _registered_tools_by_device() -> dict[str, set[str]]:
     even though it is a real tool ``ServerApp.call_tool`` dispatches.)
     """
     manifests = [
-        replace(m, engine=replace(m.engine, prefix=None, prefix_host=None, env="coverage"))
+        replace(m, engine=replace(m.engine, prefix=None, prefix_host=None, env="coverage", mounts=()),
+                requires=replace(m.requires, files=()))
         for m in load_manifests(manifest_dir())
     ]
     registered: dict[str, set[str]] = {}

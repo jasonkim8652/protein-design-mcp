@@ -130,6 +130,27 @@ def _run_remote(sequence: str, use_env: bool, filter_level: int) -> None:
     Path(RESULT_A3M).write_text("\n".join(lines) + "\n")
 
 
+def _require_local_databases(root: str, names: list[str]) -> None:
+    """Reject absent or empty MMseqs databases before starting local search."""
+    missing = []
+    for name in names:
+        prefix = Path(root) / name
+        for suffix in (".dbtype", ".index"):
+            path = Path(str(prefix) + suffix)
+            if not path.is_file() or path.stat().st_size == 0:
+                missing.append(str(path))
+        # MMseqs data can be a single file or a set of numbered shards.
+        if not any(path.is_file() and path.stat().st_size > 0
+                   for path in (prefix, Path(str(prefix) + ".0"))):
+            missing.append(str(prefix) + " (data file or .0 shard)")
+    if missing:
+        raise SystemExit(
+            "Local ColabFold databases unavailable: " + ", ".join(missing)
+            + ". Mount the selected databases at " + root
+            + " or configure COLABFOLD_DB_ROOT on the server."
+        )
+
+
 def main() -> None:
     args = _parse_args()
 
@@ -137,6 +158,7 @@ def main() -> None:
         _run_remote(args.sequence, args.use_env, args.filter)
         return
 
+    _require_local_databases(args.db_root, [args.db1, *([args.db3] if args.use_env else [])])
     Path(QUERY_NAME).write_text(f">query\n{args.sequence}\n")
     Path(RESULTS_DIR).mkdir(exist_ok=True)
 

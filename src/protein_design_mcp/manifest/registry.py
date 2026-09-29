@@ -81,6 +81,27 @@ class ToolRegistry:
                 self._reasons[name] = reason
 
     def _exclusion_reason(self, manifest: Manifest) -> str | None:
+        for required in manifest.requires.files:
+            path = Path(required)
+            try:
+                usable = path.is_file() and os.access(path, os.R_OK) and path.stat().st_size > 0
+            except OSError:
+                usable = False
+            if not usable:
+                return (f"{manifest.name} needs a nonempty, readable file at {required!r}. "
+                        "Check the external asset mount and installation contents.")
+        for mount in manifest.engine.mounts:
+            asset = Path(mount)
+            try:
+                usable = asset.exists() and os.access(
+                    asset, os.R_OK | (os.X_OK if asset.is_dir() else 0)
+                )
+            except OSError:
+                usable = False
+            if not usable:
+                return (f"{manifest.name} needs an external asset at {mount!r}, "
+                        "which is missing or inaccessible in this runtime. "
+                        "Mount the required database, weights, or licensed package there.")
         if manifest.engine.prefix:
             prefix = Path(manifest.engine.prefix)
             try:

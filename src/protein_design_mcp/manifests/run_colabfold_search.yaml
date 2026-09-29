@@ -5,25 +5,13 @@ timeout_s: 7200
 
 engine:
   repo: colabfold
-  prefix: /home/jk661/.conda/envs/colabfold
-  entry: ["python", "/app/scripts/engines/colabfold_search.py"]
-  # `python -m protein_design_mcp.mounts /home/jk661/.conda/envs/colabfold
-  # colabfold` returns an EMPTY list -- CONFIRMED live, 2026-09-22 -- the
-  # `colabfold` package resolves entirely inside this prefix's own
-  # site-packages (no editable install, no user-site leak). The two entries
-  # below are the same class of manual, non-import mount
-  # run_mmseqs_search.yaml already declares for the exact same reason: a
-  # plain host path this engine reads from directly, not a Python import.
-  mounts:
-    # The standalone mmseqs binary colabfold_search shells out to via its
-    # own --mmseqs flag (the colabfold env bundles no mmseqs binary of its
-    # own -- confirmed live, 2026-09-22). Same binary run_mmseqs_search.yaml
-    # mounts, for the same reason.
-    - /usr/local/bin/mmseqs
-    # Local ColabFold search databases (UniRef30/envDB) -- see the doc's
-    # "Verification status" section for why this is currently an EMPTY
-    # placeholder directory, not a populated database.
-    - /home/jk661/.cache/colabfold_dbs
+  entry:
+  - python
+  - /app/scripts/engines/colabfold_search.py
+  # Optional for backend=local: mount databases at /data/databases/colabfold,
+  # or set COLABFOLD_DB_ROOT on the server to another mounted directory.
+  # Remote searches do not require local databases.
+  env: colabfold
 
 requires:
   gpu: false

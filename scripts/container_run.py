@@ -75,7 +75,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from protein_design_mcp.manifest.loader import load_manifests_resilient  # noqa: E402
 
-DEFAULT_IMAGE = "protein-design-mcp:envs"
+DEFAULT_IMAGE = "jasonkim8652/protein-design-mcp:2.4.0"
 
 # Docker's default /dev/shm is 64MB, and PyTorch's DataLoader moves tensors
 # between its workers through shared memory. Overflowing it is silent: the
@@ -138,7 +138,12 @@ def collect_paths(
     problems = [f"{name}: {reason}" for name, reason in sorted(failures.items())]
     for manifest in manifests:
         engine = manifest.engine
-        if getattr(engine, "prefix", None):
+        # Canonical environments are supplied by the integrated image. An
+        # explicit prefix_host remains a supported custom deployment override.
+        bundled = (not engine.prefix_host and engine.prefix is not None and
+                   (engine.prefix.startswith("/opt/conda/envs/")
+                    or engine.prefix == "/alphafold3_venv"))
+        if engine.prefix and not bundled:
             host = getattr(engine, "prefix_host", None) or engine.prefix
             try:
                 if not Path(host).is_dir() or not os.access(host, os.R_OK | os.X_OK):
@@ -148,6 +153,15 @@ def collect_paths(
                 continue
             prefixes.add((host, engine.prefix))
         for mount in getattr(engine, "mounts", ()) or ():
+            try:
+                path = Path(mount)
+                if not path.exists() or not os.access(
+                    path, os.R_OK | (os.X_OK if path.is_dir() else 0)
+                ):
+                    raise OSError(f"external asset is missing or inaccessible: {mount}")
+            except OSError as exc:
+                problems.append(f"{manifest.name}: {exc}")
+                continue
             mounts.add((mount, mount))
     return prefixes, mounts, problems
 

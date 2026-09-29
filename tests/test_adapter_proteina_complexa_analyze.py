@@ -55,7 +55,7 @@ def test_manifest_loads_and_is_cpu_run_analysis():
 
 def test_manifest_uses_prefix_not_env():
     engine = _manifest().engine
-    assert engine.prefix == "/home/jk661/.conda/envs/proteina_complexa"
+    assert engine.prefix == "/opt/conda/envs/proteina_complexa"
     assert engine.env is None
     assert engine.entry == ("complexa", "analyze")
     assert engine.repo == "proteinfoundation"
@@ -74,7 +74,7 @@ def test_manifest_sets_complexa_init():
 
 def test_manifest_sets_foldseek_and_mmseqs_exec():
     env_vars = _manifest().engine.env_vars
-    assert env_vars.get("FOLDSEEK_EXEC") == "/home/jk661/.local/bin/foldseek"
+    assert env_vars.get("FOLDSEEK_EXEC") == "/usr/local/bin/foldseek"
     assert env_vars.get("MMSEQS_EXEC") == "/usr/local/bin/mmseqs"
 
 
@@ -260,7 +260,7 @@ def test_build_args_uses_fixed_analyze_config(tmp_path):
         _manifest(), {"structure_paths": staged, "sequences": ["MKT"]}
     )
     args = build_args(_manifest(), params)
-    assert args[0] == "/home/jk661/projects/proteina-complexa/configs/analyze.yaml"
+    assert args[0] == "/opt/engines/proteina-complexa/configs/analyze.yaml"
     assert args[-1] == "--verbose"
 
 

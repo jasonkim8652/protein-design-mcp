@@ -2,7 +2,7 @@
 
 **Category:** binder_generation  
 **Engine:** `genie3`  
-**Environment:** `/home/jk661/.conda/envs/genie2_fixed`  
+**Environment:** `/opt/conda/envs/genie2_fixed`  
 **GPU required:** yes
 
 > This file is generated from `src/protein_design_mcp/manifests/run_genie3_binder.yaml`. Edit the manifest, then run `python scripts/generate_tool_docs.py`.

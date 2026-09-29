@@ -10,10 +10,9 @@ local-search-only flags below.
 
 ``MMSEQS_BINARY`` and ``DB_ROOT`` are deployment facts, not something a
 caller should choose per call -- same reasoning as
-``mmseqs_search.MMSEQS_BINARY``/``DB_ROOT``, and they must match
-``engine.mounts`` in run_colabfold_search.yaml. ``DB_ROOT`` is currently an
-EMPTY placeholder directory -- see the manifest's "Verification status"
-section for why. Both are still passed through unconditionally even when
+``mmseqs_search.MMSEQS_BINARY``/``DB_ROOT``. Local databases are an optional
+deployment mount at ``DB_ROOT``, overridable with ``COLABFOLD_DB_ROOT`` on
+the server. Both are still passed through unconditionally even when
 ``backend == "remote"``, where the wrapper ignores them -- keeps this
 adapter's argv construction uniform rather than branching on ``backend``
 itself, since the wrapper is the one place that needs to know which path is
@@ -22,6 +21,7 @@ live.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +29,7 @@ from protein_design_mcp.dispatch.env import CompletedRun
 from protein_design_mcp.manifest.schema import Manifest
 
 MMSEQS_BINARY = "/usr/local/bin/mmseqs"
-DB_ROOT = "/home/jk661/.cache/colabfold_dbs"
+DB_ROOT = "/data/databases/colabfold"
 
 
 def build_args(manifest: Manifest, params: dict[str, Any]) -> list[str]:
@@ -46,7 +46,7 @@ def build_args(manifest: Manifest, params: dict[str, Any]) -> list[str]:
         "--mmseqs-binary",
         MMSEQS_BINARY,
         "--db-root",
-        DB_ROOT,
+        os.environ.get("COLABFOLD_DB_ROOT", DB_ROOT),
         "--db1",
         str(params["db1"]),
         "--db3",

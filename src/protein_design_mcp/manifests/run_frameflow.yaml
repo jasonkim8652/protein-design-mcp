@@ -4,30 +4,17 @@ composite: false
 timeout_s: 7200
 
 engine:
-  # `repo` is the actual importable module name `discover_mounts` probes
-  # (this project's convention -- see run_rf3.yaml). The pip package name
-  # here is `se3_flow_matching`, but its editable-install finder
-  # (`__editable___se3_flow_matching_0_0_0_finder.py`, read from source)
-  # maps ONLY `openfold` as a top-level importable name -- `experiments`
-  # (where the actual entry point lives) is a plain scripts directory with
-  # no `__init__.py`, reachable only as a Python 3 namespace package once
-  # PYTHONPATH includes the repo root (see env_vars below). Confirmed live:
-  # `discover_mounts(prefix, "experiments", env={"PYTHONPATH": ...})`
-  # resolves cleanly to the repo root, exactly matching `mounts:` below.
   repo: experiments
-  prefix: /home/jk661/.conda/envs/frameflow
+  prefix: /opt/conda/envs/frameflow
   entry:
-    ["python", "-W", "ignore", "/home/jk661/projects/frameflow/experiments/inference_se3_flows.py"]
+  - python
+  - -W
+  - ignore
+  - /opt/engines/frameflow/experiments/inference_se3_flows.py
   env_vars:
-    # The script's OWN directory becomes sys.path[0] (not the repo root),
-    # so plain `python .../inference_se3_flows.py` fails with
-    # `ModuleNotFoundError: No module named 'experiments'` even when cwd IS
-    # the repo root (confirmed live in
-    # docs/superpowers/reviews/2026-09-22-gpu-engine-survey.md #7).
-    # PYTHONPATH is the fix the survey verified.
-    PYTHONPATH: /home/jk661/projects/frameflow
-  mounts:
-    - /home/jk661/projects/frameflow
+    HF_HOME: /opt/models/huggingface
+    TORCH_HOME: /opt/models/torch
+    PYTHONPATH: /opt/engines/frameflow
 
 requires:
   gpu: true
@@ -49,11 +36,7 @@ outputs:
     multiple: true
 
 summary: >-
-  Generate an unconditional monomer backbone with FrameFlow, an SE(3) flow-matching
-  model (no sequence, no side chains -- design a sequence for the result with
-  run_mpnn). Only unconditional generation is exposed; FrameFlow's
-  motif-scaffolding entry point (a different Hydra config,
-  inference_scaffolding.yaml) is not wired into this tool.
+  Generate an unconditional monomer backbone with FrameFlow, an SE(3) flow-matching model. Outputs backbone geometry without a designed sequence or side chains. Motif scaffolding is not exposed.
 
 doc: |
   ## What this is

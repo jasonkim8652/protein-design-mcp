@@ -5,40 +5,17 @@ timeout_s: 1800
 
 engine:
   repo: pyrosetta
-  # /opt/pyrosetta_wheels/pyrosetta-2017-cp312-cp312-linux_x86_64.whl (the
-  # only wheel this project shipped a dedicated env for) is BROKEN -- 1.8GB,
-  # 24,335 entries, ZERO compiled `.so` extensions among them, so
-  # `import pyrosetta` can never succeed from it (PyRosetta's Python layer is
-  # a thin wrapper around compiled `pyrosetta.rosetta` bindings). Do not
-  # revert to it; a dedicated `pyrosetta` env built from that wheel cannot be
-  # fixed by any environment-configuration change.
-  #
-  # A genuinely working PyRosetta install already exists on this host inside
-  # `~/.conda/envs/BindCraft` (python 3.10, `import pyrosetta` plus
-  # `InterfaceAnalyzerMover`/`DockingPartners` CONFIRMED LIVE, 2026-09-22) --
-  # pointed at here READ-ONLY, the same way every other engine in this
-  # server points at its host env, and BindCraft itself is left completely
-  # untouched (it is excluded from this server by design, spec §3.3,
-  # gradient-based hallucination -- that exclusion has no bearing on reusing
-  # the PyRosetta install inside it; this tool never imports anything
-  # BindCraft-specific).
-  #
-  # PyRosetta's own licence prohibits redistribution -- this is why it is
-  # mounted at runtime from the host, exactly like every other conda
-  # `prefix:` env, and never baked into any image layer. That fact belongs
-  # here and in the wave report, not in this manifest's summary/description
-  # or the generated doc, which a model reads and cannot act on a licensing
-  # constraint from.
-  prefix: /home/jk661/.conda/envs/BindCraft
-  entry: ["python", "/app/scripts/engines/rosetta_interface.py"]
-  # No `mounts:` -- CONFIRMED live, 2026-09-22:
-  # `python -m protein_design_mcp.mounts /home/jk661/.conda/envs/BindCraft
-  # pyrosetta` returns an EMPTY list. Unlike the broken `pyrosetta` env this
-  # replaces, this discovery command could actually be run against a working
-  # `import pyrosetta` this time.
+  prefix: /opt/conda/envs/BindCraft
+  entry:
+  - python
+  - /app/scripts/engines/rosetta_interface.py
+  mounts:
+  - /data/licenses/pyrosetta
 
 requires:
   gpu: false
+  files:
+  - /data/licenses/pyrosetta/pyrosetta/__init__.py
 
 summary: >-
   Physics-based protein-protein interface analysis with PyRosetta's

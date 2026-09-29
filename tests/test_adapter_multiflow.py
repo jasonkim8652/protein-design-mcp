@@ -45,6 +45,7 @@ def test_manifest_loads_and_requires_gpu():
 def test_build_args_nulls_length_subset():
     args = build_args(_manifest(), DEFAULT_PARAMS)
     assert "inference.samples.length_subset=null" in args
+    assert "inference.folding.pt_hub_dir=/opt/models/torch/hub" in args
 
 
 def test_build_args_fixes_checkpoint_to_gpu0_variant():
@@ -163,7 +164,7 @@ def test_manifest_runs_under_multiflow_fixed_not_the_original_multiflow():
     """The environment fix (wave-I): this tool's prefix must point at the
     deepspeed-patched clone, not the original multiflow env, which still
     lacks deepspeed (confirmed live, see the wave's report)."""
-    assert _manifest().engine.prefix == "/home/jk661/.conda/envs/multiflow_fixed"
+    assert _manifest().engine.prefix == "/opt/conda/envs/multiflow_fixed"
 
 
 def test_validation_requires_min_and_max_length():

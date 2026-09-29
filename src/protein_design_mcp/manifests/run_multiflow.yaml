@@ -5,31 +5,15 @@ timeout_s: 7200
 
 engine:
   repo: multiflow
-  # `multiflow_fixed`, not `multiflow`: a clone of the original environment
-  # (see this wave's report, wave-I) with `deepspeed` installed via the
-  # clone's own bin/pip -- never `conda activate` -- matched against the
-  # clone's EXISTING torch==2.5.1+cu121 with no torch upgrade (confirmed
-  # live: `pip install deepspeed` resolved `torch>=2.0.0` against what was
-  # already there and installed nothing torch-related). The original
-  # `multiflow` env was never modified (confirmed live: different inodes,
-  # `import deepspeed` still fails there).
-  prefix: /home/jk661/.conda/envs/multiflow_fixed
-  entry: ["python", "/app/scripts/engines/multiflow.py"]
+  prefix: /opt/conda/envs/multiflow_fixed
+  entry:
+  - python
+  - /app/scripts/engines/multiflow.py
   env_vars:
-    # Verified invocation (survey #10): `PYTHONPATH=<repo root>` is required
-    # -- the script's bundled `openfold/` is imported bare (`import
-    # openfold`, not `multiflow.openfold`), which only resolves with the
-    # repo root itself on sys.path, same class of requirement as FrameFlow
-    # (see run_frameflow.yaml).
-    PYTHONPATH: /home/jk661/projects/multiflow
-  # discover_mounts(prefix, "multiflow") resolves only to the repo's
-  # multiflow/ subdirectory (the editable install's own finder maps
-  # exactly that) -- listed explicitly below alongside the repo root,
-  # which PYTHONPATH above also needs mounted for the bundled `openfold`
-  # import (`import openfold`, not `multiflow.openfold`) to work.
-  mounts:
-    - /home/jk661/projects/multiflow
-    - /home/jk661/projects/multiflow/multiflow
+    HF_HOME: /opt/models/huggingface
+    TORCH_HOME: /opt/models/torch
+    PYTHONPATH: /opt/engines/multiflow
+    TORCH_HOME: /opt/models/torch
 
 requires:
   gpu: true

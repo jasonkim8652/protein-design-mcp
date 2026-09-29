@@ -1,0 +1,45 @@
+# syntax=docker/dockerfile:1.7
+# Build the core first with Dockerfile.envs, then supply a curated, relocated
+# rootfs.tar through --build-context payload=/path/to/staged-payload.
+# Restricted weights/software and user databases must never enter that archive.
+ARG CORE_IMAGE=protein-design-mcp:2.4.0-core
+FROM nvidia/cuda:12.6.3-devel-ubuntu24.04@sha256:392c0df7b577ecae17a17f6ba7f2009c217bb4422f8431c053ae9af61a8c148a AS cuda
+FROM ${CORE_IMAGE} AS substrate
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3.12 libexpat1 libgomp1 libnuma1 libglib2.0-0t64 libgl1 perl pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+# Toolkit is from NVIDIA's published distribution, never a developer's install.
+COPY --from=cuda /usr/local/cuda-12.6 /usr/local/cuda-12.6
+RUN ln -s /usr/local/cuda-12.6 /usr/local/cuda
+FROM substrate
+RUN --mount=type=bind,from=payload,source=rootfs.tar,target=/tmp/rootfs.tar \
+    tar -xf /tmp/rootfs.tar -C /
+# Import only the licensed packages from this mount. Adding an entire host
+# site-packages directory to PYTHONPATH would also override bundled dependencies.
+RUN ln -s /data/licenses/pyrosetta/pyrosetta /opt/conda/envs/BindCraft/lib/python3.10/site-packages/pyrosetta \
+    && ln -s /data/licenses/pyrosetta/rosetta /opt/conda/envs/BindCraft/lib/python3.10/site-packages/rosetta
+ENV PATH="/usr/local/cuda-12.6/bin:${PATH}" \
+    NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+    HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1 \
+    PYTHONNOUSERSITE=1
+COPY pyproject.toml README.md LICENSE /app/
+COPY src/ /app/src/
+COPY scripts/ /app/scripts/
+RUN micromamba run -n server pip install --no-cache-dir --no-deps /app \
+    && chmod -R a+rX /app \
+    && test ! -e /data/models/alphafold3/af3.bin \
+    && test ! -e /opt/conda/envs/BindCraft/lib/python3.10/site-packages/pyrosetta
+ARG SOURCE_REVISION=unknown
+LABEL org.opencontainers.image.title="Protein Design MCP" \
+      org.opencontainers.image.description="Integrated protein-design engines and public model assets; external licensed materials and databases are mounted separately." \
+      org.opencontainers.image.version="2.4.0" \
+      org.opencontainers.image.source="https://github.com/jasonkim8652/protein-design-mcp" \
+      org.opencontainers.image.url="https://github.com/jasonkim8652/protein-design-mcp" \
+      org.opencontainers.image.revision="${SOURCE_REVISION}" \
+      org.opencontainers.image.licenses="LicenseRef-See-Component-Licenses"
+USER $MAMBA_USER
+WORKDIR /app
+CMD ["micromamba", "run", "-n", "server", "protein-design-mcp"]

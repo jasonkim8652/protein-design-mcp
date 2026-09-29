@@ -2,7 +2,7 @@
 
 **Category:** scoring  
 **Engine:** `pyrosetta`  
-**Environment:** `/home/jk661/.conda/envs/BindCraft`  
+**Environment:** `/opt/conda/envs/BindCraft`  
 **GPU required:** no
 
 > This file is generated from `src/protein_design_mcp/manifests/run_rosetta_interface.yaml`. Edit the manifest, then run `python scripts/generate_tool_docs.py`.

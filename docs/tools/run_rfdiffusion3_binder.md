@@ -2,7 +2,7 @@
 
 **Category:** binder_generation  
 **Engine:** `rfd3`  
-**Environment:** `/home/jk661/.conda/envs/foundry`  
+**Environment:** `/opt/conda/envs/foundry`  
 **GPU required:** yes
 
 > This file is generated from `src/protein_design_mcp/manifests/run_rfdiffusion3_binder.yaml`. Edit the manifest, then run `python scripts/generate_tool_docs.py`.

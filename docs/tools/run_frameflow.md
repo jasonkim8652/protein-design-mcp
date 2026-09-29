@@ -2,14 +2,14 @@
 
 **Category:** monomer_generation  
 **Engine:** `experiments`  
-**Environment:** `/home/jk661/.conda/envs/frameflow`  
+**Environment:** `/opt/conda/envs/frameflow`  
 **GPU required:** yes
 
 > This file is generated from `src/protein_design_mcp/manifests/run_frameflow.yaml`. Edit the manifest, then run `python scripts/generate_tool_docs.py`.
 
 ## Summary
 
-Generate an unconditional monomer backbone with FrameFlow, an SE(3) flow-matching model (no sequence, no side chains -- design a sequence for the result with run_mpnn). Only unconditional generation is exposed; FrameFlow's motif-scaffolding entry point (a different Hydra config, inference_scaffolding.yaml) is not wired into this tool.
+Generate an unconditional monomer backbone with FrameFlow, an SE(3) flow-matching model. Outputs backbone geometry without a designed sequence or side chains. Motif scaffolding is not exposed.
 
 ## What this is
 FrameFlow's `experiments/inference_se3_flows.py -cn inference_unconditional`,

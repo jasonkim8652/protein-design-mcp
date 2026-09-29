@@ -7,7 +7,7 @@ import pytest
 import yaml
 
 from protein_design_mcp.manifest.loader import load_manifests_resilient
-from protein_design_mcp.manifest.schema import ManifestError
+from protein_design_mcp.manifest.registry import ToolNotAvailable, ToolRegistry
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -23,14 +23,20 @@ def test_unavailable_alternative_does_not_hide_a_working_tool(tmp_path, monkeypa
             doc="## When to use this instead of the alternatives\n" + doc,
             engine=dict(repo="test", env="test", entry=["python"], mounts=mounts))))
     result = load_manifests_resilient(tmp_path)
-    assert [m.name for m in result.manifests] == ["run_good"]
-    assert "run_private" in result.reasons
+    assert {m.name for m in result.manifests} == {"run_good", "run_private"}
+    assert not result.reasons
+    registry = ToolRegistry(result.manifests)
+    assert [tool.name for tool in registry.tools()] == ["run_good"]
+    with pytest.raises(ToolNotAvailable, match="/missing/private/weights"):
+        registry.resolve("run_private")
 
 
 @pytest.mark.parametrize("strict", [False, True])
-def test_permission_denied_mount_is_a_manifest_failure(tmp_path, monkeypatch, strict):
+def test_permission_denied_mount_is_a_runtime_availability_failure(tmp_path, monkeypatch, strict):
     monkeypatch.setenv("STRICT_MANIFESTS", "1" if strict else "0")
-    template = dict(category="scoring", summary="Score", doc="Score", schema={})
+    template = dict(category="scoring", summary="Score", schema={},
+                    doc="## When to use this instead of the alternatives\n"
+                        "Use run_good for public inputs and run_private for private inputs.")
     for name, mounts in [("run_good", []), ("run_private", ["/private/weights"])]:
         (tmp_path / f"{name}.yaml").write_text(yaml.safe_dump(dict(
             template, name=name, engine=dict(repo="test", env="test", entry=["python"], mounts=mounts))))
@@ -42,13 +48,13 @@ def test_permission_denied_mount_is_a_manifest_failure(tmp_path, monkeypatch, st
         return exists(path)
 
     monkeypatch.setattr(Path, "exists", probe)
-    if strict:
-        with pytest.raises(ManifestError, match="/private/weights"):
-            load_manifests_resilient(tmp_path)
-    else:
-        result = load_manifests_resilient(tmp_path)
-        assert [m.name for m in result.manifests] == ["run_good"]
-        assert "permission denied" in result.reasons["run_private"].lower()
+    result = load_manifests_resilient(tmp_path)
+    assert {m.name for m in result.manifests} == {"run_good", "run_private"}
+    assert not result.reasons
+    registry = ToolRegistry(result.manifests)
+    assert [tool.name for tool in registry.tools()] == ["run_good"]
+    with pytest.raises(ToolNotAvailable, match="missing or inaccessible"):
+        registry.resolve("run_private")
 
 
 def test_af2_wrapper_uses_deployment_weights_path(tmp_path, monkeypatch):

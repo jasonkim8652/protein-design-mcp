@@ -31,7 +31,7 @@ def test_manifest_loads_and_is_gpu_binder_generation():
 
 def test_manifest_uses_prefix_not_env():
     engine = _manifest().engine
-    assert engine.prefix == "/home/jk661/miniforge3/envs/boltzgen"
+    assert engine.prefix == "/opt/conda/envs/boltzgen"
     assert engine.env is None
     # This line used to read ("boltzgen", "run"), which pinned the BUG rather
     # than the requirement: the adapter's argv is written for the wrapper, and

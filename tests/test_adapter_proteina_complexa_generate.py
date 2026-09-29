@@ -43,7 +43,7 @@ def test_manifest_loads_and_is_gpu_binder_generation():
 
 def test_manifest_uses_prefix_not_env():
     engine = _manifest().engine
-    assert engine.prefix == "/home/jk661/.conda/envs/proteina_complexa"
+    assert engine.prefix == "/opt/conda/envs/proteina_complexa"
     assert engine.env is None
     assert engine.entry == ("complexa", "generate")
     assert engine.repo == "proteinfoundation"
@@ -136,7 +136,7 @@ def test_validation_single_length_sample():
 
 def test_build_args_uses_fixed_config_path():
     args = build_args(_manifest(), _base_params())
-    assert args[0] == "/home/jk661/projects/proteina-complexa/configs/search_binder_local_pipeline.yaml"
+    assert args[0] == "/opt/engines/proteina-complexa/configs/search_binder_local_pipeline.yaml"
 
 
 def test_build_args_ends_with_verbose():
@@ -159,11 +159,11 @@ def test_build_args_overrides_ckpt_paths_to_absolute():
     relative to the repo root, not this tool's scratch cwd."""
     args = build_args(_manifest(), _base_params())
     assert (
-        '++ckpt_path="/home/jk661/projects/proteina-complexa/ckpts"' in args
+        '++ckpt_path="/opt/engines/proteina-complexa/ckpts"' in args
     )
     assert (
         '++autoencoder_ckpt_path='
-        '"/home/jk661/projects/proteina-complexa/ckpts/complexa_ae.ckpt"'
+        '"/opt/engines/proteina-complexa/ckpts/complexa_ae.ckpt"'
         in args
     )
 
@@ -173,7 +173,7 @@ def test_build_args_overrides_target_pdb_path_to_absolute():
     joined = " ".join(args)
     assert "conditional_features.0.pdb_path=" in joined
     assert (
-        "/home/jk661/projects/proteina-complexa/assets/target_data/"
+        "/opt/engines/proteina-complexa/assets/target_data/"
         "bindcraft_targets/PD-L1.pdb" in joined
     )
 

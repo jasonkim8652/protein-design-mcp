@@ -41,7 +41,7 @@ def test_manifest_loads_and_is_run_analysis_no_gpu():
 
 def test_manifest_uses_prefix_not_env():
     engine = _manifest().engine
-    assert engine.prefix == "/home/jk661/miniforge3/envs/boltzgen"
+    assert engine.prefix == "/opt/conda/envs/boltzgen"
     assert engine.env is None
     assert engine.entry == ("boltzgen", "run")
 

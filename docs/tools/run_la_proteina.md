@@ -2,7 +2,7 @@
 
 **Category:** monomer_generation  
 **Engine:** `proteinfoundation`  
-**Environment:** `/home/jk661/.conda/envs/laproteina_env`  
+**Environment:** `/opt/conda/envs/laproteina_env`  
 **GPU required:** yes
 
 > This file is generated from `src/protein_design_mcp/manifests/run_la_proteina.yaml`. Edit the manifest, then run `python scripts/generate_tool_docs.py`.

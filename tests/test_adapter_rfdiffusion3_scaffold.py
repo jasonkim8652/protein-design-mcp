@@ -37,7 +37,7 @@ def _completed_run(tmp_path: Path, metrics: dict, num_structures: int = 1) -> Co
         meta_path = tmp_path / f"input_job_0_model_{i}.json"
         meta_path.write_text(json.dumps({
             "metrics": metrics,
-            "ckpt_path": "/home/jk661/.foundry/checkpoints/rfd3_latest.ckpt",
+            "ckpt_path": "/opt/models/foundry/rfd3_latest.ckpt",
         }))
         metadata.append(str(meta_path))
     return CompletedRun(

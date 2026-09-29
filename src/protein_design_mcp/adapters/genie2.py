@@ -24,7 +24,7 @@ from typing import Any
 from protein_design_mcp.dispatch.env import CompletedRun
 from protein_design_mcp.manifest.schema import Manifest
 
-_GENIE2_ROOTDIR = "/home/jk661/projects/genie2/results"
+_GENIE2_ROOTDIR = "/opt/engines/genie2/results"
 
 
 def build_args(manifest: Manifest, params: dict[str, Any]) -> list[str]:

@@ -1,0 +1,367 @@
+[
+  {
+    "name": "alphafold3_venv",
+    "python_links": {
+      "python3": "python",
+      "python": "/usr/bin/python3.12",
+      "python3.12": "python"
+    },
+    "packages": {
+      "jaxlib": "0.8.1",
+      "numpy": "2.4.1",
+      "alphafast": "1.0.0",
+      "jax": "0.8.1"
+    },
+    "tools": [
+      "run_alphafold3"
+    ]
+  },
+  {
+    "name": "boltz",
+    "python_links": {
+      "python3": "python3.11",
+      "python3.1": "python3.11",
+      "python": "python3.11",
+      "python3-config": "python3.11-config"
+    },
+    "packages": {
+      "torch": "2.10.0",
+      "boltz": "2.2.1",
+      "numpy": "1.26.4"
+    },
+    "tools": [
+      "run_boltz"
+    ]
+  },
+  {
+    "name": "boltzgen",
+    "python_links": {
+      "python3": "python3.11",
+      "python3.1": "python3.11",
+      "python": "python3.11",
+      "python3-config": "python3.11-config"
+    },
+    "packages": {
+      "torch": "2.14.0",
+      "boltzgen": "0.3.2",
+      "numpy": "2.0.2"
+    },
+    "tools": [
+      "run_boltzgen_analyze",
+      "run_boltzgen_design",
+      "run_boltzgen_filter",
+      "run_boltzgen_fold",
+      "run_boltzgen_inverse_fold"
+    ]
+  },
+  {
+    "name": "chai1",
+    "python_links": {
+      "python3": "python3.10",
+      "python3.1": "python3.10",
+      "python": "python3.10",
+      "python3-config": "python3.10-config"
+    },
+    "packages": {
+      "torch": "2.6.0",
+      "numpy": "1.26.4",
+      "chai_lab": "0.6.1"
+    },
+    "tools": [
+      "run_chai1"
+    ]
+  },
+  {
+    "name": "colabfold",
+    "python_links": {
+      "python3": "python3.10",
+      "python3.1": "python3.10",
+      "python": "python3.10",
+      "python3-config": "python3.10-config"
+    },
+    "packages": {
+      "numpy": "2.2.6",
+      "colabfold": "1.6.3",
+      "jaxlib": "0.6.2",
+      "jax": "0.6.2"
+    },
+    "tools": [
+      "run_colabfold_search"
+    ]
+  },
+  {
+    "name": "esm_env",
+    "python_links": {
+      "python3": "python3.10",
+      "python3.1": "python3.10",
+      "python": "python3.10",
+      "python3-config": "python3.10-config"
+    },
+    "packages": {
+      "torch": "2.4.0+cu121",
+      "fair_esm": "2.0.0",
+      "numpy": "1.26.4"
+    },
+    "tools": [
+      "run_esm_score"
+    ]
+  },
+  {
+    "name": "esmfold2",
+    "python_links": {
+      "python3": "python3.12",
+      "python3.1": "python3.12",
+      "python": "python3.12",
+      "python3-config": "python3.12-config"
+    },
+    "packages": {
+      "torch": "2.11.0",
+      "esm": "3.4.0",
+      "numpy": "2.5.2"
+    },
+    "tools": [
+      "run_esmfold2"
+    ]
+  },
+  {
+    "name": "frameflow",
+    "python_links": {
+      "python3": "python3.10",
+      "python3.1": "python3.10",
+      "python": "python3.10",
+      "python3-config": "python3.10-config"
+    },
+    "packages": {
+      "torch": "2.5.1+cu121",
+      "numpy": "2.2.6"
+    },
+    "tools": [
+      "run_frameflow"
+    ]
+  },
+  {
+    "name": "genie2",
+    "python_links": {
+      "python3": "python3.10",
+      "python3.1": "python3.10",
+      "python": "python3.10",
+      "python3-config": "python3.10-config"
+    },
+    "packages": {
+      "torch": "2.5.1+cu121",
+      "numpy": "2.2.6"
+    },
+    "tools": [
+      "run_genie2",
+      "run_genie3_scaffold"
+    ]
+  },
+  {
+    "name": "genie2_fixed",
+    "python_links": {
+      "python3": "python3.10",
+      "python3.1": "python3.10",
+      "python": "python3.10",
+      "python3-config": "python3.10-config"
+    },
+    "packages": {
+      "torch": "2.5.1+cu121",
+      "numpy": "2.2.6"
+    },
+    "tools": [
+      "run_genie3_binder"
+    ]
+  },
+  {
+    "name": "laproteina_env",
+    "python_links": {
+      "python3": "python3.11",
+      "python3.1": "python3.11",
+      "python": "python3.11",
+      "python3-config": "python3.11-config"
+    },
+    "packages": {
+      "numpy": "1.23.5",
+      "torch": "2.7.0+cu118"
+    },
+    "tools": [
+      "run_la_proteina"
+    ]
+  },
+  {
+    "name": "multiflow_fixed",
+    "python_links": {
+      "python3": "python3.10",
+      "python3.1": "python3.10",
+      "python": "python3.10",
+      "python3-config": "python3.10-config"
+    },
+    "packages": {
+      "torch": "2.5.1+cu121",
+      "numpy": "2.2.6",
+      "fair_esm": "2.0.0"
+    },
+    "tools": [
+      "run_multiflow"
+    ]
+  },
+  {
+    "name": "openfold3",
+    "python_links": {
+      "python3": "python3.11",
+      "python3.1": "python3.11",
+      "python": "python3.11",
+      "python3-config": "python3.11-config"
+    },
+    "packages": {
+      "torch": "2.14.0",
+      "openfold3": "0.5.0",
+      "numpy": "2.4.6"
+    },
+    "tools": [
+      "run_openfold3"
+    ]
+  },
+  {
+    "name": "promera",
+    "python_links": {
+      "python3": "python3.12",
+      "python3.1": "python3.12",
+      "python": "python3.12",
+      "python3-config": "python3.12-config"
+    },
+    "packages": {
+      "promera": "0.1.0",
+      "numpy": "2.5.3",
+      "torch": "2.9.0"
+    },
+    "tools": [
+      "run_promera"
+    ]
+  },
+  {
+    "name": "proteina_complexa",
+    "python_links": {
+      "python3": "python3.12",
+      "python3.1": "python3.12",
+      "python": "python3.12",
+      "python3-config": "python3.12-config"
+    },
+    "packages": {
+      "torch": "2.5.1+cu121",
+      "numpy": "2.5.3",
+      "proteinfoundation": "1.0.0",
+      "jaxlib": "0.9.2",
+      "atomworks": "2.2.0",
+      "jax": "0.9.2"
+    },
+    "tools": [
+      "run_proteina_complexa_analyze",
+      "run_proteina_complexa_filter",
+      "run_proteina_complexa_generate"
+    ]
+  },
+  {
+    "name": "protenix",
+    "python_links": {
+      "python3": "python3.11",
+      "python3.1": "python3.11",
+      "python": "python3.11",
+      "python3-config": "python3.11-config"
+    },
+    "packages": {
+      "numpy": "2.4.1",
+      "fair_esm": "2.0.0",
+      "protenix": "2.0.0",
+      "torch": "2.7.1"
+    },
+    "tools": [
+      "run_protenix"
+    ]
+  },
+  {
+    "name": "pp1c",
+    "python_links": {
+      "python3": "python3.12",
+      "python3.1": "python3.12",
+      "python": "python3.12",
+      "python3-config": "python3.12-config"
+    },
+    "packages": {
+      "torch": "2.11.0",
+      "numpy": "2.4.4",
+      "protpardelle": "1.3.2"
+    },
+    "tools": [
+      "run_protpardelle"
+    ]
+  },
+  {
+    "name": "foundry",
+    "python_links": {
+      "python3": "python3.12",
+      "python3.1": "python3.12",
+      "python": "python3.12",
+      "python3-config": "python3.12-config"
+    },
+    "packages": {
+      "torch": "2.14.0",
+      "numpy": "2.5.3",
+      "atomworks": "2.2.1"
+    },
+    "tools": [
+      "run_rf3",
+      "run_rfdiffusion3_binder",
+      "run_rfdiffusion3_scaffold"
+    ]
+  },
+  {
+    "name": "rfd2_fixed",
+    "python_links": {
+      "python3": "python3.12",
+      "python3.1": "python3.12",
+      "python": "python3.12",
+      "python3-config": "python3.12-config"
+    },
+    "packages": {
+      "numpy": "1.26.4",
+      "torch": "2.2.0+cu121"
+    },
+    "tools": [
+      "run_rfdiffusion2"
+    ]
+  },
+  {
+    "name": "SE3nv",
+    "python_links": {
+      "python3": "python3.9",
+      "python": "python3.9",
+      "python3-config": "python3.9-config"
+    },
+    "packages": {
+      "numpy": "1.24.3",
+      "rfdiffusion": "1.1.0"
+    },
+    "tools": [
+      "run_rfdiffusion_binder"
+    ]
+  },
+  {
+    "name": "BindCraft",
+    "python_links": {
+      "python3": "python3.10",
+      "python3.1": "python3.10",
+      "python": "python3.10",
+      "python3-config": "python3.10-config"
+    },
+    "packages": {
+      "jaxlib": "0.6.0",
+      "numpy": "1.26.4",
+      "jax": "0.6.0",
+      "pyrosetta": "2026.29+releasequarterly.80a0635615"
+    },
+    "tools": [
+      "run_rosetta_interface"
+    ]
+  }
+]

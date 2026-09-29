@@ -134,7 +134,7 @@ def test_build_args_auto_ckpt_variant_adds_no_override():
 # ---------------------------------------------------------------------------
 
 STDOUT_SAMPLE = (
-    "Reading checkpoint from /file_server/data/jk661/pioneer/RFdiffusion/"
+    "Reading checkpoint from /opt/engines/RFdiffusion/"
     "rfdiffusion/inference/../../models/Complex_base_ckpt.pt\n"
     "Using contig: ['B1-100/0 100-100']\n"
 )

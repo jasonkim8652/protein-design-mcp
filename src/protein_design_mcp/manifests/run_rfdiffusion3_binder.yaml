@@ -5,21 +5,12 @@ timeout_s: 10800
 
 engine:
   repo: rfd3
-  prefix: /home/jk661/.conda/envs/foundry
-  entry: ["python", "/app/scripts/engines/rfd3.py"]
-  mounts:
-    # rfd3's checkpoint (2.51G, `foundry install rfd3`, public, not gated)
-    # resolves through foundry's own checkpoint registry to
-    # ~/.foundry/checkpoints/rfd3_latest.ckpt (CONFIRMED LIVE from this
-    # tool's own output metadata JSON's "ckpt_path" field) -- outside the
-    # prefix, same pattern as run_rf3.yaml's RF3 checkpoint mount.
-    # (discover_mounts used to also report
-    # /home/jk661/projects/protein-design-mcp/src here -- a stray sys.path
-    # entry from a stale editable install of THIS SERVER's OWN other
-    # checkout, not rfd3 source. Commit 61b0bb2 fixed discover_mounts to
-    # exclude any path that provides the protein_design_mcp package, since
-    # this server ships inside the image rather than being mounted.)
-    - /home/jk661/.foundry/checkpoints
+  prefix: /opt/conda/envs/foundry
+  entry:
+  - python
+  - /app/scripts/engines/rfd3.py
+  env_vars:
+    FOUNDRY_CHECKPOINT_DIRS: /opt/models/foundry
 
 requires:
   gpu: true

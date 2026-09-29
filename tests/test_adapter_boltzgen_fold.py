@@ -42,7 +42,7 @@ def test_manifest_loads_and_is_gpu_structure_prediction():
 
 def test_manifest_uses_prefix_and_stages_generated_files():
     engine = _manifest().engine
-    assert engine.prefix == "/home/jk661/miniforge3/envs/boltzgen"
+    assert engine.prefix == "/opt/conda/envs/boltzgen"
     assert engine.stage == ("generated_files",)
 
 

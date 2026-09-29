@@ -41,7 +41,7 @@ def test_manifest_discloses_no_pae_output():
 
 def test_manifest_uses_prefix_with_no_extra_mounts():
     engine = _manifest().engine
-    assert engine.prefix == "/home/jk661/.conda/envs/chai1"
+    assert engine.prefix == "/opt/conda/envs/chai1"
     assert engine.env is None
     assert engine.mounts == ()
 

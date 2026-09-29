@@ -5,12 +5,12 @@ timeout_s: 10800
 
 engine:
   repo: rfd3
-  prefix: /home/jk661/.conda/envs/foundry
-  entry: ["python", "/app/scripts/engines/rfd3.py"]
-  # See run_rfdiffusion3_binder.yaml's engine comment -- identical engine,
-  # identical mount (same discover_mounts run, same checkpoint location).
-  mounts:
-    - /home/jk661/.foundry/checkpoints
+  prefix: /opt/conda/envs/foundry
+  entry:
+  - python
+  - /app/scripts/engines/rfd3.py
+  env_vars:
+    FOUNDRY_CHECKPOINT_DIRS: /opt/models/foundry
 
 requires:
   gpu: true
@@ -35,7 +35,7 @@ summary: >-
   current production scaffold model. No target/binding partner (use
   run_rfdiffusion3_binder for that); either fully unconditional at a given
   length, or scaffolding around a fixed functional motif pulled from an
-  existing small structure. Backbone only (pair with run_mpnn). CONFIRMED
+  existing small structure. Backbone geometry only; sequence design is a separate capability. CONFIRMED
   LIVE (unconditional path) on this host, GPU 7.
 
 doc: |

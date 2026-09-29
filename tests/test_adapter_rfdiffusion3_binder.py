@@ -38,7 +38,7 @@ def _completed_run(tmp_path: Path, metrics: dict, num_structures: int = 1) -> Co
         meta_path.write_text(json.dumps({
             "metrics": metrics,
             "diffused_index_map": {"A1": "B1"},
-            "ckpt_path": "/home/jk661/.foundry/checkpoints/rfd3_latest.ckpt",
+            "ckpt_path": "/opt/models/foundry/rfd3_latest.ckpt",
             "seed": None,
         }))
         metadata.append(str(meta_path))

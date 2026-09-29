@@ -2,14 +2,14 @@
 
 **Category:** binder_generation  
 **Engine:** `rfdiffusion`  
-**Environment:** `/home/jk661/.conda/envs/SE3nv`  
+**Environment:** `/opt/conda/envs/SE3nv`  
 **GPU required:** yes
 
 > This file is generated from `src/protein_design_mcp/manifests/run_rfdiffusion_binder.yaml`. Edit the manifest, then run `python scripts/generate_tool_docs.py`.
 
 ## Summary
 
-Generate de novo binder backbones against a target with RFdiffusion 1.1.0 -- the original RFdiffusion, and the legacy baseline of this lineage. Backbone only, no sequence (pair with run_mpnn). Conditions on the target through an explicit contig string plus optional hotspot residues. Superseded in this server by run_rfdiffusion2 (open-source SOTA, all-atom/ligand-aware) and run_rfdiffusion3_binder (RosettaCommons' current production binder model); use this one for reproducing published RFdiffusion 1.1.0 results, or when the newer generations' extra conditioning machinery is not needed and its simpler, best-understood contig grammar is preferred.
+Generate de novo binder backbones against a target with RFdiffusion 1.1.0 -- the original RFdiffusion, and the legacy baseline of this lineage. Backbone only, without a designed sequence. Conditions on the target through an explicit contig string plus optional hotspot residues. Superseded in this server by run_rfdiffusion2 (open-source SOTA, all-atom/ligand-aware) and run_rfdiffusion3_binder (RosettaCommons' current production binder model); use this one for reproducing published RFdiffusion 1.1.0 results, or when the newer generations' extra conditioning machinery is not needed and its simpler, best-understood contig grammar is preferred.
 
 ## What this is
 RFdiffusion 1.1.0 (Watson et al. 2023; Baker lab / IPD), the original

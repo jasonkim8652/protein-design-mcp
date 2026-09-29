@@ -55,6 +55,15 @@ def test_parse_output_reports_the_energy_change():
     assert result["iterations"] == 500
 
 
+def test_parse_output_preserves_actual_physical_settings():
+    result = parse_output(_manifest(), CompletedRun(
+        returncode=0, stdout=SAMPLE_STDOUT + "\nforce_field: amber14-all.xml\nsolvent_model: none\nenergy_units: kJ/mol\n",
+        stderr="", workdir=Path("/tmp")))
+    assert result["force_field"] == "amber14-all.xml"
+    assert result["solvent_model"] == "none"
+    assert result["energy_units"] == "kJ/mol"
+
+
 def test_parse_output_raises_when_energies_are_absent():
     with pytest.raises(ValueError, match="energy"):
         parse_output(

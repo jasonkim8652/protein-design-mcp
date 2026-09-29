@@ -40,14 +40,14 @@ def test_manifest_loads_and_requires_gpu():
     assert m.requires.gpu is True
 
 
-def test_manifest_mounts_the_repo_root_not_just_openfold_subdir():
-    assert _manifest().engine.mounts == ("/home/jk661/projects/frameflow",)
+def test_manifest_uses_bundled_repo_without_runtime_mounts():
+    assert _manifest().engine.mounts == ()
 
 
 def test_manifest_sets_pythonpath_env_var():
     assert (
         _manifest().engine.env_vars.get("PYTHONPATH")
-        == "/home/jk661/projects/frameflow"
+        == "/opt/engines/frameflow"
     )
 
 
@@ -67,7 +67,7 @@ def test_build_args_nulls_length_subset_so_min_max_take_effect():
 def test_build_args_resolves_checkpoint_variant_to_full_path():
     args = build_args(_manifest(), DEFAULT_PARAMS)
     ckpt_arg = next(a for a in args if a.startswith("inference.ckpt_path="))
-    assert ckpt_arg == "inference.ckpt_path=/home/jk661/projects/frameflow/weights/pdb/published.ckpt"
+    assert ckpt_arg == "inference.ckpt_path=/opt/engines/frameflow/weights/pdb/published.ckpt"
 
 
 def test_build_args_uses_scope_checkpoint_when_selected():

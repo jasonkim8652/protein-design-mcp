@@ -5,46 +5,13 @@ timeout_s: 21600
 
 engine:
   repo: rfdiffusion
-  prefix: /home/jk661/.conda/envs/SE3nv
-  # Named `rfdiffusion_binder_engine.py`, not `rfdiffusion.py` -- CONFIRMED
-  # LIVE this matters: a wrapper literally named `rfdiffusion.py` shadows
-  # the `rfdiffusion` package it needs to `import` (the interpreter puts
-  # the running script's own directory on `sys.path[0]`, so `import
-  # rfdiffusion` from inside a file called `rfdiffusion.py` resolves to
-  # itself instead of the real package, and the wrapper's own path
-  # resolution -- which depends on that import succeeding -- breaks in a
-  # confusing way: `FileNotFoundError` for a path built from a bogus
-  # `rfdiffusion.__file__`, not an ImportError).
-  entry: ["python", "/app/scripts/engines/rfdiffusion_binder_engine.py"]
-  # `rfdiffusion-1.1.0.dist-info` is an editable install whose .pth finder
-  # maps `rfdiffusion` -> /home/jk661/projects/pioneer/RFdiffusion (see
-  # __editable___rfdiffusion_1_1_0_finder.py's MAPPING). That path no longer
-  # exists on this host -- CONFIRMED LIVE: `import rfdiffusion` under this
-  # prefix's own interpreter raises ModuleNotFoundError even though the
-  # dist-info is present. The real checkout was found (also live) at
-  # /file_server/data/jk661/pioneer/RFdiffusion -- same repo, moved, the pip
-  # metadata never updated. `protein_design_mcp.mounts.discover_mounts`
-  # cannot recover this: it probes import under the prefix's OWN
-  # interpreter with no extra PYTHONPATH, which fails for exactly the same
-  # reason the raw prefix does, so its output is empty here. The mount below
-  # and the PYTHONPATH in env_vars were derived by hand from that live
-  # failure, not generated -- CONFIRMED LIVE (2026-09-22) that
-  # `PYTHONPATH=/file_server/data/jk661/pioneer/RFdiffusion` makes `import
-  # rfdiffusion` resolve to that checkout and a real binder design run
-  # complete successfully end to end.
-  mounts:
-    - /file_server/data/jk661/pioneer/RFdiffusion
+  prefix: /opt/conda/envs/SE3nv
+  entry:
+  - python
+  - /app/scripts/engines/rfdiffusion_binder_engine.py
   env_vars:
-    PYTHONPATH: /file_server/data/jk661/pioneer/RFdiffusion
-    # nvrtc fails to compile e3nn's fused spherical-harmonics kernel on this
-    # host's L40S GPUs (sm_89) under this environment's CUDA 11.1 toolkit --
-    # CONFIRMED LIVE: `RuntimeError: nvrtc: error: invalid value for
-    # --gpu-architecture (-arg)` inside e3nn/o3/_spherical_harmonics.py, hit
-    # on the very first denoising step. The wrapper additionally disables
-    # PyTorch JIT GPU fusion in-process (torch._C._jit_override_can_fuse_on_gpu)
-    # before importing anything else -- this env var alone was not
-    # sufficient in testing; both together were CONFIRMED LIVE to work.
-    PYTORCH_JIT_USE_NNC_NOT_NVFUSER: "1"
+    PYTHONPATH: /opt/engines/RFdiffusion
+    PYTORCH_JIT_USE_NNC_NOT_NVFUSER: '1'
 
 requires:
   gpu: true
@@ -75,7 +42,7 @@ outputs:
 summary: >-
   Generate de novo binder backbones against a target with RFdiffusion 1.1.0
   -- the original RFdiffusion, and the legacy baseline of this lineage.
-  Backbone only, no sequence (pair with run_mpnn). Conditions on the target
+  Backbone only, without a designed sequence. Conditions on the target
   through an explicit contig string plus optional hotspot residues.
   Superseded in this server by run_rfdiffusion2 (open-source SOTA,
   all-atom/ligand-aware) and run_rfdiffusion3_binder (RosettaCommons'

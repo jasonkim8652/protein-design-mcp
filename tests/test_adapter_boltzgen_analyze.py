@@ -58,24 +58,10 @@ def test_manifest_documents_that_it_runs_no_model():
     assert "runs no model" in text
 
 
-def test_manifest_mounts_the_foldseek_binary_with_a_discovery_explanation():
-    """foldseek is a standalone binary invoked as a subprocess, not a Python
-    import -- python -m protein_design_mcp.mounts (discover_mounts) cannot
-    find it (it walks sys.path/.pth files), so it must be hand-declared, and
-    the manifest must say so or a future mounts-regeneration pass will
-    assume it's spurious and delete it (the exact failure class
-    run_mmseqs_search's own mounts comment already guards against)."""
-    engine = _manifest().engine
-    assert "/home/jk661/.local/bin/foldseek" in engine.mounts
-
-
-def test_manifest_explains_why_foldseek_is_hand_declared():
-    """The explanation belongs in the manifest's own YAML comment (PyYAML
-    strips comments from the parsed Manifest, so this reads the raw file,
-    same place a human re-deriving mounts would actually look)."""
-    source = (MANIFEST_DIR / "run_boltzgen_analyze.yaml").read_text().lower()
-    assert "discover_mounts" in source
-    assert "hand" in source
+def test_manifest_uses_bundled_foldseek_without_runtime_mounts():
+    manifest = _manifest()
+    assert manifest.engine.mounts == ()
+    assert manifest.schema["foldseek_binary"]["default"] == "/usr/local/bin/foldseek"
 
 
 def test_run_clustering_description_states_benefit_and_cost_not_unverified():
@@ -114,7 +100,7 @@ def test_validation_fills_defaults():
     assert params["designfolding_metrics"] is False
     assert params["num_processes"] == 32
     assert params["num_workers"] == 4
-    assert params["foldseek_binary"] == "/home/jk661/.local/bin/foldseek"
+    assert params["foldseek_binary"] == "/usr/local/bin/foldseek"
 
 
 def test_validation_rejects_missing_refold_metrics():
@@ -178,7 +164,7 @@ def test_build_args_includes_foldseek_binary_path():
     args = build_args(_manifest(), params)
     joined = " ".join(args)
     assert "run_clustering=true" in joined
-    assert "foldseek_binary=/home/jk661/.local/bin/foldseek" in joined
+    assert "foldseek_binary=/usr/local/bin/foldseek" in joined
 
 
 # --- parse_output ---

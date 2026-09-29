@@ -36,7 +36,7 @@ def test_manifest_loads_and_is_cpu_run_analysis():
 
 def test_manifest_uses_prefix_not_env():
     engine = _manifest().engine
-    assert engine.prefix == "/home/jk661/.conda/envs/proteina_complexa"
+    assert engine.prefix == "/opt/conda/envs/proteina_complexa"
     assert engine.env is None
     assert engine.entry == ("complexa", "filter")
     assert engine.repo == "proteinfoundation"
@@ -101,7 +101,7 @@ def test_validation_dedup_sequence_can_be_disabled():
 
 def test_build_args_uses_fixed_config_path():
     args = build_args(_manifest(), _base_params())
-    assert args[0] == "/home/jk661/projects/proteina-complexa/configs/search_binder_local_pipeline.yaml"
+    assert args[0] == "/opt/engines/proteina-complexa/configs/search_binder_local_pipeline.yaml"
 
 
 def test_build_args_ends_with_verbose():

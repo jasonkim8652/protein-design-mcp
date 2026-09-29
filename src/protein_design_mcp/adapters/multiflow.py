@@ -15,7 +15,7 @@ from typing import Any
 from protein_design_mcp.dispatch.env import CompletedRun
 from protein_design_mcp.manifest.schema import Manifest
 
-_CKPT_PATH = "/home/jk661/projects/multiflow/weights/last_gpu0.ckpt"
+_CKPT_PATH = "/opt/engines/multiflow/weights/last_gpu0.ckpt"
 _PREDICT_DIR = "predict_out"  # must match scripts/engines/multiflow.py's _PREDICT_DIR
 
 
@@ -34,8 +34,9 @@ def build_args(manifest: Manifest, params: dict[str, Any]) -> list[str]:
         # `can't open file '.../ProteinMPNN/helper_scripts/
         # parse_multiple_chains.py'` once cwd is a scratch workdir rather
         # than the multiflow checkout itself.
-        "inference.pmpnn_dir=/home/jk661/projects/multiflow/ProteinMPNN",
-        "inference.folding.pmpnn_path=/home/jk661/projects/multiflow/ProteinMPNN/",
+        "inference.pmpnn_dir=/opt/engines/multiflow/ProteinMPNN",
+        "inference.folding.pmpnn_path=/opt/engines/multiflow/ProteinMPNN/",
+        "inference.folding.pt_hub_dir=/opt/models/torch/hub",
         f"inference.seed={params['seed']}",
         "inference.num_gpus=1",
         "inference.also_fold_pmpnn_seq=false",

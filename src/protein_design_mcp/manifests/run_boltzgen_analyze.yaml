@@ -5,22 +5,16 @@ timeout_s: 1800
 
 engine:
   repo: boltzgen
-  # See run_boltzgen_filter's manifest comment for the identity-verification
-  # and mount-discovery detail; identical for every tool on this engine.
-  prefix: /home/jk661/miniforge3/envs/boltzgen
-  entry: ["boltzgen", "run"]
-  # Analyze reads a design's original .cif/.npz from design_dir itself, and
-  # its refolded structures/metrics from design_dir/refold_cif and
-  # design_dir/fold_out_npz specifically -- hardcoded relative to ONE
-  # design_dir (analyze.py's own init_datasets), not independently
-  # configurable. Two DIFFERENT prior tool calls' outputs (run_boltzgen_design
-  # or run_boltzgen_inverse_fold, and run_boltzgen_fold) are each already
-  # collected under their OWN name (results.collect_outputs namespaces every
-  # declared output by spec name) -- `stage`+`stage_subdir` reassembles them
-  # into the specific tree analyze.py expects before this engine runs.
-  # Optionally a THIRD call's output (run_boltzgen_fold (with_target=false)) goes to
-  # design_dir/fold_out_design_npz for the designfolding-* metrics.
-  stage: ["generated_files", "refold_structures", "refold_metrics", "design_refold_structures", "design_refold_metrics"]
+  prefix: /opt/conda/envs/boltzgen
+  entry:
+  - boltzgen
+  - run
+  stage:
+  - generated_files
+  - refold_structures
+  - refold_metrics
+  - design_refold_structures
+  - design_refold_metrics
   stage_subdir:
     generated_files: design_dir
     refold_structures: design_dir/refold_cif
@@ -28,30 +22,7 @@ engine:
     design_refold_structures: design_dir/refold_design_cif
     design_refold_metrics: design_dir/fold_out_design_npz
   env_vars:
-    # Analyze runs no model at all (CPU dataframe/structure-geometry work),
-    # but `boltzgen run` still resolves every OTHER step's checkpoint path
-    # while building its (unexecuted, `--steps analysis`-trimmed) pipeline
-    # object, so HF_HOME is pointed at the host's real cache to keep that
-    # resolution a cache hit rather than forcing a re-download attempt
-    # inside this run's disposable scratch workdir.
-    HF_HOME: /home/jk661/.cache/huggingface
-  mounts:
-    - /home/jk661/.cache/huggingface
-    # foldseek (confirmed present, `foldseek version` -> 8dc75c7..., used by
-    # run_clustering below) is a STANDALONE BINARY this task shells out to
-    # via subprocess (Analyze.run_foldseek_clustering), not a Python import
-    # -- `python -m protein_design_mcp.mounts` (discover_mounts) walks a
-    # target environment's sys.path/.pth files to find an IMPORTED module's
-    # source, and has nothing to walk here, so it can never produce this
-    # entry. It must stay hand-declared: if this line is ever "cleaned up"
-    # by re-running mount discovery and trusting its output alone, foldseek
-    # clustering breaks silently inside the image while continuing to work
-    # on the bare host (the container has no ~/.local/bin at all) -- the
-    # exact bug class this manifest exists to prevent, per
-    # scripts/container_run.py's --check. /opt/foldseek exists on this host
-    # too but is an EMPTY directory -- do not mount that one, it is
-    # misleading, not a real install.
-    - /home/jk661/.local/bin/foldseek
+    HF_HOME: /opt/models/huggingface
 
 requires:
   gpu: false
@@ -338,7 +309,7 @@ schema:
     example: false
   foldseek_binary:
     type: string
-    default: "/home/jk661/.local/bin/foldseek"
+    default: /usr/local/bin/foldseek
     description: >-
       Path to the foldseek executable, used only when `run_clustering` is
       true. `Analyze`'s own Python default
@@ -347,7 +318,7 @@ schema:
       tool's default points at the real, confirmed-working install on this
       host instead. Change this only if foldseek is installed somewhere
       else in a given deployment.
-    example: "/home/jk661/.local/bin/foldseek"
+    example: /usr/local/bin/foldseek
   liability_analysis:
     type: boolean
     default: true

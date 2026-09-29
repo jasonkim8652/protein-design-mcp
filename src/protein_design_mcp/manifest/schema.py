@@ -178,6 +178,7 @@ class Requirements:
     gpu: bool = False
     weights: str | None = None
     license_gated: bool = False
+    files: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -307,9 +308,8 @@ def _parse_prefix_host(data: dict, name: str, prefix: str | None) -> str | None:
 def _parse_mounts(data: Any, name: str) -> tuple[str, ...]:
     """Read-only host paths this engine needs mounted beyond its prefix.
 
-    Validated at load, per design §3.2: absolute, no ``..``, and must exist
-    on this host — a mount naming a path that isn't there is a manifest
-    error, not something the dispatcher should discover at call time.
+    Validate declaration syntax here. Availability belongs to the runtime
+    registry: a build/configuration host need not have external assets installed.
     """
     if data is None:
         return ()
@@ -325,11 +325,6 @@ def _parse_mounts(data: Any, name: str) -> tuple[str, ...]:
         if ".." in Path(entry).parts:
             raise ManifestError(
                 f"{name}: engine.mounts entry {entry!r} must not contain '..'"
-            )
-        if not Path(entry).exists():
-            raise ManifestError(
-                f"{name}: engine.mounts entry {entry!r} does not exist on "
-                "this host"
             )
         mounts.append(entry)
     return tuple(mounts)
@@ -464,10 +459,15 @@ def _parse_requires(data: Any, name: str) -> Requirements:
     if not isinstance(data, dict):
         raise ManifestError(f"{name}: requires must be a mapping")
     weights = data.get("weights")
+    files = data.get("files", [])
+    if (not isinstance(files, list) or any(not isinstance(p, str) or
+            not p.startswith("/") or ".." in Path(p).parts for p in files)):
+        raise ManifestError(f"{name}: requires.files must be a list of absolute paths without '..'")
     return Requirements(
         gpu=bool(data.get("gpu", False)),
         weights=str(weights) if weights else None,
         license_gated=bool(data.get("license_gated", False)),
+        files=tuple(files),
     )
 
 

@@ -49,7 +49,7 @@ import sys
 from pathlib import Path
 
 IMAGE = "rfdiffusion2-sif:converted"
-REPO_ROOT = "/home/jk661/projects/RFdiffusion2"
+REPO_ROOT = "/opt/engines/RFdiffusion2"
 GPU_DEVICE = "7"  # this host's GPU-7-only policy -- see module docstring.
 
 

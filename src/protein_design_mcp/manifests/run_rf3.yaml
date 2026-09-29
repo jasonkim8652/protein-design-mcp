@@ -5,31 +5,12 @@ timeout_s: 3600
 
 engine:
   repo: rf3
-  prefix: /home/jk661/.conda/envs/foundry
-  entry: ["python", "/app/scripts/engines/rf3.py"]
-  # `python -m protein_design_mcp.mounts /home/jk661/.conda/envs/foundry
-  # rf3` (run live, 2026-09-22) resolves rf3 to a plain, non-editable
-  # install inside the prefix's own site-packages (`pip install rc-foundry`
-  # from PyPI) and reports one extra mount:
-  # /home/jk661/projects/protein-design-mcp/src. That path is NOT rf3
-  # source -- it is a stray sys.path entry present for every python3.12 env
-  # on this host regardless of which module is imported (confirmed live:
-  # the same entry appears probing `promera` and `esmfold2`'s envs too, and
-  # is noted, independently, in docs/superpowers/reviews/
-  # 2026-09-22-gpu-engine-survey.md's ESMFold2 section). Kept here anyway
-  # because discover_mounts is the authoritative source per WAVE-COMMON.md
-  # ("do not hand-write them") and it genuinely is on this env's sys.path,
-  # even though rf3 itself does not need it.
-  mounts:
-    # RF3's checkpoint (2.83G, installed via `foundry install rf3`, public,
-    # not gated) lives under the host home directory, outside the prefix.
-    # No env_vars override needed: `~/.foundry/checkpoints` is foundry's
-    # own always-searched default (confirmed from
-    # rc_foundry-0.2.0.dist-info/METADATA and
-    # foundry/inference_engines/checkpoint_registry.py), not something
-    # redirected by any of dispatch.env.EnvDispatcher's own cache-var
-    # defaults -- only the mount is needed for read access.
-    - /home/jk661/.foundry/checkpoints
+  prefix: /opt/conda/envs/foundry
+  entry:
+  - python
+  - /app/scripts/engines/rf3.py
+  env_vars:
+    FOUNDRY_CHECKPOINT_DIRS: /opt/models/foundry
 
 requires:
   gpu: true

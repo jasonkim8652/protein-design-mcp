@@ -41,7 +41,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-_INFERENCE_SCRIPT = "/home/jk661/projects/multiflow/multiflow/experiments/inference_se3_flows.py"
+_INFERENCE_SCRIPT = "/opt/engines/multiflow/multiflow/experiments/inference_se3_flows.py"
 _PREDICT_DIR = "predict_out"  # fixed, relative -- see adapters/multiflow.py
 
 

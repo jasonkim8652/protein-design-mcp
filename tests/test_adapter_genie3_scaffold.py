@@ -46,8 +46,8 @@ def test_manifest_uses_genie2_prefix():
 
 def test_manifest_sets_pythonpath_for_deps_and_src():
     pythonpath = _manifest().engine.env_vars.get("PYTHONPATH", "")
-    assert "/home/jk661/projects/genie3/.deps" in pythonpath
-    assert "/home/jk661/projects/genie3/src" in pythonpath
+    assert "/opt/engines/genie3/.deps" in pythonpath
+    assert "/opt/engines/genie3/src" in pythonpath
 
 
 def test_build_args_passes_model_variant():

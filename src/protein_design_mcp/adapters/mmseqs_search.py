@@ -22,7 +22,7 @@ from protein_design_mcp.dispatch.env import CompletedRun
 from protein_design_mcp.manifest.schema import Manifest
 
 MMSEQS_BINARY = "/usr/local/bin/mmseqs"
-DB_ROOT = "/opt/alphafold3_data/mmseqs_db/mmseqs"
+DB_ROOT = "/data/databases/mmseqs"
 
 _SUMMARY_KEYS = (
     "query_length",

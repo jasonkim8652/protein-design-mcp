@@ -5,16 +5,12 @@ timeout_s: 3600
 
 engine:
   repo: boltz
-  # This env is an editable install: `boltz` resolves to the user's own
-  # fork at ~/projects/lightning-boltz-dev/src, not upstream
-  # boltz-community/boltz (confirmed live: `python -m protein_design_mcp.mounts
-  # /home/jk661/.conda/envs/boltz boltz` -> that one path). Mounting the env
-  # alone gives ModuleNotFoundError while python still runs, hence `mounts`
-  # below rather than relying on `prefix` by itself.
-  prefix: /home/jk661/.conda/envs/boltz
-  entry: ["python", "/app/scripts/engines/boltz.py"]
-  mounts:
-    - /home/jk661/projects/lightning-boltz-dev/src
+  prefix: /opt/conda/envs/boltz
+  entry:
+  - python
+  - /app/scripts/engines/boltz.py
+  env_vars:
+    BOLTZ_CACHE: /opt/models/boltz
 
 requires:
   gpu: true

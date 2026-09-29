@@ -29,9 +29,9 @@ from protein_design_mcp.manifest.schema import Manifest
 
 # Fixed, vetted config this tool always runs against -- never caller
 # supplied (see the manifest doc's "No caller-supplied config file" section).
-_CONFIG_PATH = "/home/jk661/projects/proteina-complexa/configs/search_binder_local_pipeline.yaml"
+_CONFIG_PATH = "/opt/engines/proteina-complexa/configs/search_binder_local_pipeline.yaml"
 
-_REPO_ROOT = "/home/jk661/projects/proteina-complexa"
+_REPO_ROOT = "/opt/engines/proteina-complexa"
 
 # run_name is pure directory-naming plumbing for this tool (it does not
 # change what is generated) -- fixed so this adapter's own output glob

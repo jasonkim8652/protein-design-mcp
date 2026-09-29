@@ -116,7 +116,7 @@ JOB_NAME = "job"
 INPUT_NAME = "input.json"
 OUT_DIR = "out"
 
-MODEL_DIR = "/opt/alphafold3_data/weights"
+MODEL_DIR = "/data/models/alphafold3"
 # Lives UNDER the mounted venv now, not beside it -- see this module's own
 # docstring for why extraction moved it there.
 RUN_ALPHAFOLD_ENTRY = "/alphafold3_venv/app/alphafold/run_alphafold.py"

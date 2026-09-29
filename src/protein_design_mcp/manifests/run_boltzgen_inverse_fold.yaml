@@ -5,20 +5,12 @@ timeout_s: 1800
 
 engine:
   repo: boltzgen
-  # Plain, non-editable `pip install boltzgen` (PyPI 0.3.2) -- see
-  # run_boltzgen_filter's manifest comment for the identity-verification and
-  # mount-discovery detail; identical for every tool on this engine.
-  prefix: /home/jk661/miniforge3/envs/boltzgen
-  entry: ["boltzgen", "run"]
+  prefix: /opt/conda/envs/boltzgen
+  entry:
+  - boltzgen
+  - run
   env_vars:
-    # Weights (this step needs only boltzgen1_ifold.ckpt, ~12M, already
-    # downloaded -- see install-boltzgen-chai1.md) live in the host's real
-    # HuggingFace cache. Without this override, dispatch.env.EnvDispatcher's
-    # own default (HF_HOME inside this run's disposable scratch workdir)
-    # would force a re-download on every single call.
-    HF_HOME: /home/jk661/.cache/huggingface
-  mounts:
-    - /home/jk661/.cache/huggingface
+    HF_HOME: /opt/models/huggingface
 
 requires:
   gpu: true

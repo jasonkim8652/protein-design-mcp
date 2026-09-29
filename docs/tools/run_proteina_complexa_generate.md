@@ -2,7 +2,7 @@
 
 **Category:** binder_generation  
 **Engine:** `proteinfoundation`  
-**Environment:** `/home/jk661/.conda/envs/proteina_complexa`  
+**Environment:** `/opt/conda/envs/proteina_complexa`  
 **GPU required:** yes
 
 > This file is generated from `src/protein_design_mcp/manifests/run_proteina_complexa_generate.yaml`. Edit the manifest, then run `python scripts/generate_tool_docs.py`.

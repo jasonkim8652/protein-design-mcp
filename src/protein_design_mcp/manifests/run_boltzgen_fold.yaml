@@ -5,30 +5,14 @@ timeout_s: 1800
 
 engine:
   repo: boltzgen
-  # See run_boltzgen_filter's manifest comment for the identity-verification
-  # and mount-discovery detail; identical for every tool on this engine.
-  prefix: /home/jk661/miniforge3/envs/boltzgen
-  entry: ["boltzgen", "run"]
-  # BoltzGen's own `folding` step reads each design's `.cif`+`.npz` AND
-  # writes its refold output (refold_cif/, fold_out_npz/) into the SAME
-  # `design_dir` -- the ipSAE "writes beside its input" pattern, generalised
-  # to a whole directory of paired input files instead of one. `stage`
-  # copies the caller's WHOLE `generated_files` list (both file types, from
-  # a prior run_boltzgen_design/run_boltzgen_inverse_fold call's own
-  # `outputs`) into one shared `generated_files/` directory first, so
-  # "beside the input" becomes "inside the scratch directory", where the
-  # `outputs:` below can reach the newly-written refold_cif/fold_out_npz.
-  stage: ["generated_files"]
+  prefix: /opt/conda/envs/boltzgen
+  entry:
+  - boltzgen
+  - run
+  stage:
+  - generated_files
   env_vars:
-    # This step's checkpoint (boltz2_conf_final.ckpt, ~2.0G) is already
-    # downloaded to the host's real HuggingFace cache -- see
-    # install-boltzgen-chai1.md. Without this override,
-    # dispatch.env.EnvDispatcher's own default (HF_HOME inside this run's
-    # disposable scratch workdir) would force a multi-GB re-download on
-    # every single call.
-    HF_HOME: /home/jk661/.cache/huggingface
-  mounts:
-    - /home/jk661/.cache/huggingface
+    HF_HOME: /opt/models/huggingface
 
 requires:
   gpu: true

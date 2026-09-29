@@ -25,6 +25,36 @@ def test_plain_tool_is_listed_and_resolvable():
     assert reg.resolve("run_prodigy").name == "run_prodigy"
 
 
+def test_empty_asset_folder_does_not_advertise_a_model(tmp_path):
+    model = tmp_path / "model.bin"
+    manifest = _m("run_optional", requires={"files": [str(model)]})
+    assert str(model) in ToolRegistry([manifest]).excluded("run_optional")
+    model.touch()
+    assert ToolRegistry([manifest]).tools() == []
+    model.write_bytes(b"model")
+    assert ToolRegistry([manifest]).resolve("run_optional") == manifest
+
+
+def test_external_asset_availability_is_checked_at_runtime(tmp_path):
+    asset = tmp_path / "weights.bin"
+    manifest = _m("run_optional", engine={**BASE["engine"], "mounts": [str(asset)]})
+    registry = ToolRegistry([manifest])
+    assert not registry.tools()
+    assert str(asset) in registry.excluded("run_optional")
+    asset.write_bytes(b"weights")
+    assert ToolRegistry([manifest]).resolve("run_optional") == manifest
+
+
+def test_inaccessible_external_asset_has_clear_runtime_reason(tmp_path, monkeypatch):
+    asset = tmp_path / "weights.bin"
+    asset.write_bytes(b"weights")
+    manifest = _m("run_optional", engine={**BASE["engine"], "mounts": [str(asset)]})
+    monkeypatch.setattr("protein_design_mcp.manifest.registry.os.access", lambda *args: False)
+    registry = ToolRegistry([manifest])
+    assert not registry.tools()
+    assert "inaccessible" in registry.excluded("run_optional")
+
+
 def test_missing_host_environment_is_not_advertised(tmp_path):
     manifest = _m("run_optional", engine={"repo": "optional",
         "prefix": str(tmp_path / "absent"), "entry": ["python"]})

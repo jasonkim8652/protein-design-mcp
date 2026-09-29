@@ -5,27 +5,12 @@ timeout_s: 7200
 
 engine:
   repo: protpardelle
-  prefix: /home/jk661/.conda/envs/pp1c
-  entry: ["python", "/app/scripts/engines/protpardelle.py"]
+  prefix: /opt/conda/envs/pp1c
+  entry:
+  - python
+  - /app/scripts/engines/protpardelle.py
   env_vars:
-    # Protpardelle-1c's own default (env var unset) resolves to an ABSOLUTE
-    # path under the package checkout itself (`PROJECT_ROOT_DIR / "results"`
-    # -- read from `protpardelle/env.py`), not cwd-relative, so leaving it
-    # unset would write into the shared checkout rather than this call's
-    # own scratch workdir. A relative value here resolves against the
-    # dispatcher's own cwd (the scratch workdir it always sets), which is
-    # what actually contains it -- see the wrapper script's own docstring.
     PROTPARDELLE_OUTPUT_DIR: results
-  # `python -m protein_design_mcp.mounts <prefix> protpardelle` (run live)
-  # resolves only the editable install's source checkout
-  # (protpardelle-1c/src) -- the model weights live under
-  # protpardelle-1c/model_params, a sibling directory discover_mounts has
-  # no module to probe for (weights are read directly by path, never
-  # imported). Both are listed, same class of addition as run_rf3's
-  # checkpoint-cache mount.
-  mounts:
-    - /home/jk661/projects/protpardelle-1c/src
-    - /home/jk661/projects/protpardelle-1c/model_params
 
 requires:
   gpu: true

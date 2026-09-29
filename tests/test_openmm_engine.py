@@ -27,4 +27,6 @@ class OpenMMTerminiTest(unittest.TestCase):
             self.assertEqual(len(energies), 2)
             self.assertTrue(all(math.isfinite(value) for value in energies))
             self.assertLess(energies[1], energies[0])
+            self.assertIn("solvent_model: none", result.stdout)
+            self.assertIn("force_field: amber14-all.xml", result.stdout)
         self.assertEqual(source.read_bytes(), original)

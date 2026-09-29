@@ -156,7 +156,7 @@ def test_manifest_runs_under_genie2_fixed_not_the_original_genie2():
     """The environment fix (wave-I): this tool's prefix must point at the
     Biopython-patched clone, not the original genie2 env, which still
     lacks Biopython (confirmed live, see the wave's report)."""
-    assert _manifest().engine.prefix == "/home/jk661/.conda/envs/genie2_fixed"
+    assert _manifest().engine.prefix == "/opt/conda/envs/genie2_fixed"
 
 
 def test_build_args_includes_interface_expansion_flags():

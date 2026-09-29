@@ -56,5 +56,4 @@ cache/
 # Misc
 *.md
 !README.md
-LICENSE
 Makefile

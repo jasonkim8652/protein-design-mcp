@@ -35,7 +35,7 @@ from typing import Any
 from protein_design_mcp.dispatch.env import CompletedRun
 from protein_design_mcp.manifest.schema import Manifest
 
-_CONFIG_PATH = "/home/jk661/projects/proteina-complexa/configs/analyze.yaml"
+_CONFIG_PATH = "/opt/engines/proteina-complexa/configs/analyze.yaml"
 _CONFIG_STEM = "analyze"
 _RESULTS_DIR = "analyze_results"
 _JOB_ID = 0

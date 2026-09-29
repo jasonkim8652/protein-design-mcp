@@ -2,7 +2,7 @@
 
 **Category:** scoring  
 **Engine:** `esm`  
-**Environment:** `/home/jk661/.conda/envs/esm_env`  
+**Environment:** `/opt/conda/envs/esm_env`  
 **GPU required:** yes
 
 > This file is generated from `src/protein_design_mcp/manifests/run_esm_score.yaml`. Edit the manifest, then run `python scripts/generate_tool_docs.py`.

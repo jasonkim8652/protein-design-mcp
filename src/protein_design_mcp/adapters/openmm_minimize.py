@@ -102,10 +102,15 @@ def parse_output(manifest: Manifest, run: CompletedRun) -> dict[str, Any]:
     final_value = float(final.group(1))
     iterations = _ITER_RE.search(run.stdout)
     terminals = _TERMINAL_RE.search(run.stdout)
-    return {
+    result = {
         "initial_potential_energy_kj_mol": initial_value,
         "final_potential_energy_kj_mol": final_value,
         "energy_change_kj_mol": final_value - initial_value,
         "iterations": int(iterations.group(1)) if iterations else None,
         "added_terminal_atoms": int(terminals.group(1)) if terminals else None,
     }
+    for key in ("force_field", "solvent_model", "energy_units"):
+        match = re.search(rf"(?m)^{key}:\s*(\S+)", run.stdout)
+        if match:
+            result[key] = match.group(1)
+    return result

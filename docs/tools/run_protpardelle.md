@@ -2,7 +2,7 @@
 
 **Category:** binder_generation  
 **Engine:** `protpardelle`  
-**Environment:** `/home/jk661/.conda/envs/pp1c`  
+**Environment:** `/opt/conda/envs/pp1c`  
 **GPU required:** yes
 
 > This file is generated from `src/protein_design_mcp/manifests/run_protpardelle.yaml`. Edit the manifest, then run `python scripts/generate_tool_docs.py`.

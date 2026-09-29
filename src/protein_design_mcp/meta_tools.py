@@ -34,7 +34,7 @@ DESCRIBE_TOOL_MANIFEST = parse_manifest(
         "summary": (
             "Read the full documentation for a tool, or compare every tool in a "
             "category. Tool names here name the engine they run and nothing more, "
-            "so call this before choosing between similar tools. Pass exactly one of: "
+            "the documentation describes their inputs and capabilities. Pass exactly one of: "
             "name= for one tool, or category= for a comparison of all tools in that "
             "category (" + ", ".join(_CATEGORY_ENUM) + ")."
         ),

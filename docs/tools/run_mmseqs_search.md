@@ -9,7 +9,7 @@
 
 ## Summary
 
-Search the local MMseqs2 databases and build the alignment AlphaFold 3 and every other structure-prediction tool here needs, so a folding tool never builds its own. Emits an unpaired a3m (valid for every co-folding tool's plain `msa` input), a paired a3m (AlphaFold 3's cross-chain pairing input only), and a templates a3m. Every search knob MMseqs2 exposes -- which databases, sensitivity, e-value, coverage, identity, iterations, max hits -- is a parameter here, not a fixed default.
+Search local MMseqs2 databases and produce unpaired, paired and template A3M alignments. Alignment compatibility depends on the consuming predictor; some predictors also support MSA-free inference. Database selection, sensitivity, coverage, identity and search limits are configurable.
 
 ## What this is
 A wrapper around the standalone `mmseqs` binary (`/usr/local/bin/mmseqs`)

@@ -140,7 +140,7 @@ ALL_ATOM_MODELS = {"cc94"}
 #: sampling 500 backbone steps and then died on a bare FileNotFoundError
 #: naming this path, which no caller had chosen and no message explained.
 MPNN_WEIGHTS = Path(
-    "/home/jk661/projects/protpardelle-1c/model_params/ProteinMPNN"
+    "/opt/engines/protpardelle-1c/model_params/ProteinMPNN"
     "/vanilla_model_weights/v_48_020.pt"
 )
 

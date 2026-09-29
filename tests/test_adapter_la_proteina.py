@@ -40,9 +40,10 @@ def test_manifest_loads_and_requires_gpu():
     assert m.requires.gpu is True
 
 
-def test_manifest_hand_sets_mounts_to_repo_root():
-    mounts = _manifest().engine.mounts
-    assert "/home/jk661/projects/la-proteina" in mounts
+def test_manifest_uses_bundled_repo_without_runtime_mounts():
+    engine = _manifest().engine
+    assert engine.mounts == ()
+    assert engine.env_vars["PYTHONPATH"] == "/opt/engines/la-proteina"
 
 
 def test_build_args_serializes_lengths_as_json():

@@ -570,11 +570,10 @@ def test_mounts_rejects_a_dotdot_path(tmp_path):
         parse_manifest(data)
 
 
-def test_mounts_rejects_a_nonexistent_path(tmp_path):
+def test_mounts_can_declare_external_assets_not_installed_on_build_host(tmp_path):
     missing = tmp_path / "does_not_exist"
     data = {**MINIMAL, "engine": {**MINIMAL["engine"], "mounts": [str(missing)]}}
-    with pytest.raises(ManifestError, match="does not exist"):
-        parse_manifest(data)
+    assert parse_manifest(data).engine.mounts == (str(missing),)
 
 
 def test_mounts_must_be_a_list_of_strings():
