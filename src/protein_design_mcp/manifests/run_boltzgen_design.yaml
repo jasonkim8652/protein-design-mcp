@@ -19,13 +19,11 @@ outputs:
   - name: design_spec_yaml
     pattern: "design_spec.yaml"
     description: >-
-      The BoltzGen spec this run used, whether it was built from the
-      parameters or copied from a hand-written one. PASS THIS to
-      run_boltzgen_fold, run_boltzgen_analyze, run_boltzgen_filter and
-      run_boltzgen_inverse_fold as their `design_spec`: those steps refuse to
-      run without the spec the designs came from, and before this output
-      existed nothing on this server produced one, so they could not be
-      reached from a planned workflow at all.
+      The BoltzGen generation spec created by this tool. Pass it to
+      run_boltzgen_fold, run_boltzgen_analyze or run_boltzgen_filter as
+      design_spec. For inverse folding, pass a generated CIF as structure
+      and its actual designed chain IDs as design_chains instead: this
+      generation spec contains a length range, not generated coordinates.
   # Pattern matches BOTH `<id>.cif` and its companion `<id>.npz`: `[cn][ip][fz]`
   # is a 3-position character class ("cif" or "npz", nothing else -- both
   # extensions happen to be 3 characters, and no other extension in this

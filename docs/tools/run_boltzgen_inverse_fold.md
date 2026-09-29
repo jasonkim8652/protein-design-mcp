@@ -37,22 +37,22 @@ re-designing).
   design_spec format, or want ProteinMPNN specifically (a different
   model, different training data, different failure modes).
 - Use THIS tool when you already have (or want) a BoltzGen design_spec --
-  most directly, to re-derive the sequence BoltzGen's own default
-  pipeline would keep for a backbone `run_boltzgen_design` (this same
-  wave) just generated: wrap that tool's output `.cif` in a design_spec
-  `file:` entity, mark the designed chain with `design:`, and call this
-  tool on it.
+  to redesign an existing backbone, pass its PDB/mmCIF as `structure`
+  and explicitly name `design_chains`. The tool builds the spec internally.
+  Use actual chain IDs reported in the structure output; generation may
+  have renamed the requested binder chain.
 - Neither this tool nor `run_mpnn` scores the result. Refold with a
   structure predictor and check the sequence actually folds the way you
   designed it before trusting it.
 
 ## What you must supply
-`design_spec`: a design specification YAML whose `file:` entity/entities
-carry real backbone coordinates for every residue, with a `design:` list
-naming the chain(s)/residue(s) to redesign (e.g. `design: [{chain: {id:
-A}}]` redesigns all of chain A; everything not listed is held fixed).
-Chain composition -- which chains are present, which are redesigned -- is
-entirely design_spec's own decision, never inferred by this tool.
+Either `structure` (an existing PDB/mmCIF) plus `design_chains` (the actual
+chain IDs to redesign), or an advanced `design_spec` YAML with explicit
+backbone coordinates and a design mask. Other chains remain fixed.
+These input routes are mutually exclusive. The generated length-range
+spec from run_boltzgen_design is NOT a fully specified structure: use
+that tool's generated CIF and its reported chain IDs instead.
+This tool writes `design_spec_yaml` for downstream fold/analyze/filter.
 
 ## What you get back
 `designs`: one entry per generated `.cif` (inverse_fold_num_sequences of
@@ -80,7 +80,9 @@ which. `num_designs`, and under `outputs` the paths to every generated
 
 | Parameter | Type | Required | Default | Constraints | Description |
 |---|---|---|---|---|---|
-| `design_spec` | string | yes | `—` | pattern: `\.(yaml\|yml)$` | Design specification YAML with a FULLY specified structure (real backbone coordinates for every residue) and a `design:` list naming which chain(s)/residue(s) to redesign. Chain composition is defined here, never inferred by this tool. YOU WRITE THIS FILE: no tool on this server produces a BoltzGen design spec, so it cannot come from a previous step of a planned workflow. A workflow that reaches any run_boltzgen_* tool has to carry a spec path the caller authored -- confirmed by a run that planned run_boltzgen_fold after RFdiffusion3 and failed on this parameter, because there was nothing upstream that could have supplied one. |
+| `structure` | string | no | `—` | pattern: `\.(pdb\|cif\|mmcif)$` | Existing backbone or complex to inverse-fold, including a generated CIF from run_boltzgen_design. The tool builds its own YAML spec from this structure and design_chains. Mutually exclusive with design_spec. |
+| `design_chains` | array | no | `—` | minItems: `1` | Actual chain IDs in structure whose sequences should be redesigned. Required with structure. Every unlisted chain remains unchanged. Use IDs reported by the preceding structure-producing tool, which may differ from the originally requested binder_chain_id. |
+| `design_spec` | string | no | `—` | pattern: `\.(yaml\|yml)$` | Optional advanced fully specified YAML with backbone coordinates and an explicit design mask. Mutually exclusive with structure/design_chains. For ordinary structure handoffs use structure and design_chains; no caller-authored YAML is needed. |
 | `inverse_fold_num_sequences` | integer | no | `1` | minimum: `1`<br>maximum: `1000` | Number of independent sequences to sample for the same fixed backbone. BoltzGen's own default is 1; raise it to get a diverse set of sequences for the same shape (verified live: 2 sequences for one 17-residue chain took 9.1s total, most of it one-time model load). |
 | `inverse_fold_checkpoint` | string | no | `huggingface:boltzgen/boltzgen-1:boltzgen1_ifold.ckpt` | — | Path or huggingface:repo:file reference for the inverse-folding checkpoint. BoltzGen's own default, already cached on this host (~12M -- much smaller than the design/folding checkpoints). |
 | `avoid_residues` | string | no | `` | pattern: `^[A-Z]*$` | One-letter amino acid codes this tool must never place at a designed position, e.g. "C" to forbid cysteine, "CM" to forbid cysteine and methionine. Empty (allow every residue) is BoltzGen's own default for a bare protein; its peptide/nanobody/antibody protocol presets instead default this to "C" (an unpaired free cysteine is a liability for those modalities: aggregation, disulfide scrambling) -- set "C" yourself if design_spec is peptide/nanobody/antibody-typed, since this tool does not read a protocol name to infer it for you. |

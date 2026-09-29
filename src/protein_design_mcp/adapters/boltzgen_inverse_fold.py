@@ -21,7 +21,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from Bio.PDB import MMCIFParser
+from Bio.PDB import MMCIFParser, PDBParser
 from Bio.SeqUtils import seq1
 
 from protein_design_mcp.dispatch.env import CompletedRun
@@ -71,7 +71,7 @@ def _refuse_generative_spec(spec: Path) -> None:
                     "LENGTH RANGE, so that chain has no coordinates yet. This "
                     "is a run_boltzgen_design spec (a design to generate), and "
                     "inverse folding needs a structure that already exists. "
-                    "Generate the design first and inverse-fold its output, or "
+                    "Pass its generated CIF as structure and actual output chain IDs as design_chains, or "
                     "pass a spec whose every protein entity has a real "
                     "sequence or comes from a file."
                 )
@@ -84,10 +84,32 @@ def build_args(manifest: Manifest, params: dict[str, Any]) -> list[str]:
     ``protein_design_mcp.adapters.boltz`` for why.
     """
     del manifest
-    _refuse_generative_spec(Path(str(params["design_spec"])))
+    structure, spec = params.get("structure"), params.get("design_spec")
+    if bool(structure) == bool(spec):
+        raise ToolInputError("Supply exactly one of structure or design_spec for inverse folding.")
+    if structure:
+        chains = params.get("design_chains")
+        if not chains:
+            raise ToolInputError("design_chains is required with structure; name the chains to redesign.")
+        path = Path(str(structure))
+        parser = PDBParser(QUIET=True) if path.suffix.lower() == ".pdb" else _CIF_PARSER
+        try:
+            model = next(parser.get_structure(path.stem, str(path)).get_models())
+        except (OSError, ValueError, StopIteration) as exc:
+            raise ToolInputError(f"Cannot read inverse-folding structure {path}: {exc}") from exc
+        available = {chain.id for chain in model if any("CA" in residue for residue in chain)}
+        missing = set(chains) - available
+        if missing:
+            raise ToolInputError(f"design_chains {sorted(missing)} not present in structure; available: {sorted(available)}")
+        args = ["--structure", str(path), "--design-chains", ",".join(chains)]
+    else:
+        if params.get("design_chains"):
+            raise ToolInputError("design_chains applies only with structure; design_spec already defines its design mask.")
+        _refuse_generative_spec(Path(str(spec)))
+        args = ["--design-spec", str(spec)]
 
-    return [
-        str(params["design_spec"]),
+    return args + [
+        "--passthrough",
         "--output",
         ".",
         "--steps",

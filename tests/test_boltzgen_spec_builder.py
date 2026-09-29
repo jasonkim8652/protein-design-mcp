@@ -89,3 +89,50 @@ def test_the_spec_round_trips_through_yaml():
     reloaded = yaml.safe_load(yaml.safe_dump(spec))
     assert reloaded["entities"][0]["protein"]["sequence"] == "80..140"
     assert isinstance(reloaded["entities"][0]["protein"]["sequence"], str)
+
+
+def test_redesign_spec_keeps_structure_and_explicit_design_mask(tmp_path):
+    from boltzgen_inverse_fold import build_redesign_spec
+    source = tmp_path / "complex.cif"
+    spec = build_redesign_spec(str(source), ["A"])
+    assert spec == {"entities": [{"file": {
+        "path": str(source), "design": [{"chain": {"id": "A"}}]}}]}
+    # No include filter: all non-designed target chains stay in the input.
+    assert "include" not in spec["entities"][0]["file"]
+
+
+def test_inverse_fold_wrapper_writes_spec_and_calls_engine(tmp_path, monkeypatch):
+    import boltzgen_inverse_fold as wrapper
+    source = tmp_path / 'backbone.cif'
+    source.write_text('existing structure')
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, 'argv', ['wrapper', '--structure', str(source),
+                                    '--design-chains', 'A', '--passthrough',
+                                    '--steps', 'inverse_folding', '--only_inverse_fold'])
+    calls = []
+    def run(argv):
+        calls.append(argv)
+        assert yaml.safe_load(Path(argv[2]).read_text())['entities'][0]['file']['design'] == [{'chain': {'id': 'A'}}]
+        return type('Result', (), {'returncode': 0})()
+    monkeypatch.setattr(wrapper.subprocess, 'run', run)
+    with pytest.raises(SystemExit) as exc:
+        wrapper.main()
+    assert exc.value.code == 0
+    assert calls[0][-3:] == ['--steps', 'inverse_folding', '--only_inverse_fold']
+
+
+def test_advanced_spec_export_preserves_relative_structure_reference(tmp_path, monkeypatch):
+    import boltzgen_inverse_fold as wrapper
+    source_dir = tmp_path / 'source'
+    source_dir.mkdir()
+    spec = source_dir / 'advanced.yaml'
+    spec.write_text('entities:\n- file:\n    path: backbone.cif\n    design: [{chain: {id: A}}]\n')
+    workdir = tmp_path / 'work'
+    workdir.mkdir()
+    monkeypatch.chdir(workdir)
+    monkeypatch.setattr(sys, 'argv', ['wrapper', '--design-spec', str(spec)])
+    monkeypatch.setattr(wrapper.subprocess, 'run', lambda _: type('Result', (), {'returncode': 0})())
+    with pytest.raises(SystemExit):
+        wrapper.main()
+    result = yaml.safe_load((workdir / 'design_spec.yaml').read_text())
+    assert result['entities'][0]['file']['path'] == str(source_dir / 'backbone.cif')

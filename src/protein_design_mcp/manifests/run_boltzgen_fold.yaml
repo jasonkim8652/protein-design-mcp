@@ -140,12 +140,9 @@ schema:
       `boltzgen run` validates every design spec it is given before running
       any step, `--steps folding` included.
 
-      YOU WRITE THIS FILE: no tool on this server produces a BoltzGen design
-      spec, so it cannot come from a previous step of a planned workflow. A
-      workflow that reaches any run_boltzgen_* tool has to carry a spec path
-      the caller authored -- confirmed by a run that planned run_boltzgen_fold
-      after RFdiffusion3 and failed on this parameter, because there was
-      nothing upstream that could have supplied one.
+      Use outputs.design_spec_yaml from run_boltzgen_design or
+      run_boltzgen_inverse_fold. The tools create this file internally;
+      the caller does not need to write YAML for this handoff.
     example: design_spec.yaml
   generated_files:
     type: array

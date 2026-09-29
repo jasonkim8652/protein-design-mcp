@@ -35,7 +35,7 @@ def test_manifest_uses_prefix_not_env():
     engine = _manifest().engine
     assert engine.prefix == "/opt/conda/envs/boltzgen"
     assert engine.env is None
-    assert engine.entry == ("boltzgen", "run")
+    assert engine.entry == ("python", "/app/scripts/engines/boltzgen_inverse_fold.py")
 
 
 def test_manifest_names_the_engine_not_proteinmpnn():
@@ -46,8 +46,8 @@ def test_manifest_names_the_engine_not_proteinmpnn():
     assert "boltzgen1_ifold" in text or "own inverse-folding head" in text
 
 
-def test_design_spec_is_required():
-    assert _manifest().schema["design_spec"]["required"] is True
+def test_design_spec_is_optional_advanced_input():
+    assert not _manifest().schema["design_spec"].get("required", False)
 
 
 def test_avoid_residues_defaults_empty_not_tied_to_protocol():
@@ -67,7 +67,7 @@ def test_validation_fills_defaults():
 
 def test_validation_rejects_missing_design_spec():
     with pytest.raises(ToolInputError, match="design_spec"):
-        validate_and_fill(_manifest(), {})
+        build_args(_manifest(), validate_and_fill(_manifest(), {}))
 
 
 def test_validation_accepts_boundary_num_sequences():
@@ -93,7 +93,7 @@ def test_validation_accepts_multi_residue_avoid_string():
 def test_build_args_wraps_boltzgen_run_with_only_inverse_fold():
     params = _base_params()
     args = build_args(_manifest(), params)
-    assert args[0] == str(Path("design.yaml"))
+    assert args[args.index("--design-spec") + 1] == str(Path("design.yaml"))
     assert "--steps" in args
     assert args[args.index("--steps") + 1] == "inverse_folding"
     assert "--only_inverse_fold" in args
@@ -307,3 +307,33 @@ def _params(spec):
         "moldir": "/moldir",
         "num_workers": 0,
     }
+
+
+def test_structure_and_chain_parameters_build_engine_input(tmp_path):
+    cif = tmp_path / 'generated.cif'
+    _write_cif(cif, {'A': 'LALVL', 'B': 'GGSN'})
+    params = validate_and_fill(_manifest(), {'structure': str(cif), 'design_chains': ['A']})
+    args = build_args(_manifest(), params)
+    assert args[args.index('--structure') + 1] == str(cif)
+    assert args[args.index('--design-chains') + 1] == 'A'
+    assert '--passthrough' in args
+
+
+def test_structure_route_requires_explicit_existing_design_chains(tmp_path):
+    cif = tmp_path / 'generated.cif'
+    _write_cif(cif, {'A': 'LALVL', 'B': 'GGSN'})
+    for chains in (None, ['C']):
+        values = {'structure': str(cif)}
+        if chains is not None:
+            values['design_chains'] = chains
+        with pytest.raises(ToolInputError, match='design_chains'):
+            build_args(_manifest(), validate_and_fill(_manifest(), values))
+
+
+def test_structure_and_advanced_spec_are_mutually_exclusive(tmp_path):
+    with pytest.raises(ToolInputError, match='exactly one'):
+        build_args(_manifest(), _base_params(structure=str(tmp_path / 'a.cif'), design_chains=['A']))
+
+
+def test_inverse_fold_exports_reusable_spec_for_following_tools():
+    assert any(o.name == 'design_spec_yaml' for o in _manifest().outputs)
