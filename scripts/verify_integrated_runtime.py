@@ -133,7 +133,8 @@ def load_groups(manifest_dir: Path, filters: list[str]) -> list[dict]:
 
 def probe(group: dict, timeout: float, gpu_smoke: bool = False) -> dict:
     request = {"imports": list(group["imports"].values()), "binaries": sorted(group["binaries"]),
-               "gpu_smoke": gpu_smoke, "jax_runtime": bool({"alphafold3", "colabfold"} & group["imports"].keys())}
+               "gpu_smoke": gpu_smoke,
+               "jax_runtime": bool({"alphafold3", "colabfold", "proteinfoundation"} & group["imports"].keys())}
     prefix = group["prefix"]
     if prefix:
         command = [str(Path(prefix) / "bin/python")]
