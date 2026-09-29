@@ -33,10 +33,10 @@ Rosetta/MPNN selection passed, including missing and overlapping partner chains.
 
 ## Image and live execution
 
-Final image: `sha256:843d7bced6ebf3f9c99b8270292d75245fd4861beb659d8c32c7768666fd9cb7`.
+Final runtime image: `sha256:c949bd52edf611a96fb2078c0438ec1c5d1633b9013b5236cf7f64d8672def04`.
 Installed package and OCI version: **2.4.0**. Source revision:
-`c0eec0b` (full revision retained in the OCI image label).
-Uncompressed Docker image size: 234,210,237,128 bytes (approximately 218 GiB).
+`521b8cd` (full revision retained in the OCI image label).
+Uncompressed Docker image size: approximately 218 GiB.
 
 The runtime matrix and offline assay checks below used the preceding image
 `35038a524d97`, with the same runtime/weight payload. Follow-up live campaign
@@ -80,3 +80,28 @@ The ProteinMEM campaign uses this assay after committing each model-generated
 candidate. Pipeline code invokes the evaluator independently of the LLM, fixes
 the evaluation protocol, and passes the resulting measurements to subsequent
 rounds. Live multi-round results are recorded in the client validation report.
+
+## BoltzGen structure handoff correction
+
+A live model-selected workflow exposed an incomplete tool interface: the design
+step produced coordinates, but standalone inverse folding still demanded a
+caller-authored fixed-structure YAML. Passing the generation spec correctly
+failed because its binder was specified as a length range.
+
+`run_boltzgen_inverse_fold` now accepts `structure` plus explicit `design_chains`.
+The tool validates the chain IDs, builds its YAML internally, and exports the
+spec for subsequent fold/analyze/filter calls. Advanced YAML input remains
+available as a mutually exclusive route. ProteinMEM does not author these files.
+A real generated 554-residue complex completed inverse folding through MCP in
+27.85 seconds; the output included redesigned coordinates, metadata and the
+correct fixed-structure spec. The BoltzGen selection passed 118 tests, with
+37 tests passing after adding wrapper export/relative-path coverage. A stale
+handoff test that required caller-authored YAML was updated; all nine handoff
+matrix tests then passed. The full host run before that test update reported
+1,431 passed, six skipped and 16 failed (the same 15 legacy failures plus that
+stale documentation assertion); this is not a green full-suite claim.
+
+The final image also passed fresh MCP discovery as UID/GID 65532 with networking
+disabled, an unrelated `/tmp` workspace, and no developer home mount: 37 tools,
+including AF2-Multimer and OpenMM, were available. This checks discovery rather
+than asserting successful inference for every tool.

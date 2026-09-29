@@ -76,10 +76,8 @@ def test_array_valued_path_parameters_are_seen(manifests):
 
 def test_no_required_path_is_unobtainable_from_a_workflow(capsys):
     """A required path that no declared output can satisfy cannot be filled from
-    a plan at all. `design_spec` is required by all six BoltzGen tools and
-    produced by none of them -- the caller authors it -- and a model that
-    planned run_boltzgen_fold after RFdiffusion3 failed on exactly that, with no
-    way to know the parameter was not something an earlier step provides.
+    a plan at all. BoltzGen formerly required caller-authored YAML; its
+    structure-producing tools now export the spec for subsequent steps.
 
     Covered by the same run as the format check; this names the case so a new
     tool with an unobtainable prerequisite fails here rather than in a round.
@@ -87,12 +85,14 @@ def test_no_required_path_is_unobtainable_from_a_workflow(capsys):
     assert matrix.main([]) == 0, capsys.readouterr().out
 
 
-def test_a_caller_authored_parameter_is_exempt_once_it_says_so(manifests):
-    """The exemption is the documentation, not a list of names: a parameter is
-    allowed to be unobtainable precisely when it tells the caller to write it."""
-    description = manifests["run_boltzgen_fold"].schema["design_spec"]["description"].lower()
-    assert "you write this file" in description
-    assert "no tool on this server produces" in description
+def test_boltzgen_spec_handoff_is_provided_by_the_tools(manifests):
+    for producer in ("run_boltzgen_design", "run_boltzgen_inverse_fold"):
+        assert any(output.name == "design_spec_yaml" and output.pattern.endswith(".yaml")
+                   for output in manifests[producer].outputs)
+    for consumer in ("run_boltzgen_fold", "run_boltzgen_analyze", "run_boltzgen_filter"):
+        spec = manifests[consumer].schema["design_spec"]
+        assert ".yaml" in matrix.suffixes_for(spec["pattern"], "design_spec")
+        assert "no tool on this server produces" not in spec["description"].lower()
 
 
 def test_a_sentence_about_chain_order_is_not_read_as_a_handoff():
