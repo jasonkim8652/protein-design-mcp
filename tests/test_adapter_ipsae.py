@@ -246,3 +246,12 @@ def test_the_refusal_says_what_to_do_about_it(tmp_path):
                           "pae_cutoff": 10.0, "dist_cutoff": 10.0})
     assert "chain" in str(excinfo.value).lower()
     assert "fold" in str(excinfo.value).lower()
+
+
+def test_summary_confidences_are_rejected_before_engine_launch(tmp_path):
+    import json
+    from protein_design_mcp.validation import ToolInputError
+    summary=tmp_path/'summary_confidences.json';summary.write_text(json.dumps({'iptm':0.4,'overall_pae':10.0}))
+    structure=tmp_path/'model.cif';structure.write_text('data_model\n#\n')
+    with pytest.raises(ToolInputError, match='full.*confidences_json'):
+        build_args(None, {'pae_file':str(summary),'structure':str(structure),'pae_cutoff':10,'dist_cutoff':10})

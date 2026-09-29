@@ -66,10 +66,12 @@ through as-is rather than picking individual fields, so it survives most
 upstream additions but NOT a rename of a field this tool's own doc
 promises -- if a future `rc-foundry` release renames one of the fields
 above, expect this doc (not the adapter, which does no field-by-field
-parsing) to need an update. Under `outputs`, paths to `structure_cif` and
-`summary_confidences_json` (the full per-atom `<id>_confidences.json` and
-per-model `<id>_ranking_scores.csv` RF3 also writes are not collected by
-this tool).
+parsing) to need an update. Under `outputs`, paths to `structure_cif`,
+`confidences_json` and `summary_confidences_json`. The full `confidences_json`
+contains `pae` and `atom_plddts` for the selected structure and is compatible
+with `run_ipsae.pae_file`. The summary contains scalars, not a PAE matrix.
+Per-model samples and ranking files remain available when workdir retention
+is enabled.
 
 ## Important caveats
 - `n_recycles` has a hard floor of 2: `n_recycles=1` was confirmed live to

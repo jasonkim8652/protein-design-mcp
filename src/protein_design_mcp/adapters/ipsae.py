@@ -33,6 +33,8 @@ never satisfy ``_REQUIRED_COLUMNS``, so ``_find_header`` naturally skips it.
 
 from __future__ import annotations
 
+import json
+
 from pathlib import Path
 from typing import Any
 
@@ -115,7 +117,21 @@ def build_args(manifest: Manifest, params: dict[str, Any]) -> list[str]:
     site.
     """
     del manifest
-    _require_an_interface(Path(str(params["structure"])))
+    structure = Path(str(params["structure"]))
+    _require_an_interface(structure)
+    pae_file = Path(str(params["pae_file"]))
+    if structure.suffix.lower() == ".cif" and pae_file.suffix.lower() == ".json" and pae_file.is_file():
+        try:
+            confidence = json.loads(pae_file.read_text())
+        except (OSError, ValueError) as exc:
+            raise ToolInputError(f"run_ipsae.pae_file is not readable confidence JSON: {exc}") from exc
+        if not isinstance(confidence, dict) or not {"pae", "atom_plddts"}.issubset(confidence):
+            raise ToolInputError(
+                "run_ipsae requires full confidences_json with pae and atom_plddts "
+                "for a CIF structure. summary_confidences_json contains scalar "
+                "summaries and cannot supply the PAE matrix. Use the full confidence "
+                "file from the same prediction as the supplied structure."
+            )
     return [
         str(params["pae_file"]),
         str(params["structure"]),

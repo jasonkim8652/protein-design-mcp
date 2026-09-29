@@ -87,15 +87,16 @@ schema:
     description: >-
       The predicted-aligned-error matrix from the structure predictor that
       produced `structure`. WHICH FILE depends on the predictor, and they are
-      not interchangeable formats. Three of this server's predictors are
+      not interchangeable formats. Four of this server's predictors are
       known to work, each with a DIFFERENT output, all confirmed by running
       them:
 
         run_alphafold2_multimer  ->  its `pae_json` output        (.json)
         run_boltz                ->  its `pae_npz` output         (.npz)
         run_alphafold3           ->  its `confidences_json` output (.json)
+        run_rf3                  ->  its `confidences_json` output (.json)
 
-      For AlphaFold 3 it is `confidences_json`, NOT
+      For AlphaFold 3 and RF3 it is `confidences_json`, NOT
       `summary_confidences_json` -- the latter holds scalars, not the matrix.
 
       run_protenix and run_chai1 DO produce a PAE, and ipSAE still cannot read
@@ -103,7 +104,7 @@ schema:
       for the keys `pae` and `atom_plddts`, while Protenix writes
       `pae`/`plddt` and Chai-1 writes `token_pair_pae`/`atom_plddt`. Passing
       either gets a KeyError deep in the engine rather than a clear refusal,
-      so fold with one of the three above when you intend to score here.
+      so use a compatible full-confidence output when you intend to score here.
 
       This parameter used to be called `pae_json` and reject anything but
       `.json`, which refused Boltz's PAE even though run_boltz's own output
@@ -130,7 +131,7 @@ schema:
 
       WHERE THIS COMES FROM -- The structure whose PAE you are passing, from
       the same predictor run -- `run_alphafold2_multimer`, `run_boltz` (its
-      structures output) or `run_alphafold3` (its model_cif output).
+      structures output) or `run_alphafold3` (its model_cif output), or `run_rf3` (its structure_cif output).
     example: model.cif
   pae_cutoff:
     type: number

@@ -69,6 +69,7 @@ def main() -> None:
     target_dir = out_dir / _TARGET_NAME
     cif_path = target_dir / f"{_TARGET_NAME}_model.cif"
     summary_path = target_dir / f"{_TARGET_NAME}_summary_confidences.json"
+    confidence_path = target_dir / f"{_TARGET_NAME}_confidences.json"
     if not cif_path.exists() or not summary_path.exists():
         raise RuntimeError(
             f"RF3 exited 0 but did not write the expected {cif_path.name}/"
@@ -78,6 +79,11 @@ def main() -> None:
 
     shutil.copy2(cif_path, "structure.cif")
     shutil.copy2(summary_path, "summary_confidences.json")
+    # Export the full confidence file selected by RF3 for the same top-ranked
+    # structure. Summary scalars cannot substitute for its PAE matrix.
+    if not confidence_path.is_file():
+        raise RuntimeError(f"RF3 did not write full confidences for the selected structure: {confidence_path}")
+    shutil.copy2(confidence_path, "confidences.json")
 
 
 if __name__ == "__main__":

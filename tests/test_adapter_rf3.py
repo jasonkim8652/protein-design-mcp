@@ -140,3 +140,27 @@ def test_validation_fills_defaults():
     assert params["n_recycles"] == 10
     assert params["diffusion_batch_size"] == 5
     assert params["num_steps"] == 50
+
+
+def test_wrapper_exports_matching_full_confidences_for_downstream_pae(tmp_path, monkeypatch):
+    import importlib.util
+    from types import SimpleNamespace
+    from protein_design_mcp.results import collect_outputs
+    script = Path(__file__).resolve().parents[1] / 'scripts/engines/rf3.py'
+    spec = importlib.util.spec_from_file_location('rf3_wrapper_export', script)
+    module = importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(module.sys, 'argv', [str(script), '--chains', json.dumps(CHAINS), '--msa', 'null', '--n-recycles', '2', '--diffusion-batch-size', '1', '--num-steps', '2'])
+    full = {'pae': [[0.0, 7.0], [8.0, 0.0]], 'atom_plddts': [81.0, 79.0], 'atom_chain_ids': ['A', 'B'], 'token_chain_ids': ['A', 'B'], 'token_res_ids': [1, 1]}
+    def fake_fold(argv, **kwargs):
+        target = tmp_path / 'out/target';target.mkdir(parents=True)
+        (target/'target_model.cif').write_text('data_target\n#\n')
+        (target/'target_summary_confidences.json').write_text(json.dumps(SAMPLE_CONF))
+        (target/'target_confidences.json').write_text(json.dumps(full))
+        return SimpleNamespace(returncode=0,stdout='',stderr='')
+    monkeypatch.setattr(module.subprocess, 'run', fake_fold)
+    module.main()
+    outputs = collect_outputs(_manifest().outputs, tmp_path, 'rf3-export-check')
+    assert 'confidences_json' in outputs
+    assert json.loads(Path(outputs['confidences_json']).read_text()) == full
+    assert json.loads(Path(outputs['summary_confidences_json']).read_text()) == SAMPLE_CONF
