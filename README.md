@@ -100,6 +100,8 @@ The image contains isolated engine environments, engine code, CUDA toolkit
 components, and redistributable public model weights. Engine executables and
 editable source mappings use fixed in-image paths; no developer home or host
 conda environment is required.
+The all-engine image is approximately **218 GiB uncompressed**, before run
+outputs and Docker's additional storage requirements.
 
 The packaged runtime versions are listed in
 [`docs/integrated-environments.json`](docs/integrated-environments.json);
