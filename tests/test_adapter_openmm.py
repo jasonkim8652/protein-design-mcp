@@ -1,4 +1,5 @@
 from pathlib import Path
+import gzip
 
 import pytest
 
@@ -156,3 +157,38 @@ def test_an_unreadable_structure_is_left_to_the_engine(tmp_path):
     missing = tmp_path / "nope.pdb"
     assert str(missing) in build_args(None, {
         "input_pdb": str(missing), "max_iterations": 500, "forcefield": "amber14"})
+
+
+@pytest.mark.parametrize("suffix", [".pdb", ".cif", ".mmcif", ".pdb.gz", ".cif.gz", ".mmcif.gz"])
+def test_schema_accepts_native_structure_formats(suffix):
+    params = validate_and_fill(_manifest(), {"input_pdb": "folded" + suffix})
+    assert params["input_pdb"] == "folded" + suffix
+    assert params["forcefield"] == "amber14" and params["max_iterations"] == 500
+
+
+def _cif_from_pdb(source, destination):
+    from Bio.PDB import MMCIFIO, PDBParser
+    writer = MMCIFIO()
+    writer.set_structure(PDBParser(QUIET=True).get_structure("folded", str(source)))
+    writer.save(str(destination))
+
+
+@pytest.mark.parametrize("suffix", [".cif", ".mmcif", ".cif.gz", ".mmcif.gz"])
+@pytest.mark.parametrize("complete", [True, False])
+def test_cif_preflight_accepts_folded_residues_and_refuses_backbone_only(tmp_path, suffix, complete):
+    names = ["N", "CA", "C", "O"]
+    if complete:
+        names.extend(["CB", "CG", "ND1", "CD2", "CE1", "NE2"])
+    pdb = _pdb(tmp_path, [_atom(i + 1, name, "HIS", "B", 5) for i, name in enumerate(names)])
+    cif = tmp_path / ("structure" + suffix)
+    _cif_from_pdb(pdb, cif)
+    if suffix.endswith(".gz"):
+        cif.write_bytes(gzip.compress(cif.read_bytes()))
+    original = cif.read_bytes()
+    params = {"input_pdb": str(cif), "max_iterations": 17, "forcefield": "charmm36"}
+    if complete:
+        assert build_args(None, params) == [str(cif), "minimized.pdb", "--max-iterations", "17", "--forcefield", "charmm36"]
+    else:
+        with pytest.raises(ToolInputError, match="HIS B5.*backbone atoms only"):
+            build_args(None, params)
+    assert cif.read_bytes() == original

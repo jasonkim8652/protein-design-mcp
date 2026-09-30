@@ -8,6 +8,8 @@ directory the dispatcher created.
 from __future__ import annotations
 
 import argparse
+import gzip
+from pathlib import Path
 
 from openmm import LangevinMiddleIntegrator, unit
 from openmm.app import PDBFile, ForceField, Modeller, Simulation, HBonds, NoCutoff
@@ -29,7 +31,18 @@ def main() -> None:
 
     # AF2's unrelaxed PDB omits OXT. Supply terminal heavy atoms before
     # force-field matching; do not invent loops, residues or side chains.
-    pdb = PDBFixer(filename=args.input_pdb)
+    path = Path(args.input_pdb)
+    compressed = path.suffix.lower() == ".gz"
+    suffix = path.with_suffix("").suffix.lower() if compressed else path.suffix.lower()
+    if suffix in {".cif", ".mmcif"} or compressed:
+        opener = gzip.open if compressed else open
+        with opener(path, "rt") as handle:
+            # Read the native topology and coordinates; a PDB conversion would
+            # impose chain/atom numbering limits before minimisation.
+            pdb = (PDBFixer(pdbxfile=handle) if suffix in {".cif", ".mmcif"}
+                   else PDBFixer(pdbfile=handle))
+    else:
+        pdb = PDBFixer(filename=args.input_pdb)
     pdb.findMissingResidues()
     pdb.missingResidues = {}
     pdb.findMissingAtoms()

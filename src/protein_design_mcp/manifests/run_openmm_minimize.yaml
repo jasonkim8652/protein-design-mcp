@@ -45,7 +45,9 @@ doc: |
     exactly, score the input instead of the output.
 
   ## What you must supply
-  A PDB file. Multi-chain inputs are relaxed as one system.
+  A PDB or CIF/mmCIF file, optionally gzip-compressed. Multi-chain inputs
+  are relaxed as one system. CIF inputs are read directly without a
+  coordinate conversion; the minimized output is a PDB file.
 
   ## What you get back
   `initial_potential_energy_kj_mol`, `final_potential_energy_kj_mol`,
@@ -58,9 +60,9 @@ schema:
   input_pdb:
     type: string
     format: path
-    pattern: '\.pdb$'
+    pattern: '\.(pdb|cif|mmcif)(\.gz)?$'
     required: true
-    description: Structure to minimise.
+    description: Structure to minimise (PDB or CIF/mmCIF, optionally .gz).
 
       WHERE THIS COMES FROM -- Any structure to relax -- your own, or one a
       folding or generation tool returned.

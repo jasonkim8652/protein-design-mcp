@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import re
 from pathlib import Path
 from typing import Any
@@ -38,18 +39,29 @@ def _require_complete_residues(structure: Path) -> None:
     real structures. Unreadable files pass through -- this is a precondition,
     not a PDB validator.
     """
+    residues: dict[tuple[str, str, str], set[str]] = {}
+    compressed = structure.suffix.lower() == ".gz"
+    suffix = structure.with_suffix("").suffix.lower() if compressed else structure.suffix.lower()
+    opener = gzip.open if compressed else open
     try:
-        text = structure.read_text(errors="replace")
+        with opener(structure, "rt", errors="replace") as handle:
+            if suffix in {".cif", ".mmcif"}:
+                from Bio.PDB import MMCIFParser
+                model = next(MMCIFParser(QUIET=True).get_structure("input", handle).get_models())
+                for chain in model:
+                    for residue in chain:
+                        number = str(residue.id[1]) + residue.id[2].strip()
+                        residues[(chain.id, number, residue.resname)] = {atom.name for atom in residue}
+            else:
+                for line in handle:
+                    if line.startswith("ENDMDL"):
+                        break
+                    if not line.startswith(("ATOM", "HETATM")) or len(line) < 27:
+                        continue
+                    key = (line[21], line[22:27].strip(), line[17:20].strip())
+                    residues.setdefault(key, set()).add(line[12:16].strip())
     except OSError:
         return
-    residues: dict[tuple[str, str, str], set[str]] = {}
-    for line in text.splitlines():
-        if line.startswith("ENDMDL"):
-            break
-        if not line.startswith(("ATOM", "HETATM")) or len(line) < 27:
-            continue
-        key = (line[21], line[22:27].strip(), line[17:20].strip())
-        residues.setdefault(key, set()).add(line[12:16].strip())
     for (chain, number, resname), atoms in residues.items():
         if resname in _NO_SIDE_CHAIN or not atoms:
             continue

@@ -33,7 +33,9 @@ atom clashes that dominate any energy term computed on them directly.
   exactly, score the input instead of the output.
 
 ## What you must supply
-A PDB file. Multi-chain inputs are relaxed as one system.
+A PDB or CIF/mmCIF file, optionally gzip-compressed. Multi-chain inputs
+are relaxed as one system. CIF inputs are read directly without a
+coordinate conversion; the minimized output is a PDB file.
 
 ## What you get back
 `initial_potential_energy_kj_mol`, `final_potential_energy_kj_mol`,
@@ -46,6 +48,6 @@ A PDB file. Multi-chain inputs are relaxed as one system.
 
 | Parameter | Type | Required | Default | Constraints | Description |
 |---|---|---|---|---|---|
-| `input_pdb` | string | yes | `—` | pattern: `\.pdb$` | Structure to minimise. WHERE THIS COMES FROM -- Any structure to relax -- your own, or one a folding or generation tool returned. |
+| `input_pdb` | string | yes | `—` | pattern: `\.(pdb\|cif\|mmcif)(\.gz)?$` | Structure to minimise (PDB or CIF/mmCIF, optionally .gz). WHERE THIS COMES FROM -- Any structure to relax -- your own, or one a folding or generation tool returned. |
 | `max_iterations` | integer | no | `500` | minimum: `1`<br>maximum: `10000` | Most L-BFGS steps to take before stopping, whether or not the energy has converged. Higher costs proportionally more CPU and buys less the further it goes; 0 means run until convergence, which on a badly clashing structure can be much longer than you expect. A few hundred is enough to relieve the clashes a predicted structure carries. |
 | `forcefield` | string | no | `amber14` | enum: `['amber14', 'charmm36']` | Force field to minimise under. |
