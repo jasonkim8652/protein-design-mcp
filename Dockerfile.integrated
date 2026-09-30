@@ -2,6 +2,8 @@
 # Build the core first with Dockerfile.envs, then supply a curated, relocated
 # rootfs.tar through --build-context payload=/path/to/staged-payload.
 # Restricted weights/software and user databases must never enter that archive.
+# For registry publication, generate the layered variant with
+# scripts/plan_integrated_layers.py; see the README build instructions.
 ARG CORE_IMAGE=protein-design-mcp:2.4.0-core
 FROM nvidia/cuda:12.6.3-devel-ubuntu24.04@sha256:392c0df7b577ecae17a17f6ba7f2009c217bb4422f8431c053ae9af61a8c148a AS cuda
 FROM ${CORE_IMAGE} AS substrate

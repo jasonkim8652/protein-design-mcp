@@ -174,10 +174,21 @@ docker build -f Dockerfile.envs -t protein-design-mcp:2.4.0-core .
 # After staging and auditing all engine environments and public assets:
 python scripts/assemble_integrated_payload.py \
   --rootfs /your/staged/rootfs --output /your/prepared-payload/rootfs.tar
-docker build -f Dockerfile.integrated \
+python scripts/plan_integrated_layers.py \
+  --archive /your/prepared-payload/rootfs.tar \
+  --output /your/build/Dockerfile.integrated.layered
+docker build -f /your/build/Dockerfile.integrated.layered \
   --build-context payload=/your/prepared-payload \
   -t jasonkim8652/protein-design-mcp:2.4.0 .
 ```
+
+The layer planner keeps complete files and TAR member order while targeting
+4 GiB of payload per layer. Larger individual files remain intact. This avoids
+uploading all environments and weights as one large registry blob. The source
+archive is read directly; no second payload archive is created.
+Docker storage drivers may copy hard-linked files from earlier layers, so actual
+layer sizes can exceed the payload target and deduplication may be reduced.
+Verify the built image's layer sizes before publication.
 
 The staging helpers `scripts/prepare_integrated_envs.py` and
 `scripts/prepare_integrated_assets.py` accept explicit machine-local input
