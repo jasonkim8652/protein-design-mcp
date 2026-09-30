@@ -96,11 +96,20 @@ never a scientific choice.
 
 ## Running the 2.4.0 integrated image
 
+The repaired release is published on Docker Hub. Its verified immutable reference is:
+
+```text
+jasonkim8652/protein-design-mcp:2.4.0@sha256:a67fbee86013fea2cd4972ccd7d12fb8a629b513027b72ad88c228f1a44d0e0c
+```
+
+The image contains server revision `9e4a8f4`. See the
+[publication and validation record](docs/integrated-240-validation.md#verified-repaired-publication-2026-09-30).
+
 The image contains isolated engine environments, engine code, CUDA toolkit
 components, and redistributable public model weights. Engine executables and
 editable source mappings use fixed in-image paths; no developer home or host
 conda environment is required.
-The all-engine image is approximately **218 GiB uncompressed**, before run
+The all-engine image is approximately **266 GiB uncompressed**, before run
 outputs and Docker's additional storage requirements.
 
 The packaged runtime versions are listed in

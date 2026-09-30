@@ -3,6 +3,9 @@
 This report separates packaging checks, runtime loading, tool discovery, and
 actual inference. A discoverable tool is not proof of a successful model run.
 
+The earlier sections retain historical build evidence and image sizes. The current
+published artifact is documented in [the repaired publication record](#verified-repaired-publication-2026-09-30).
+
 ## Packaging checks
 
 - Nineteen additional conda prefixes were copied and relocated; installed files
@@ -133,3 +136,35 @@ legacy failures** in 203.77 seconds. The failures remain in old AlphaFold2,
 ESMFold, ProteinMPNN and RFdiffusion pipeline expectations and inaccessible
 nonexistent-path fixtures in PDB/SASA tests; the full host suite is not green.
 Image publication is tracked separately from these local-image validations.
+
+## Verified repaired publication, 2026-09-30
+
+The public `jasonkim8652/protein-design-mcp:2.4.0` tag now resolves to:
+
+```text
+jasonkim8652/protein-design-mcp:2.4.0@sha256:a67fbee86013fea2cd4972ccd7d12fb8a629b513027b72ad88c228f1a44d0e0c
+```
+
+- Image ID: `sha256:af1501b7135d4ae5ab1792b0721bf70240eddf5f3c0eaf815625e65763e751dd`.
+- Built server source: `9e4a8f40234a8673f202dbbbb06013ecad7e33dd`.
+- Uncompressed size: 285289201317 bytes (approximately 266 GiB); 98 layers.
+- Publication was followed by manifest lookup and pull-back image-ID verification.
+  A subsequent remote tag lookup independently matched both the registry digest
+  and its config image ID.
+
+The repaired MD environment pins CUDA 12.9-compatible packages with OpenMM 8.6.1.
+Actual CUDA energy, force and minimization probes pass; merely importing OpenMM
+is no longer accepted as GPU verification. Explicit CUDA failures do not fall
+back to CPU. The final image discovers 41 tools with required external assets
+and 37 with only its workspace. Restricted weights, licensed software and user
+sequence databases remain external.
+
+The [staged-minimization report](validation/openmm-staged-minimization.md) describes
+the fixed preparation procedure, six real component regressions, replay checks,
+remaining geometry limitations and baseline host-suite failures. The independent
+client's [local-MSA end-to-end record](https://github.com/RomeroLab/proteinmem-mcp/blob/main/docs/evaluator-local-msa-validation.md)
+documents local MMseqs search, full-target AF2 and separate complex/binder/target
+CUDA minimizations. Valid results produce a dimensionless black-box score;
+numerically unmeasurable assays retain a null score. This is not experimental pKd.
+No historical campaign values were rewritten, and original design prompts and
+evaluator independence were preserved.
