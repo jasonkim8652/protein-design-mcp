@@ -266,3 +266,27 @@ def test_completed_diagnostics_require_collected_minimized_structure(tmp_path):
     path.write_text(json.dumps({'status': 'completed', 'stages': [], 'geometry_passed': True}))
     with pytest.raises(ValueError, match='minimized'):
         parse_output(_manifest(), CompletedRun(returncode=0, stdout=SAMPLE_STDOUT, stderr='', workdir=tmp_path, outputs={'minimization_diagnostics': str(path)}))
+
+
+@pytest.mark.parametrize('platform,requested,expected', [
+    ('CPU', 'double', 'platform_default'),
+    ('CPU', 'mixed', 'platform_default'),
+    ('Reference', 'mixed', 'double'),
+    ('Reference', 'double', 'double'),
+    ('CUDA', 'mixed', 'mixed'),
+    ('CUDA', 'double', 'double'),
+])
+@pytest.mark.parametrize('has_stage', [False, True])
+def test_numerical_failure_reports_effective_native_precision(tmp_path, platform, requested, expected, has_stage):
+    import json
+    stage = {'platform': platform, 'platform_properties': {'Precision': requested} if platform == 'CUDA' else {}, 'reporter_calls': 2}
+    metadata = {'protocol': 'soft-repulsion-flexible-hbonds-v1', 'status': 'numerical_failure',
+                'requested_platform': platform, 'requested_precision': requested,
+                'stages': [stage] if has_stage else []}
+    path = tmp_path/'diagnostics.json'
+    path.write_text(json.dumps(metadata))
+    result = parse_output(_manifest(), CompletedRun(returncode=0, stdout='', stderr='', workdir=tmp_path/'deleted', outputs={'minimization_diagnostics': str(path)}))
+    assert result['platform'] == platform
+    assert result['precision'] == expected
+    assert result['numerical_failure'] is True
+    assert result['minimization_diagnostics']['requested_precision'] == requested

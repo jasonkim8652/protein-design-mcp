@@ -106,10 +106,10 @@ or geometry-failed completed runs still require their actual collected minimized
 PDB in the adapter. Prepared coordinates cannot substitute for a missing final
 structure. Artifact collection preserves diagnostics before scratch cleanup.
 
-Targeted validation: 137 adapter, collection, manifest and documentation tests
+Targeted validation: 149 adapter, collection, manifest and documentation tests
 passed; eight md engine tests passed with the six-case replay enabled. The full
-server suite also ran in the host tooling Python environment: 1470 passed,
-15 skipped and 15 unrelated environment/configuration failures. The failed tests
+server suite also ran in the host tooling Python environment: 1476 passed,
+17 skipped and 15 unrelated environment/configuration failures. The failed tests
 were:
 
 - `tests/test_alphafold2.py::TestAlphaFold2Config::test_default_config`

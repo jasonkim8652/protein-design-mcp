@@ -112,14 +112,18 @@ def parse_output(manifest: Manifest, run: CompletedRun) -> dict[str, Any]:
     if diagnostics is not None and diagnostics.get("status") == "numerical_failure":
         stages = diagnostics.get("stages", [])
         final = stages[-1] if stages else {}
+        platform = final.get("platform", diagnostics.get("requested_platform"))
+        native_precision = (diagnostics.get("requested_precision") if platform == "CUDA"
+                            else "double" if platform == "Reference" else "platform_default")
+        precision = final.get("platform_properties", {}).get("Precision", native_precision)
         return {
             "initial_potential_energy_kj_mol": diagnostics.get("initial_potential_energy_kj_mol"),
             "final_potential_energy_kj_mol": None, "energy_change_kj_mol": None,
             "iterations": sum(s["reporter_calls"] for s in stages),
             "numerical_failure": True, "geometry_passed": False,
             "minimization_protocol": diagnostics.get("protocol"),
-            "platform": final.get("platform", diagnostics.get("requested_platform")),
-            "precision": final.get("platform_properties", {}).get("Precision", diagnostics.get("requested_precision")),
+            "platform": platform,
+            "precision": precision,
             "minimization_diagnostics": diagnostics,
         }
     if diagnostics is not None and diagnostics.get("status") in {"completed", "geometry_failed"}:
