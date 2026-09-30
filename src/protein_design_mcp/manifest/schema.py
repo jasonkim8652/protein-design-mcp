@@ -53,7 +53,8 @@ class OutputSpec:
     an engine whose results are only on stdout declares none.
 
     ``multiple`` opts a spec into collecting every file the pattern matches,
-    returned as a list. Without it, a pattern matching more than one file is
+    returned as a list. ``optional`` permits zero matches, omitting the key.
+    Without ``multiple``, a pattern matching more than one file is
     treated as ambiguous and rejected rather than silently picking one.
     """
 
@@ -61,6 +62,7 @@ class OutputSpec:
     pattern: str
     description: str = ""
     multiple: bool = False
+    optional: bool = False
 
 
 @dataclass(frozen=True)
@@ -539,12 +541,15 @@ def _parse_outputs(data: Any, name: str) -> tuple[OutputSpec, ...]:
                 "directory and must not escape it"
             )
 
+        if not isinstance(entry.get("optional", False), bool):
+            raise ManifestError(f"{label}: optional must be a boolean")
         specs.append(
             OutputSpec(
                 name=str(out_name),
                 pattern=pattern,
                 description=str(entry.get("description", "")),
                 multiple=bool(entry.get("multiple", False)),
+                optional=entry.get("optional", False),
             )
         )
     return tuple(specs)

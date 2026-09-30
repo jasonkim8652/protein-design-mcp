@@ -24,7 +24,7 @@ def _manifest():
 
 
 def test_manifest_declares_its_output():
-    (out,) = _manifest().outputs
+    out = next(o for o in _manifest().outputs if o.name == "minimized_pdb")
     assert out.name == "minimized_pdb"
     assert out.pattern == "minimized.pdb"
 
@@ -187,8 +187,82 @@ def test_cif_preflight_accepts_folded_residues_and_refuses_backbone_only(tmp_pat
     original = cif.read_bytes()
     params = {"input_pdb": str(cif), "max_iterations": 17, "forcefield": "charmm36"}
     if complete:
-        assert build_args(None, params) == [str(cif), "minimized.pdb", "--max-iterations", "17", "--forcefield", "charmm36"]
+        assert build_args(None, params) == [str(cif), "minimized.pdb", "--max-iterations", "17", "--forcefield", "charmm36", "--platform", "CUDA", "--precision", "double"]
     else:
         with pytest.raises(ToolInputError, match="HIS B5.*backbone atoms only"):
             build_args(None, params)
     assert cif.read_bytes() == original
+
+
+def test_runtime_arguments_are_explicit_and_validated():
+    params = validate_and_fill(_manifest(), {'input_pdb': '/tmp/in.pdb'})
+    assert params['platform'] == 'CUDA'
+    assert params['precision'] == 'double'
+    args = build_args(_manifest(), params)
+    assert args[args.index('--platform')+1] == 'CUDA'
+    assert args[args.index('--precision')+1] == 'double'
+
+
+def test_parse_full_scientific_notation_and_reject_nonfinite():
+    run = CompletedRun(returncode=0, stdout='initial_potential_energy_kj_mol: 1.2e+20\nfinal_potential_energy_kj_mol: -3.4e+3\n', stderr='', workdir=Path('/tmp'))
+    assert parse_output(_manifest(), run)['initial_potential_energy_kj_mol'] == 1.2e20
+    with pytest.raises(ValueError, match='finite'):
+        parse_output(_manifest(), CompletedRun(returncode=0, stdout='initial_potential_energy_kj_mol: inf\nfinal_potential_energy_kj_mol: nan\n', stderr='', workdir=Path('/tmp')))
+
+
+def test_diagnostics_preserve_failed_geometry_and_actual_iterations(tmp_path):
+    import json
+    metadata = {'protocol': 'soft-repulsion-flexible-hbonds-v1', 'status': 'geometry_failed',
+                'geometry_passed': False, 'iterations': 1400, 'stages': [
+                    {'platform': 'CUDA', 'platform_properties': {'Precision': 'double'}, 'reporter_calls': 1400}]}
+    (tmp_path/'openmm_diagnostics.json').write_text(json.dumps(metadata))
+    minimized = tmp_path/'minimized.pdb'; minimized.write_text('ATOM\n')
+    result = parse_output(_manifest(), CompletedRun(returncode=0, stdout=SAMPLE_STDOUT, stderr='', workdir=tmp_path, outputs={'minimized_pdb': str(minimized)}))
+    assert result['geometry_passed'] is False
+    assert result['iterations'] == 1400
+    assert result['minimization_diagnostics'] == metadata
+    assert result['platform'] == 'CUDA'
+    assert result['precision'] == 'double'
+
+
+def test_explicit_numerical_failure_returns_missing_measurement(tmp_path):
+    import json
+    metadata = {'protocol': 'soft-repulsion-flexible-hbonds-v1', 'status': 'numerical_failure',
+                'requested_platform': 'CUDA', 'requested_precision': 'double',
+                'error': {'type': 'NumericalFailure', 'message': 'Nonfinite coordinates'}}
+    (tmp_path/'openmm_diagnostics.json').write_text(json.dumps(metadata))
+    result = parse_output(_manifest(), CompletedRun(returncode=0, stdout='', stderr='', workdir=tmp_path))
+    assert result['numerical_failure'] is True
+    assert result['final_potential_energy_kj_mol'] is None
+    assert result['geometry_passed'] is False
+
+
+def test_diagnostics_are_read_from_collected_output_after_workdir_cleanup(tmp_path):
+    import json
+    path = tmp_path/'collected.json'
+    path.write_text(json.dumps({'protocol': 'soft-repulsion-flexible-hbonds-v1', 'geometry_passed': True, 'iterations': 99, 'stages': []}))
+    result = parse_output(_manifest(), CompletedRun(returncode=0, stdout=SAMPLE_STDOUT, stderr='', workdir=tmp_path/'deleted', outputs={'minimization_diagnostics': str(path)}))
+    assert result['minimization_protocol'] == 'soft-repulsion-flexible-hbonds-v1'
+    assert result['iterations'] == 99
+
+
+def test_numerical_failure_survives_real_collection_without_structure(tmp_path, monkeypatch):
+    import json
+    import shutil
+    from protein_design_mcp.results import collect_outputs
+    monkeypatch.setenv('PROTEIN_MCP_RESULTS_DIR', str(tmp_path/'results'))
+    work = tmp_path/'scratch'; work.mkdir()
+    (work/'openmm_diagnostics.json').write_text(json.dumps({'protocol': 'soft-repulsion-flexible-hbonds-v1', 'status': 'numerical_failure', 'requested_platform': 'CUDA', 'requested_precision': 'double'}))
+    outputs = collect_outputs(_manifest().outputs, work, 'numeric')
+    shutil.rmtree(work)
+    result = parse_output(_manifest(), CompletedRun(returncode=0, stdout='', stderr='', workdir=work, outputs=outputs))
+    assert result['numerical_failure'] is True
+    assert 'minimized_pdb' not in outputs
+
+
+def test_completed_diagnostics_require_collected_minimized_structure(tmp_path):
+    import json
+    path = tmp_path/'diagnostics.json'
+    path.write_text(json.dumps({'status': 'completed', 'stages': [], 'geometry_passed': True}))
+    with pytest.raises(ValueError, match='minimized'):
+        parse_output(_manifest(), CompletedRun(returncode=0, stdout=SAMPLE_STDOUT, stderr='', workdir=tmp_path, outputs={'minimization_diagnostics': str(path)}))

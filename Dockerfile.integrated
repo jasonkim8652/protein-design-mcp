@@ -17,6 +17,12 @@ RUN ln -s /usr/local/cuda-12.6 /usr/local/cuda
 FROM substrate
 RUN --mount=type=bind,from=payload,source=rootfs.tar,target=/tmp/rootfs.tar \
     tar -xf /tmp/rootfs.tar -C /
+# The relocated payload may carry an older, unpinned CUDA dependency set.
+# Apply the same compatible MD build used by the core after extraction.
+COPY environments/openmm-linux-64.txt /app/environments/openmm-linux-64.txt
+RUN micromamba install -y -p /opt/conda/envs/md -c conda-forge --override-channels \
+        --file /app/environments/openmm-linux-64.txt \
+    && micromamba clean --all --yes
 # Import only the licensed packages from this mount. Adding an entire host
 # site-packages directory to PYTHONPATH would also override bundled dependencies.
 RUN ln -s /data/licenses/pyrosetta/pyrosetta /opt/conda/envs/BindCraft/lib/python3.10/site-packages/pyrosetta \

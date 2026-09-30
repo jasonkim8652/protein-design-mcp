@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import gzip
+import json
+import math
 import re
 from pathlib import Path
 from typing import Any
@@ -77,8 +79,8 @@ def _require_complete_residues(structure: Path) -> None:
             "co-folding tool produced, not the backbone a design was built on."
         )
 
-_INITIAL_RE = re.compile(r"initial_potential_energy_kj_mol:\s*(-?[\d.]+)")
-_FINAL_RE = re.compile(r"final_potential_energy_kj_mol:\s*(-?[\d.]+)")
+_INITIAL_RE = re.compile(r"initial_potential_energy_kj_mol:\s*(\S+)")
+_FINAL_RE = re.compile(r"final_potential_energy_kj_mol:\s*(\S+)")
 _ITER_RE = re.compile(r"iterations:\s*(\d+)")
 _TERMINAL_RE = re.compile(r"added_terminal_atoms:\s*(\d+)")
 
@@ -97,11 +99,33 @@ def build_args(manifest: Manifest, params: dict[str, Any]) -> list[str]:
         str(params["max_iterations"]),
         "--forcefield",
         str(params["forcefield"]),
+        "--platform", str(params.get("platform", "CUDA")),
+        "--precision", str(params.get("precision", "double")),
     ]
 
 
 def parse_output(manifest: Manifest, run: CompletedRun) -> dict[str, Any]:
     """Extract the energies the engine script printed."""
+    # The dispatcher removes scratch before parsing: prefer collected outputs.
+    diagnostics_path = Path(run.outputs.get("minimization_diagnostics", run.workdir / "openmm_diagnostics.json"))
+    diagnostics = json.loads(diagnostics_path.read_text()) if diagnostics_path.is_file() else None
+    if diagnostics is not None and diagnostics.get("status") == "numerical_failure":
+        stages = diagnostics.get("stages", [])
+        final = stages[-1] if stages else {}
+        return {
+            "initial_potential_energy_kj_mol": diagnostics.get("initial_potential_energy_kj_mol"),
+            "final_potential_energy_kj_mol": None, "energy_change_kj_mol": None,
+            "iterations": sum(s["reporter_calls"] for s in stages),
+            "numerical_failure": True, "geometry_passed": False,
+            "minimization_protocol": diagnostics.get("protocol"),
+            "platform": final.get("platform", diagnostics.get("requested_platform")),
+            "precision": final.get("platform_properties", {}).get("Precision", diagnostics.get("requested_precision")),
+            "minimization_diagnostics": diagnostics,
+        }
+    if diagnostics is not None and diagnostics.get("status") in {"completed", "geometry_failed"}:
+        minimized = run.outputs.get("minimized_pdb")
+        if not isinstance(minimized, str) or not Path(minimized).is_file():
+            raise ValueError("OpenMM completed without its collected minimized PDB")
     initial = _INITIAL_RE.search(run.stdout)
     final = _FINAL_RE.search(run.stdout)
     if initial is None or final is None:
@@ -112,6 +136,8 @@ def parse_output(manifest: Manifest, run: CompletedRun) -> dict[str, Any]:
 
     initial_value = float(initial.group(1))
     final_value = float(final.group(1))
+    if not math.isfinite(initial_value) or not math.isfinite(final_value):
+        raise ValueError("OpenMM reported nonfinite energy")
     iterations = _ITER_RE.search(run.stdout)
     terminals = _TERMINAL_RE.search(run.stdout)
     result = {
@@ -125,4 +151,13 @@ def parse_output(manifest: Manifest, run: CompletedRun) -> dict[str, Any]:
         match = re.search(rf"(?m)^{key}:\s*(\S+)", run.stdout)
         if match:
             result[key] = match.group(1)
+    if diagnostics is not None:
+        result["minimization_diagnostics"] = diagnostics
+        result["minimization_protocol"] = diagnostics.get("protocol")
+        result["geometry_passed"] = diagnostics.get("geometry_passed", False)
+        result["iterations"] = diagnostics.get("iterations")
+        if diagnostics.get("stages"):
+            final_stage = diagnostics["stages"][-1]
+            result["platform"] = final_stage["platform"]
+            result["precision"] = final_stage["platform_properties"].get("Precision", "double" if result["platform"] == "Reference" else "platform_default")
     return result

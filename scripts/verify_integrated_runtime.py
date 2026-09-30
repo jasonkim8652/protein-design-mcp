@@ -77,8 +77,34 @@ if request.get("gpu_smoke") and request.get("jax_runtime"):
             jax_result["gpu_smoke"]={"status":"skipped_gpu_unavailable"}
     except BaseException as exc:
         jax_result=dict(checked=True,ok=False,error=repr(exc),traceback=traceback.format_exc())
-ok=all(item["ok"] for item in records) and torch_result.get("ok",True) and jax_result.get("ok",True)
-print("INTEGRATED_RUNTIME_JSON="+json.dumps(dict(ok=ok,executable=sys.executable,prefix=sys.prefix,checks=records,torch=torch_result,jax=jax_result)))
+openmm_result={"checked":False}
+if request.get("gpu_smoke") and any(item["module"]=="openmm" for item in request["imports"]):
+    try:
+        import math
+        import openmm
+        from openmm import unit
+        system=openmm.System()
+        system.addParticle(12.0); system.addParticle(12.0)
+        bond=openmm.HarmonicBondForce()
+        bond.addBond(0,1,0.1,100.0)
+        system.addForce(bond)
+        integrator=openmm.VerletIntegrator(0.001)
+        platform=openmm.Platform.getPlatformByName("CUDA")
+        context=openmm.Context(system,integrator,platform,{"Precision":"double"})
+        context.setPositions([[0,0,0],[0.2,0,0]])
+        state=context.getState(getEnergy=True,getForces=True)
+        energy=state.getPotentialEnergy().value_in_unit(unit.kilojoule_per_mole)
+        force=state.getForces()[0].value_in_unit(unit.kilojoule_per_mole/unit.nanometer)[0]
+        openmm.LocalEnergyMinimizer.minimize(context,tolerance=0.001,maxIterations=100)
+        final=context.getState(getEnergy=True).getPotentialEnergy().value_in_unit(unit.kilojoule_per_mole)
+        valid=math.isclose(energy,0.5,rel_tol=1e-6) and math.isclose(force,10.0,rel_tol=1e-6) and abs(final)<1e-8
+        openmm_result=dict(checked=True,ok=valid,version=openmm.__version__,platform=platform.getName(),
+            properties={name:platform.getPropertyValue(context,name) for name in platform.getPropertyNames()},
+            energy_kj_mol=energy,force0_x_kj_mol_nm=force,minimized_energy_kj_mol=final)
+    except BaseException as exc:
+        openmm_result=dict(checked=True,ok=False,error=repr(exc),traceback=traceback.format_exc())
+ok=all(item["ok"] for item in records) and torch_result.get("ok",True) and jax_result.get("ok",True) and openmm_result.get("ok",True)
+print("INTEGRATED_RUNTIME_JSON="+json.dumps(dict(ok=ok,executable=sys.executable,prefix=sys.prefix,checks=records,torch=torch_result,jax=jax_result,openmm=openmm_result)))
 sys.exit(0 if ok else 1)
 '''
 
@@ -199,7 +225,7 @@ def main() -> int:
     parser.add_argument("--manifest-dir", type=Path, default=Path("/app/src/protein_design_mcp/manifests"))
     parser.add_argument("--engine", action="append", default=[], help="Tool name, repo name, or environment name; repeatable")
     parser.add_argument("--timeout", type=float, default=90, help="Seconds per environment (default: 90)")
-    parser.add_argument("--gpu-smoke", action="store_true", help="Run tiny CUDA matmul/JAX GPU addition when available; no model inference")
+    parser.add_argument("--gpu-smoke", action="store_true", help="Run tiny Torch/JAX GPU operations and require explicit OpenMM CUDA energy/force/minimization; no model inference")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     report = {"scope": "Installed engine imports, CUDA availability, and optional tiny GPU operations; no model inference", "gpu_smoke_requested": args.gpu_smoke, "server_package_version": installed_version(),

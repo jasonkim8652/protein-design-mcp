@@ -1,0 +1,21 @@
+# syntax=docker/dockerfile:1.7
+# Reuse an audited integrated image's engine/weight layers. Supply BASE_IMAGE
+# explicitly and record its resolved ID; the full build is Dockerfile.integrated.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+USER root
+COPY environments/openmm-linux-64.txt /app/environments/openmm-linux-64.txt
+RUN micromamba install -y -p /opt/conda/envs/md -c conda-forge --override-channels \
+        --file /app/environments/openmm-linux-64.txt \
+    && micromamba clean --all --yes
+COPY pyproject.toml README.md LICENSE /app/
+COPY src/ /app/src/
+COPY scripts/ /app/scripts/
+RUN micromamba run -n server pip install --no-cache-dir --no-deps /app \
+    && chmod -R a+rX /app
+ARG SOURCE_REVISION=unknown
+LABEL org.opencontainers.image.revision="${SOURCE_REVISION}" \
+      org.opencontainers.image.version="2.4.0"
+USER $MAMBA_USER
+WORKDIR /app
+CMD ["micromamba", "run", "-n", "server", "protein-design-mcp"]

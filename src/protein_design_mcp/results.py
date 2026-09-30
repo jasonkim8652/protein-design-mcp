@@ -102,7 +102,7 @@ def _check_containment(source: Path, resolved_workdir: Path, spec_name: str) -> 
 def _checked_matches(spec: OutputSpec, workdir: Path, resolved_workdir: Path) -> list[_CheckedMatch]:
     """Resolve ``spec``'s glob into checked matches, or raise.
 
-    Applies the arity rules (zero matches is always an error; more than one
+    Applies the arity rules (zero matches is an error unless optional; more than one
     match is an error unless ``multiple``) and then runs *every* surviving
     match through ``_check_containment``, irrespective of ``multiple``.
 
@@ -112,7 +112,7 @@ def _checked_matches(spec: OutputSpec, workdir: Path, resolved_workdir: Path) ->
         OutputPathEscapeError: any match resolves outside the workdir.
     """
     matches = sorted(workdir.glob(spec.pattern))
-    if not matches:
+    if not matches and not spec.optional:
         raise FileNotFoundError(
             f"declared output {spec.name!r} matched no file for pattern "
             f"{spec.pattern!r} in the engine's working directory"
@@ -161,7 +161,8 @@ def collect_outputs(
     kin failure to a missing one in that resolving it silently would return
     a plausible wrong answer, but it is not itself a missing file, so it gets
     its own exception type). A spec with ``multiple=True`` returns a list of
-    every matched path instead, and still requires at least one match.
+    every matched path instead, and still requires at least one match. An
+    explicitly optional spec permits zero matches and omits its result key.
 
     Each spec's matches are copied into their own ``destination/<spec.name>/``
     subdirectory, so two specs whose patterns match files with the same
@@ -195,6 +196,8 @@ def collect_outputs(
     destination = results_dir() / run_id
     collected: dict[str, str | list[str]] = {}
     for spec, matches in plan:
+        if not matches:
+            continue
         spec_dest = destination / spec.name
         spec_dest.mkdir(parents=True, exist_ok=True)
         copied = [_copy_checked_match(match, spec_dest) for match in matches]

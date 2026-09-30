@@ -120,7 +120,8 @@ RUN micromamba create -y -n scoring -c conda-forge python=3.11 pip \
 # each being installed independently and potentially disagreeing.
 # pdbfixer supplies missing terminal heavy atoms (AF2 omits OXT) before
 # force-field matching; it does not rebuild loops or side chains.
-RUN micromamba create -y -n md -c conda-forge python=3.11 openmm=8.6.1 pdbfixer=1.11 \
+COPY environments/openmm-linux-64.txt /tmp/openmm-linux-64.txt
+RUN micromamba create -y -n md -c conda-forge --override-channels --file /tmp/openmm-linux-64.txt \
     && micromamba run -n md python -c "import openmm; import pdbfixer; print('openmm', openmm.__version__); print('pdbfixer module imported OK:', pdbfixer.__file__)" \
     && micromamba clean --all --yes
 

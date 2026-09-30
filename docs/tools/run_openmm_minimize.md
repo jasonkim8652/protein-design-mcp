@@ -15,7 +15,16 @@ Relax a structure with OpenMM molecular mechanics, removing the clashes and stra
 Gradient-based energy minimisation under an Amber or CHARMM force field,
 using OpenMM. Missing terminal heavy atoms (such as OXT, which AF2
 predictions omit) are added with PDBFixer before hydrogens are added.
-Missing internal residues or side chains are not reconstructed.
+Missing internal residues or side chains are not reconstructed. Hydrogens
+use OpenMM's simplified geometry preparation on explicit Reference with a
+recorded random seed and residue variants. Protocol
+`soft-repulsion-flexible-hbonds-v1` applies 200 steps with flexible bonds,
+bounded quadratic overlap repulsion and heavy-atom positional restraints,
+then 200 steps under the unrestrained flexible physical force field, then
+the requested final minimization with HBonds constraints. Temporary forces
+are absent from the reported initial and final physical energies.
+CUDA double precision is explicit by default; unavailable CUDA fails without
+falling back. CPU and Reference must be requested explicitly.
 The system is minimized in vacuum: no explicit water or implicit-solvent
 model is added. Loading water parameter definitions does not add solvent.
 
@@ -42,12 +51,21 @@ coordinate conversion; the minimized output is a PDB file.
 `energy_change_kj_mol`, `iterations`, `added_terminal_atoms`, `force_field`,
 `solvent_model` (`none`), `energy_units` (`kJ/mol`), and under
 `outputs` the path to
-`minimized_pdb`.
+`minimized_pdb`. Additional fields include `minimization_protocol`, actual
+`platform`, `precision`, `geometry_passed`, and `minimization_diagnostics`.
+`iterations` counts observed reporter callbacks across stages and constraint
+passes, not the requested cap. Full precision states and Systems are saved
+with SHA256 identities. Geometry, force residuals, constraint errors and
+heavy-atom displacement are recorded. A failed geometry check must not be
+treated as a usable energy measurement. Passing the gross checks establishes
+neither convergence nor a correct binding pose or affinity.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Constraints | Description |
 |---|---|---|---|---|---|
 | `input_pdb` | string | yes | `—` | pattern: `\.(pdb\|cif\|mmcif)(\.gz)?$` | Structure to minimise (PDB or CIF/mmCIF, optionally .gz). WHERE THIS COMES FROM -- Any structure to relax -- your own, or one a folding or generation tool returned. |
-| `max_iterations` | integer | no | `500` | minimum: `1`<br>maximum: `10000` | Most L-BFGS steps to take before stopping, whether or not the energy has converged. Higher costs proportionally more CPU and buys less the further it goes; 0 means run until convergence, which on a badly clashing structure can be much longer than you expect. A few hundred is enough to relieve the clashes a predicted structure carries. |
+| `max_iterations` | integer | no | `500` | minimum: `1`<br>maximum: `10000` | Iteration cap per OpenMM constraint pass in the final physical stage. Two fixed 200-step preparation stages precede it. Constraint restarts may exceed this cap in total. A cap or low energy does not prove convergence. |
 | `forcefield` | string | no | `amber14` | enum: `['amber14', 'charmm36']` | Force field to minimise under. |
+| `platform` | string | no | `CUDA` | enum: `['CUDA', 'Reference', 'CPU']` | Explicit computation platform; failure to initialize is an error, with no fallback. Reference supports CPU-only validation. |
+| `precision` | string | no | `double` | enum: `['double', 'mixed']` | CUDA precision; other explicitly selected platforms use their native precision, reported in diagnostics. |

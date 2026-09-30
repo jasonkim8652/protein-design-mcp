@@ -340,3 +340,14 @@ def test_no_output_is_copied_when_a_later_spec_escapes(tmp_path, monkeypatch):
 
     copied = [p for p in (tmp_path / "res").rglob("*") if p.is_file()]
     assert copied == [], f"a copy happened before all specs were checked: {copied}"
+
+
+@pytest.mark.parametrize('multiple', [False, True])
+def test_optional_absent_outputs_are_omitted_but_present_files_collected(tmp_path, monkeypatch, multiple):
+    monkeypatch.setenv('PROTEIN_MCP_RESULTS_DIR', str(tmp_path/'results'))
+    work = tmp_path/'work'; work.mkdir()
+    spec = OutputSpec(name='structure', pattern='minimized.pdb', multiple=multiple, optional=True)
+    assert collect_outputs([spec], work, 'missing') == {}
+    (work/'minimized.pdb').write_text('ATOM\n')
+    result = collect_outputs([spec], work, 'present')['structure']
+    assert isinstance(result, list if multiple else str)

@@ -1,0 +1,8 @@
+# Linux x86_64 / Python 3.11. Keep the OpenMM build and CUDA libraries together.
+# The unconstrained solver otherwise installs NVRTC 13.4 even on a 13.3 driver.
+python=3.11
+openmm=8.6.1=py311h6619805_0
+pdbfixer=1.11.0
+cuda-version=12.9=h4f385c5_3
+cuda-nvrtc=12.9.86=hecca717_1
+libcufft=11.4.1.4=hecca717_1
