@@ -94,16 +94,16 @@ never a scientific choice.
 
 ---
 
-## Running the 2.4.2 integrated image
+## Running the 2.4.3 integrated image
 
 The repaired release is published on Docker Hub. Its verified immutable reference is:
 
 ```text
-jasonkim8652/protein-design-mcp:2.4.2@sha256:d98c2aaee98907b10b16ea1325f68b8c07f15591ae5abfc7c9191c06fe105cb5
+jasonkim8652/protein-design-mcp:2.4.3@sha256:0b0a40d409374e0d858292a7c09cd7aa386a9354b8bf3b9be4fda30d1ff3fad0
 ```
 
-The image contains server revision `5600f84`. See the
-[2.4.2 publication and runtime validation record](docs/runtime-recovery-2.4.2.md).
+The image contains server revision `a85179b`. See the
+[2.4.3 publication and runtime validation record](docs/runtime-recovery-2.4.3.md).
 
 The image contains isolated engine environments, engine code, CUDA toolkit
 components, and redistributable public model weights. Engine executables and
@@ -122,7 +122,7 @@ mkdir -p "$PWD/workspace"
 docker run -i --rm --device=nvidia.com/gpu=0 --shm-size=16g \
   --user "$(id -u):$(id -g)" -e HOME=/tmp \
   -e TMPDIR="$PWD/workspace" -v "$PWD/workspace:$PWD/workspace" \
-  jasonkim8652/protein-design-mcp:2.4.2
+  jasonkim8652/protein-design-mcp:2.4.3
 ```
 
 This starts the MCP stdio server. Keep the input/output workspace mounted at
@@ -175,12 +175,12 @@ are collected. Retained work directories consume additional disk space.
 
 ## Building the image
 
-For the 2.4.2 source-only runtime patch, reuse the immutable published base:
+For the 2.4.3 source-only runtime patch, reuse the immutable published base:
 
 ```bash
 docker build -f Dockerfile.runtime-patch \
   --build-arg SOURCE_REVISION="$(git rev-parse HEAD)" \
-  -t jasonkim8652/protein-design-mcp:2.4.2 .
+  -t jasonkim8652/protein-design-mcp:2.4.3 .
 ```
 
 The following commands describe the integrated 2.4.0 base build.
