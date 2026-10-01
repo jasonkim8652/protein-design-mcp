@@ -94,23 +94,24 @@ never a scientific choice.
 
 ---
 
-## Running the 2.4.4 integrated image
+## Running the 2.4.5 integrated image
 
 The repaired release is published on Docker Hub. Its verified immutable reference is:
 
 ```text
-jasonkim8652/protein-design-mcp:2.4.4@sha256:bb01fe6f748f9729aba45f9f1e6038266777ae65e789f06702a29d29bcee966e
+jasonkim8652/protein-design-mcp:2.4.5@sha256:b6b81defafb145881c5f21eb3e5937d93fb9f1878afa7d9b5b6a261327219e91
 ```
 
-The image contains server revision `2d899b1`. See the
-[2.4.4 publication and runtime validation record](docs/runtime-recovery-2.4.4.md).
+The image contains server revision `f3d41f1`. See the
+[2.4.5 publication and runtime validation record](docs/runtime-recovery-2.4.5.md).
 
 The image contains isolated engine environments, engine code, CUDA toolkit
 components, and redistributable public model weights. Engine executables and
 editable source mappings use fixed in-image paths; no developer home or host
 conda environment is required.
-The all-engine image is approximately **266 GiB uncompressed**, before run
-outputs and Docker's additional storage requirements.
+The all-engine image has **181.41 GiB of compressed registry layers** and is
+**265.78 GiB uncompressed**, before run outputs and Docker's additional storage
+requirements.
 
 The packaged runtime versions are listed in
 [`docs/integrated-environments.json`](docs/integrated-environments.json);
@@ -122,7 +123,7 @@ mkdir -p "$PWD/workspace"
 docker run -i --rm --device=nvidia.com/gpu=0 --shm-size=16g \
   --user "$(id -u):$(id -g)" -e HOME=/tmp \
   -e TMPDIR="$PWD/workspace" -v "$PWD/workspace:$PWD/workspace" \
-  jasonkim8652/protein-design-mcp:2.4.4
+  jasonkim8652/protein-design-mcp:2.4.5
 ```
 
 This starts the MCP stdio server. Keep the input/output workspace mounted at

@@ -26,3 +26,27 @@ feedback are unchanged. Numerical measurement failures remain distinct from
 input validation, and UNMEASURABLE observations retain null scores. The OpenMM
 engine script and force-field/minimization protocol are unchanged. Existing
 campaigns retain their original pinned independent evaluator configuration.
+
+## Verified publication
+
+Immutable image: `jasonkim8652/protein-design-mcp:2.4.5@sha256:b6b81defafb145881c5f21eb3e5937d93fb9f1878afa7d9b5b6a261327219e91`. Source revision: `f3d41f1`.
+Remote manifest identity matches the validated local image; pulling the
+immutable digest succeeded.
+
+Registry layer payload: **181.41 GiB**
+(194,790,201,414 bytes). Docker reports **265.78 GiB**
+uncompressed (285,378,900,166 bytes). Existing integrated base
+layers are reusable. Allow additional space for extraction and run artifacts.
+
+The executor retains factual argument-rejection history across retries and
+checkpoint resume so a later correction can account for every prior refusal.
+It does not choose a replacement file or change the role prompt.
+
+Validation covered the full server/client regression suites, all canonical
+residue atom sets, supported structure formats, bounded input retries and
+cached-step invalidation. Live MCP checks reject the original partially
+missing target and an incomplete refold before engine execution. An isolated
+replay used the original saved generation/prediction prefix and the original
+executor prompt with gpt-5.6-terra to correct the failed OpenMM input, then
+execute OpenMM and Rosetta. This replay does not run the independent assay
+and is not recorded as a campaign observation. The campaign remains stopped.
