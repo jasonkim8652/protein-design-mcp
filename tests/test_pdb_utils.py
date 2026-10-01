@@ -31,9 +31,9 @@ class TestValidatePdb:
         assert is_valid is True
         assert len(issues) == 0
 
-    def test_validate_nonexistent_file(self):
+    def test_validate_nonexistent_file(self, tmp_path):
         """Non-existent file should fail validation."""
-        is_valid, issues = validate_pdb("/nonexistent/path.pdb")
+        is_valid, issues = validate_pdb(str(tmp_path / "missing.pdb"))
         assert is_valid is False
         assert "File not found" in issues[0]
 
@@ -129,12 +129,12 @@ class TestParsePdb:
         assert n_atom["y"] == pytest.approx(0.0)
         assert n_atom["z"] == pytest.approx(0.0)
 
-    def test_parse_nonexistent_file_raises(self):
+    def test_parse_nonexistent_file_raises(self, tmp_path):
         """Parsing non-existent file raises exception."""
         from protein_design_mcp.exceptions import InvalidPDBError
 
         with pytest.raises((InvalidPDBError, FileNotFoundError)):
-            parse_pdb("/nonexistent/path.pdb")
+            parse_pdb(str(tmp_path / "missing.pdb"))
 
     def test_parse_structure_name(self):
         """Structure name is derived from filename."""

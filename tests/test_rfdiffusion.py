@@ -17,6 +17,17 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures" / "test_pdbs"
 MINI_PROTEIN_PDB = FIXTURES_DIR / "mini_protein.pdb"
 
 
+@pytest.fixture
+def runner_with_weights(tmp_path, monkeypatch):
+    """Stage a local placeholder checkpoint; these tests replace model inference."""
+    monkeypatch.setenv("MODELS_DIR", str(tmp_path / "models-store"))
+    checkout = tmp_path / "engine"
+    checkpoint = checkout / 'models/Complex_base_ckpt.pt'
+    checkpoint.parent.mkdir(parents=True)
+    checkpoint.write_bytes(b"fixture: inference is mocked")
+    return RFdiffusionRunner(RFdiffusionConfig(rfdiffusion_path=checkout))
+
+
 class TestRFdiffusionConfig:
     """Tests for RFdiffusionConfig dataclass."""
 
@@ -55,9 +66,9 @@ class TestRFdiffusionRunner:
         assert runner.config.num_designs == 5
 
     @pytest.mark.asyncio
-    async def test_generate_backbones_returns_list(self, tmp_path):
+    async def test_generate_backbones_returns_list(self, tmp_path, runner_with_weights):
         """generate_backbones should return list of backbone info."""
-        runner = RFdiffusionRunner()
+        runner = runner_with_weights
 
         with patch.object(runner, "_run_rfdiffusion") as mock_run:
             mock_run.return_value = None
@@ -89,7 +100,7 @@ class TestRFdiffusionRunner:
 
         with pytest.raises((FileNotFoundError, ValueError)):
             await runner.generate_backbones(
-                target_pdb="/nonexistent/target.pdb",
+                target_pdb=str(tmp_path / "missing.pdb"),
                 hotspot_residues=["A1"],
                 output_dir=str(tmp_path),
             )
@@ -107,9 +118,9 @@ class TestRFdiffusionRunner:
             )
 
     @pytest.mark.asyncio
-    async def test_generate_backbones_creates_output_dir(self, tmp_path):
+    async def test_generate_backbones_creates_output_dir(self, tmp_path, runner_with_weights):
         """Should create output directory if it doesn't exist."""
-        runner = RFdiffusionRunner()
+        runner = runner_with_weights
         output_dir = tmp_path / "new_output_dir"
 
         with patch.object(runner, "_run_rfdiffusion") as mock_run:
@@ -241,9 +252,9 @@ class TestEdgeCases:
         assert isinstance(cmd, list)
 
     @pytest.mark.asyncio
-    async def test_many_designs(self, tmp_path):
+    async def test_many_designs(self, tmp_path, runner_with_weights):
         """Should handle large number of designs."""
-        runner = RFdiffusionRunner()
+        runner = runner_with_weights
 
         with patch.object(runner, "_run_rfdiffusion"):
             with patch.object(runner, "_parse_outputs") as mock_parse:

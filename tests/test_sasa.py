@@ -40,10 +40,10 @@ class TestCalculateSASA:
         result = calculate_sasa(str(MINI_PROTEIN_PDB))
         assert len(result.exposed_residues) > 0
 
-    def test_invalid_pdb_raises_error(self):
+    def test_invalid_pdb_raises_error(self, tmp_path):
         """Should raise error for invalid PDB."""
         with pytest.raises((FileNotFoundError, ValueError)):
-            calculate_sasa("/nonexistent/file.pdb")
+            calculate_sasa(str(tmp_path / "missing.pdb"))
 
 
 class TestDetectPockets:

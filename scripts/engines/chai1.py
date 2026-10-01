@@ -162,9 +162,7 @@ def main() -> None:
         cmd += ["--msa-directory", str(msa_dir)]
     cmd += [INPUT_FASTA, OUTPUT_DIR]
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    sys.stdout.write(result.stdout)
-    sys.stderr.write(result.stderr)
+    result = subprocess.run(cmd)
     sys.exit(result.returncode)
 
 

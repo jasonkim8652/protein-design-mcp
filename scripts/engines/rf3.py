@@ -60,9 +60,7 @@ def main() -> None:
         f"diffusion_batch_size={args.diffusion_batch_size}",
         f"num_steps={args.num_steps}",
     ]
-    proc = subprocess.run(cmd, capture_output=True, text=True)
-    sys.stdout.write(proc.stdout)
-    sys.stderr.write(proc.stderr)
+    proc = subprocess.run(cmd)
     if proc.returncode != 0:
         sys.exit(proc.returncode)
 

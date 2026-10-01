@@ -378,8 +378,10 @@ class ServerApp:
         workdir = None
         run = None
 
-        def failure(message, execution_artifacts=None):
+        def failure(message, execution_artifacts=None, error_kind=None):
             details = {"error": message}
+            if error_kind is not None:
+                details["error_kind"] = error_kind
             if run is not None:
                 if run.outputs:
                     details["outputs"] = run.outputs
@@ -459,7 +461,11 @@ class ServerApp:
                 payload = {**payload, "execution_artifacts": run.execution_artifacts}
             return _ok(payload)
         except EngineError as exc:
-            return failure(str(exc), exc.execution_artifacts)
+            return failure(str(exc), exc.execution_artifacts,
+                           getattr(exc, "error_kind", "engine_error"))
+        except OSError as exc:
+            return failure(f"storage or operating-system failure for {name}: {exc}",
+                           error_kind="infrastructure_error")
         except Exception as exc:
             # Catches ValueError (e.g. "could not parse engine output") and,
             # critically, KeyError: the most likely adapter mistake, since

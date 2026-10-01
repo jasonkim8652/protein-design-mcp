@@ -107,9 +107,7 @@ def main() -> None:
         # server (see this module's docstring).
     ]
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    sys.stdout.write(result.stdout)
-    sys.stderr.write(result.stderr)
+    result = subprocess.run(cmd)
     sys.exit(result.returncode)
 
 

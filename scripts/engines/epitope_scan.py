@@ -18,12 +18,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 from protein_design_mcp.exceptions import InvalidPDBError
 from protein_design_mcp.utils.conservation import _calculate_position_conservation
 from protein_design_mcp.utils.pdb import parse_pdb
 from protein_design_mcp.utils.sasa import calculate_sasa
+
+
+class AlignmentInputError(ValueError):
+    """The supplied alignment cannot describe the requested target chain."""
 
 
 def _parse_a3m(text: str) -> list[str]:
@@ -64,7 +69,7 @@ def _match_state_columns(sequences: list[str]) -> list[list[str]]:
         return []
     query = sequences[0]
     if any(c.islower() for c in query):
-        raise ValueError(
+        raise AlignmentInputError(
             "malformed a3m: the query row (first record) contains lowercase "
             "(insert-state) characters -- the query is expected to be the "
             "plain, ungapped input sequence"
@@ -74,7 +79,7 @@ def _match_state_columns(sequences: list[str]) -> list[list[str]]:
     for index, seq in enumerate(sequences):
         matched = "".join(c for c in seq if not c.islower())
         if len(matched) != n_columns:
-            raise ValueError(
+            raise AlignmentInputError(
                 f"malformed a3m: record {index} has {len(matched)} match-state "
                 f"column(s), expected {n_columns} (the query's length)"
             )
@@ -105,25 +110,23 @@ def main() -> None:
         )
     chain_obj = next(c for c in structure.chains if c.chain_id == args.chain)
 
-    sasa_per_residue = calculate_sasa(args.target_pdb).per_residue
-
     conservation_scores: list[float | None]
     num_aligned_sequences = 0
     msa_provided = args.msa is not None
     if msa_provided:
         sequences = _parse_a3m(Path(args.msa).read_text())
         if not sequences:
-            raise ValueError(f"msa file {args.msa} contains no records")
+            raise AlignmentInputError(f"msa file {args.msa} contains no records")
         query = sequences[0]
         if query != chain_obj.sequence:
-            raise ValueError(
+            raise AlignmentInputError(
                 f"msa's query row does not match chain {args.chain}'s own "
                 f"sequence from {args.target_pdb}. "
                 f"msa query ({len(query)} aa): {query}\n"
                 f"chain {args.chain} ({len(chain_obj.sequence)} aa): "
                 f"{chain_obj.sequence}\n"
-                "Supply the alignment run_mmseqs_search built for THIS exact "
-                "sequence (its unpaired_a3m), not a different chain's."
+                "Supply an alignment whose query exactly matches the requested "
+                "chain, including terminal residues."
             )
         num_aligned_sequences = len(sequences) - 1  # exclude the query itself
         if num_aligned_sequences == 0:
@@ -140,6 +143,8 @@ def main() -> None:
     else:
         conservation_scores = [None] * len(chain_obj.sequence)
 
+    # Refuse inconsistent inputs before spending time on surface analysis.
+    sasa_per_residue = calculate_sasa(args.target_pdb).per_residue
     residues = []
     for index, residue in enumerate(chain_obj.residues):
         key = f"{args.chain}{residue.residue_number}"
@@ -193,4 +198,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except AlignmentInputError as exc:
+        print(f"PROTEIN_MCP_ARGUMENT_ERROR: {exc}", file=sys.stderr, flush=True)
+        raise SystemExit(2)

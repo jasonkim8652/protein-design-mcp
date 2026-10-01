@@ -55,9 +55,7 @@ def main() -> None:
     if engine.get("seed") is not None:
         cmd.append(f"seed={engine['seed']}")
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    sys.stdout.write(result.stdout)
-    sys.stderr.write(result.stderr)
+    result = subprocess.run(cmd)
     sys.exit(result.returncode)
 
 

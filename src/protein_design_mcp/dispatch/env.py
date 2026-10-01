@@ -34,9 +34,13 @@ _OOM_MARKERS = ("out of memory", "outofmemoryerror", "cuda error: out of memory"
 class EngineError(RuntimeError):
     """An engine subprocess failed, timed out, or could not be started."""
 
-    def __init__(self, message: str, *, execution_artifacts: dict[str, str] | None = None):
+    def __init__(
+        self, message: str, *, execution_artifacts: dict[str, str] | None = None,
+        error_kind: str = "engine_error",
+    ):
         super().__init__(message)
         self.execution_artifacts = execution_artifacts or {}
+        self.error_kind = error_kind
 
 
 @dataclass(frozen=True)
@@ -65,6 +69,42 @@ def _excerpt(text: str, head: int = 1200, tail: int = 1800) -> str:
         return text
     omitted = len(text) - head - tail
     return f"{text[:head]}\n... [{omitted} characters omitted] ...\n{text[-tail:]}"
+
+
+class _OutputCapture:
+    """Bound returned diagnostics while preserving complete retained log files.
+
+    Keep the first and last MiB: adapters parse summary records near either
+    end, and errors often put their cause before a long command-line tail.
+    """
+
+    _SIDE_LIMIT = 1024 * 1024
+
+    def __init__(self) -> None:
+        self.head = bytearray()
+        self.tail = bytearray()
+        self.size = 0
+        self.oom = False
+        self.argument_error = False
+        self._overlap = b"\n"
+
+    def append(self, chunk: bytes) -> None:
+        combined = self._overlap + chunk
+        self.argument_error |= b"\nPROTEIN_MCP_ARGUMENT_ERROR:" in combined
+        lowered = combined.lower()
+        self.oom |= any(marker.encode() in lowered for marker in _OOM_MARKERS)
+        self._overlap = combined[-64:]
+        self.size += len(chunk)
+        remaining = self._SIDE_LIMIT - len(self.head)
+        self.head.extend(chunk[:remaining])
+        self.tail.extend(chunk[remaining:])
+        if len(self.tail) > self._SIDE_LIMIT:
+            del self.tail[:-self._SIDE_LIMIT]
+
+    def text(self) -> str:
+        omitted = self.size - len(self.head) - len(self.tail)
+        separator = f"\n... [{omitted} bytes omitted] ...\n".encode() if omitted else b""
+        return (self.head + separator + self.tail).decode("utf-8", errors="replace")
 
 
 class EnvDispatcher:
@@ -145,8 +185,16 @@ class EnvDispatcher:
             if keep_workdir:
                 for name in ("stdout", "stderr"):
                     artifacts[name] = str(workdir / f"engine.{name}.log")
-                stdout_target = log_files.enter_context(open(artifacts["stdout"], "wb"))
-                stderr_target = log_files.enter_context(open(artifacts["stderr"], "wb"))
+                try:
+                    # Unbuffered files fail at the write that exhausts storage,
+                    # not later during close, which could mask the engine error.
+                    stdout_target = log_files.enter_context(open(artifacts["stdout"], "wb", buffering=0))
+                    stderr_target = log_files.enter_context(open(artifacts["stderr"], "wb", buffering=0))
+                except OSError as exc:
+                    raise EngineError(
+                        f"could not open engine logs: {exc}. Working directory: {workdir}",
+                        execution_artifacts=artifacts, error_kind="infrastructure_error",
+                    ) from exc
             try:
                 return await self._run(
                     engine, args, timeout=timeout, outputs=outputs,
@@ -189,6 +237,8 @@ class EnvDispatcher:
             "XDG_CACHE_HOME": str(cache_dir),
             # JIT output stays writable even when model stores are read-only.
             "TRITON_CACHE_DIR": str(cache_dir / "triton"),
+            # Applies to wrappers and their Python descendants, even through pipes.
+            "PYTHONUNBUFFERED": "1",
             **engine.env_vars,
         }
 
@@ -214,53 +264,71 @@ class EnvDispatcher:
                 f"for diagnosis: {workdir}"
             ) from exc
 
-        try:
-            try:
-                if execution_artifacts:
-                    async def capture(stream, destination):
-                        while chunk := await stream.read(65536):
-                            destination.write(chunk)
-                            destination.flush()
-                    await asyncio.wait_for(asyncio.gather(
-                        process.wait(), capture(process.stdout, stdout_target),
-                        capture(process.stderr, stderr_target),
-                    ), timeout=timeout)
-                    stdout_b = stderr_b = b""
-                else:
-                    stdout_b, stderr_b = await asyncio.wait_for(
-                        process.communicate(), timeout=timeout
-                    )
-            except asyncio.TimeoutError as exc:
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                with contextlib.suppress(asyncio.CancelledError):
-                    await process.wait()
+        stdout_capture, stderr_capture = _OutputCapture(), _OutputCapture()
+
+        async def capture(stream, destination, output):
+            log_error = None
+            while chunk := await stream.read(65536):
+                output.append(chunk)
+                if execution_artifacts and log_error is None:
+                    try:
+                        remaining = memoryview(chunk)
+                        while remaining:
+                            written = destination.write(remaining)
+                            if not written:
+                                raise OSError("engine log write made no progress")
+                            remaining = remaining[written:]
+                        destination.flush()
+                    except OSError as exc:
+                        log_error = exc
+                        # Stop workers immediately, but keep consuming both
+                        # pipes: abandoning a full pipe can prevent wait() from
+                        # completing even after the process has been killed.
+                        with contextlib.suppress(ProcessLookupError):
+                            os.killpg(process.pid, signal.SIGKILL)
+            if log_error is not None:
                 raise EngineError(
-                    f"engine {engine.repo!r} timed out after {timeout:.0f}s. "
-                    "Reduce the sample count or raise the tool's timeout. "
-                    f"Working directory preserved for diagnosis: {workdir}"
-                ) from exc
-        except BaseException:
+                    f"could not write engine log: {log_error}. "
+                    f"Working directory preserved for diagnosis: {workdir}",
+                    error_kind="infrastructure_error",
+                ) from log_error
+
+        # Shield the readers so timeout/cancellation kills the group first and
+        # then drains its final diagnostics. This also retrieves every task's
+        # result instead of leaking cancelled gather futures into the event loop.
+        readers = [
+            asyncio.create_task(capture(process.stdout, stdout_target, stdout_capture)),
+            asyncio.create_task(capture(process.stderr, stderr_target, stderr_capture)),
+            asyncio.create_task(process.wait()),
+        ]
+        completion = asyncio.gather(*readers)
+        try:
+            await asyncio.wait_for(asyncio.shield(completion), timeout=timeout)
+        except BaseException as exc:
             # The leader can exit before its workers; always kill the group.
             try:
                 os.killpg(process.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
-            with contextlib.suppress(asyncio.CancelledError):
-                await process.wait()
+            await asyncio.gather(*readers, return_exceptions=True)
+            # Consume the original gather's exception as well.
+            with contextlib.suppress(BaseException):
+                await completion
+            if isinstance(exc, asyncio.TimeoutError):
+                raise EngineError(
+                    f"engine {engine.repo!r} timed out after {timeout:g}s. "
+                    "Reduce the sample count or raise the tool's timeout. "
+                    f"\n{_excerpt(stderr_capture.text())}\n"
+                    f"Working directory preserved for diagnosis: {workdir}",
+                    error_kind="engine_timeout",
+                ) from exc
             raise
 
-        if execution_artifacts:
-            stdout_b = Path(execution_artifacts["stdout"]).read_bytes()
-            stderr_b = Path(execution_artifacts["stderr"]).read_bytes()
-        stdout = stdout_b.decode("utf-8", errors="replace")
-        stderr = stderr_b.decode("utf-8", errors="replace")
+        stdout = stdout_capture.text()
+        stderr = stderr_capture.text()
 
         if process.returncode != 0:
-            lowered = stderr.lower()
-            if any(marker in lowered for marker in _OOM_MARKERS):
+            if stderr_capture.oom:
                 raise EngineError(
                     f"engine {engine.repo!r} ran out of GPU memory. Reduce the "
                     "number of samples, shorten the input, or use a smaller "
@@ -270,7 +338,8 @@ class EnvDispatcher:
             raise EngineError(
                 f"engine {engine.repo!r} exited with code {process.returncode}.\n"
                 f"{_excerpt(stderr)}\n"
-                f"Working directory preserved for diagnosis: {workdir}"
+                f"Working directory preserved for diagnosis: {workdir}",
+                error_kind="argument_validation" if stderr_capture.argument_error else "engine_error",
             )
 
         # Declared outputs must be copied out before the workdir is removed:

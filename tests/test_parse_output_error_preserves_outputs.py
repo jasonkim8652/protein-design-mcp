@@ -179,3 +179,35 @@ async def test_transport_timeout_returns_retained_partial_files_before_client_de
     assert 'timed out' in payload['error']
     assert Path(payload['execution_artifacts']['workdir'], 'partial.pdb').read_text() == 'ATOM'
     assert Path(payload['execution_artifacts']['stdout']).read_text() == 'started\n'
+
+
+@pytest.mark.asyncio
+async def test_engine_error_kind_survives_mcp_response(monkeypatch):
+    from protein_design_mcp.dispatch.env import EngineError
+    manifest = _manifest('run_refused_input')
+    class Refused:
+        async def run(self, *args, **kwargs):
+            error = EngineError('query does not match target', execution_artifacts={'stderr': '/logs/err'})
+            error.error_kind = 'argument_validation'
+            raise error
+    monkeypatch.setattr(app_module, 'ADAPTERS', {manifest.name: (lambda m, p: [], lambda m, r: {})})
+    result = await ServerApp(ToolRegistry([manifest]), dispatcher=Refused()).call_tool(manifest.name, {})
+    payload = json.loads(_text(result))
+    assert result.isError is True
+    assert payload['error_kind'] == 'argument_validation'
+    assert payload['execution_artifacts']['stderr'] == '/logs/err'
+
+
+@pytest.mark.asyncio
+async def test_storage_exhaustion_is_infrastructure_failure(monkeypatch):
+    import errno
+    manifest = _manifest('run_storage_failure')
+    class Exhausted:
+        async def run(self, *args, **kwargs):
+            raise OSError(errno.ENOSPC, 'No space left on device')
+    monkeypatch.setattr(app_module, 'ADAPTERS', {manifest.name: (lambda m, p: [], lambda m, r: {})})
+    result = await ServerApp(ToolRegistry([manifest]), dispatcher=Exhausted()).call_tool(manifest.name, {})
+    payload = json.loads(_text(result))
+    assert result.isError is True
+    assert payload['error_kind'] == 'infrastructure_error'
+    assert 'No space left on device' in payload['error']

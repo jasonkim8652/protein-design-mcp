@@ -570,3 +570,159 @@ async def test_retention_waits_for_and_kills_descendants_after_parent_exit(tmp_p
         await dispatcher.run(engine, ['-c', script], timeout=0.3)
     await asyncio.sleep(1)
     assert not sentinel.exists()
+
+
+@pytest.mark.asyncio
+async def test_retention_flushes_python_output_before_child_finishes(tmp_path, monkeypatch):
+    """Unflushed Python progress must reach retained files while work is blocked."""
+    monkeypatch.setenv("PROTEIN_MCP_KEEP_WORKDIR", "1")
+    monkeypatch.delenv("PYTHONUNBUFFERED", raising=False)
+    dispatcher = EnvDispatcher(runner=None, scratch_root=tmp_path)
+    workdir = dispatcher.new_workdir()
+    engine = EngineSpec(repo="py", env="unused", entry=(sys.executable,))
+    script = "import sys,time; from pathlib import Path; print('working'); print('diagnostic', file=sys.stderr); Path('ready').touch(); time.sleep(30)"
+    task = asyncio.create_task(dispatcher.run(engine, ["-c", script], timeout=60, workdir=workdir))
+    try:
+        for _ in range(100):
+            if (workdir / "ready").exists():
+                break
+            await asyncio.sleep(0.02)
+        assert (workdir / "ready").exists()
+        for _ in range(50):
+            if (workdir / "engine.stdout.log").read_text() == "working\n":
+                break
+            await asyncio.sleep(0.02)
+        assert not task.done()
+        assert (workdir / "engine.stdout.log").read_text() == "working\n"
+        assert (workdir / "engine.stderr.log").read_text() == "diagnostic\n"
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("retain", [False, True])
+async def test_large_output_is_bounded_in_memory_preserving_head_tail(tmp_path, monkeypatch, retain):
+    monkeypatch.setenv("PROTEIN_MCP_KEEP_WORKDIR", "1" if retain else "0")
+    dispatcher = EnvDispatcher(runner=None, scratch_root=tmp_path)
+    engine = EngineSpec(repo="py", env="unused", entry=(sys.executable,))
+    script = "import sys; print('initial metric'); print('x'*5000000); print('final metric'); print('first diagnostic', file=sys.stderr); print('y'*5000000, file=sys.stderr); print('last diagnostic', file=sys.stderr)"
+    result = await dispatcher.run(engine, ["-c", script], timeout=30)
+    assert len(result.stdout) < 2200000
+    assert len(result.stderr) < 2200000
+    assert result.stdout.startswith("initial metric\n")
+    assert result.stdout.endswith("final metric\n")
+    assert result.stderr.startswith("first diagnostic\n")
+    assert result.stderr.endswith("last diagnostic\n")
+    assert "omitted" in result.stdout
+    if retain:
+        assert Path(result.execution_artifacts["stdout"]).stat().st_size > 5000000
+        assert Path(result.execution_artifacts["stderr"]).stat().st_size > 5000000
+
+
+@pytest.mark.asyncio
+async def test_timeout_message_includes_partial_diagnostics(tmp_path, monkeypatch):
+    monkeypatch.setenv("PROTEIN_MCP_KEEP_WORKDIR", "1")
+    dispatcher = EnvDispatcher(runner=None, scratch_root=tmp_path)
+    engine = EngineSpec(repo="py", env="unused", entry=(sys.executable,))
+    script = "import sys,time; print('stalled at loading checkpoint', file=sys.stderr, flush=True); time.sleep(30)"
+    with pytest.raises(EngineError, match="stalled at loading checkpoint"):
+        await dispatcher.run(engine, ["-c", script], timeout=0.5)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("diagnostic,expected", [
+    ("PROTEIN_MCP_ARGUMENT_ERROR: alignment does not match target", "argument_validation"),
+    ("ValueError: alignment does not match target", "engine_error"),
+    ("Traceback includes PROTEIN_MCP_ARGUMENT_ERROR: in a string", "engine_error"),
+])
+async def test_only_explicit_argument_error_marker_classifies_refusal(tmp_path, diagnostic, expected):
+    dispatcher = EnvDispatcher(runner=None, scratch_root=tmp_path)
+    engine = EngineSpec(repo="py", env="unused", entry=(sys.executable,))
+    with pytest.raises(EngineError) as exc:
+        await dispatcher.run(engine, ["-c", f"import sys; print({diagnostic!r}, file=sys.stderr); sys.exit(2)"], timeout=5)
+    assert getattr(exc.value, "error_kind", None) == expected
+
+
+@pytest.mark.asyncio
+async def test_timeout_has_distinct_error_kind(tmp_path):
+    dispatcher = EnvDispatcher(runner=None, scratch_root=tmp_path)
+    engine = EngineSpec(repo="py", env="unused", entry=(sys.executable,))
+    with pytest.raises(EngineError) as exc:
+        await dispatcher.run(engine, ["-c", "import time; time.sleep(30)"], timeout=0.1)
+    assert getattr(exc.value, "error_kind", None) == "engine_timeout"
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not Path('/dev/full').exists(), reason='requires POSIX ENOSPC device')
+async def test_log_write_failure_drains_pipes_and_kills_workers(tmp_path, monkeypatch):
+    """An exhausted log disk must fail promptly instead of blocking on pipe EOF."""
+    monkeypatch.setenv("PROTEIN_MCP_KEEP_WORKDIR", "1")
+    dispatcher = EnvDispatcher(runner=None, scratch_root=tmp_path)
+    workdir = dispatcher.new_workdir()
+    (workdir / "engine.stdout.log").symlink_to("/dev/full")
+    started = []
+    real_start = asyncio.create_subprocess_exec
+    async def record_start(*args, **kwargs):
+        process = await real_start(*args, **kwargs)
+        started.append(process)
+        return process
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", record_start)
+    sentinel = tmp_path / "worker_survived"
+    child = f"import time; time.sleep(.7); open({str(sentinel)!r}, 'w').write('leaked')"
+    script = (
+        "import subprocess,sys; "
+        f"subprocess.Popen([sys.executable, '-c', {child!r}]); "
+        "sys.stdout.write('x'*5000000); sys.stdout.flush()"
+    )
+    engine = EngineSpec(repo="py", env="unused", entry=(sys.executable,))
+    with pytest.raises(EngineError) as exc:
+        await asyncio.wait_for(dispatcher.run(engine, ["-c", script], timeout=30, workdir=workdir), timeout=3)
+    assert exc.value.error_kind == "infrastructure_error"
+    assert started[0].returncode is not None
+    assert started[0].stdout.at_eof()
+    assert started[0].stderr.at_eof()
+    assert "log" in str(exc.value).lower()
+    assert exc.value.execution_artifacts["workdir"] == str(workdir)
+    await asyncio.sleep(.9)
+    assert not sentinel.exists(), "Logging failure left an engine worker running"
+
+
+@pytest.mark.asyncio
+async def test_log_open_failure_is_an_infrastructure_error(tmp_path, monkeypatch):
+    monkeypatch.setenv("PROTEIN_MCP_KEEP_WORKDIR", "1")
+    dispatcher = EnvDispatcher(runner=None, scratch_root=tmp_path)
+    workdir = dispatcher.new_workdir()
+    (workdir / "engine.stdout.log").mkdir()
+    engine = EngineSpec(repo="py", env="unused", entry=(sys.executable,))
+    with pytest.raises(EngineError) as exc:
+        await dispatcher.run(engine, ["-c", "print('unreachable')"], timeout=5, workdir=workdir)
+    assert exc.value.error_kind == "infrastructure_error"
+    assert exc.value.execution_artifacts["workdir"] == str(workdir)
+
+
+@pytest.mark.asyncio
+async def test_partial_log_writes_do_not_silently_drop_output(tmp_path, monkeypatch):
+    import builtins
+    monkeypatch.setenv("PROTEIN_MCP_KEEP_WORKDIR", "1")
+    real_open = builtins.open
+    class PartialWriter:
+        def __init__(self, file):
+            self.file = file
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            self.file.close()
+        def write(self, data):
+            return self.file.write(data[:2])
+        def flush(self):
+            self.file.flush()
+    def partial_open(path, *args, **kwargs):
+        file = real_open(path, *args, **kwargs)
+        return PartialWriter(file) if str(path).endswith('engine.stdout.log') else file
+    monkeypatch.setattr(builtins, "open", partial_open)
+    dispatcher = EnvDispatcher(runner=None, scratch_root=tmp_path)
+    engine = EngineSpec(repo="py", env="unused", entry=(sys.executable,))
+    result = await dispatcher.run(engine, ["-c", "print('complete progress')"], timeout=5)
+    assert Path(result.execution_artifacts["stdout"]).read_bytes() == b"complete progress\n"

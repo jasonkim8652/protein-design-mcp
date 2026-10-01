@@ -17,6 +17,17 @@ MINI_PROTEIN_PDB = FIXTURES_DIR / "mini_protein.pdb"
 TWO_CHAIN_PDB = FIXTURES_DIR / "two_chain_complex.pdb"
 
 
+@pytest.fixture
+def runner_with_weights(tmp_path, monkeypatch):
+    """Stage a local placeholder checkpoint; these tests replace model inference."""
+    monkeypatch.setenv("MODELS_DIR", str(tmp_path / "models-store"))
+    checkout = tmp_path / "engine"
+    checkpoint = checkout / 'vanilla_model_weights/v_48_020.pt'
+    checkpoint.parent.mkdir(parents=True)
+    checkpoint.write_bytes(b"fixture: inference is mocked")
+    return ProteinMPNNRunner(ProteinMPNNConfig(proteinmpnn_path=checkout))
+
+
 class TestProteinMPNNConfig:
     """Tests for ProteinMPNNConfig dataclass."""
 
@@ -55,9 +66,9 @@ class TestProteinMPNNRunner:
         assert runner.config.num_sequences == 4
 
     @pytest.mark.asyncio
-    async def test_design_sequences_returns_list(self, tmp_path):
+    async def test_design_sequences_returns_list(self, tmp_path, runner_with_weights):
         """design_sequences should return list of sequence info."""
-        runner = ProteinMPNNRunner()
+        runner = runner_with_weights
 
         with patch.object(runner, "_run_proteinmpnn") as mock_run:
             mock_run.return_value = None
@@ -89,14 +100,14 @@ class TestProteinMPNNRunner:
 
         with pytest.raises((FileNotFoundError, ValueError)):
             await runner.design_sequences(
-                backbone_pdb="/nonexistent/backbone.pdb",
+                backbone_pdb=str(tmp_path / "missing.pdb"),
                 output_dir=str(tmp_path),
             )
 
     @pytest.mark.asyncio
-    async def test_design_sequences_creates_output_dir(self, tmp_path):
+    async def test_design_sequences_creates_output_dir(self, tmp_path, runner_with_weights):
         """Should create output directory if it doesn't exist."""
-        runner = ProteinMPNNRunner()
+        runner = runner_with_weights
         output_dir = tmp_path / "new_output_dir"
 
         with patch.object(runner, "_run_proteinmpnn") as mock_run:
@@ -160,9 +171,9 @@ MKVGVVVVVV
         assert results[0]["sequence"] == "MKVGAAAAAA"
 
     @pytest.mark.asyncio
-    async def test_design_for_interface(self, tmp_path):
+    async def test_design_for_interface(self, tmp_path, runner_with_weights):
         """design_for_interface should design interface-optimized sequences."""
-        runner = ProteinMPNNRunner()
+        runner = runner_with_weights
 
         with patch.object(runner, "_run_proteinmpnn") as mock_run:
             mock_run.return_value = None
@@ -209,9 +220,9 @@ class TestEdgeCases:
     """Edge case tests."""
 
     @pytest.mark.asyncio
-    async def test_single_sequence(self, tmp_path):
+    async def test_single_sequence(self, tmp_path, runner_with_weights):
         """Should work with num_sequences=1."""
-        runner = ProteinMPNNRunner()
+        runner = runner_with_weights
 
         with patch.object(runner, "_run_proteinmpnn"):
             with patch.object(runner, "_parse_outputs") as mock_parse:
@@ -225,9 +236,9 @@ class TestEdgeCases:
                 assert len(result) == 1
 
     @pytest.mark.asyncio
-    async def test_many_sequences(self, tmp_path):
+    async def test_many_sequences(self, tmp_path, runner_with_weights):
         """Should handle large number of sequences."""
-        runner = ProteinMPNNRunner()
+        runner = runner_with_weights
 
         with patch.object(runner, "_run_proteinmpnn"):
             with patch.object(runner, "_parse_outputs") as mock_parse:

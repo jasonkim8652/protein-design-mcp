@@ -288,3 +288,23 @@ class TestEdgeCases:
 
             result = await runner.predict_structure("MKVGA")
             assert 0 <= result.ptm <= 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sequence", ["MKVGA123", "ACD?EF", "ACD*EF"])
+async def test_invalid_characters_are_rejected_before_inference(sequence):
+    runner = ESMFoldRunner()
+    with patch.object(runner, "_predict_with_model", side_effect=AssertionError("inference must not start")):
+        with pytest.raises(ValueError, match="[Ii]nvalid"):
+            await runner.predict_structure(sequence)
+
+
+@pytest.mark.asyncio
+async def test_supported_sequence_formatting_is_normalized_before_inference():
+    runner = ESMFoldRunner()
+    result = PredictionResult("ACDEFG", "ATOM", 90.0, 0.8, np.array([90.0] * 6), None)
+    async def predict(sequence):
+        assert sequence == "ACDEFG"
+        return result
+    with patch.object(runner, "_predict_with_model", side_effect=predict):
+        assert await runner.predict_structure("ac-d /ef\n g\t") is result

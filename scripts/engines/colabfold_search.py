@@ -214,9 +214,7 @@ def main() -> None:
         cmd += ["-s", str(args.sensitivity)]
     cmd += [QUERY_NAME, args.db_root, RESULTS_DIR]
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    sys.stdout.write(result.stdout)
-    sys.stderr.write(result.stderr)
+    result = subprocess.run(cmd)
     sys.exit(result.returncode)
 
 

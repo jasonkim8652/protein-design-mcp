@@ -84,7 +84,11 @@ def _check_scalar(label: str, value: Any, spec: dict[str, Any]) -> None:
 
     maximum = spec.get("maximum")
     if maximum is not None and isinstance(value, (int, float)) and value > maximum:
-        raise ToolInputError(f"{label} = {value!r} is above the maximum of {maximum}.")
+        description = spec.get("description", "")
+        raise ToolInputError(
+            f"{label} = {value!r} is above the maximum of {maximum}. "
+            f"{description}{_example_clause(spec)}".strip()
+        )
 
 
 def _check_value(label: str, value: Any, spec: dict[str, Any]) -> None:

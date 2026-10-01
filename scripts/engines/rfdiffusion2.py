@@ -95,7 +95,7 @@ def _run_conda(job: dict, out_dir: Path, ckpt_path: str) -> subprocess.Completed
     """
     script = f"{REPO_ROOT}/rf_diffusion/run_inference.py"
     cmd = [sys.executable, script, *_common_overrides(job, out_dir, ckpt_path)]
-    return subprocess.run(cmd, capture_output=True, text=True)
+    return subprocess.run(cmd)
 
 
 def _run_docker(job: dict, out_dir: Path, ckpt_path: str, workdir: Path) -> subprocess.CompletedProcess:
@@ -149,7 +149,7 @@ def _run_docker(job: dict, out_dir: Path, ckpt_path: str, workdir: Path) -> subp
         f"{REPO_ROOT}/rf_diffusion/run_inference.py",
         *_common_overrides(job, out_dir, ckpt_path),
     ]
-    return subprocess.run(docker_cmd, capture_output=True, text=True)
+    return subprocess.run(docker_cmd)
 
 
 def main() -> None:
@@ -167,8 +167,6 @@ def main() -> None:
     else:
         result = _run_conda(job, out_dir, ckpt_path)
 
-    sys.stdout.write(result.stdout)
-    sys.stderr.write(result.stderr)
     sys.exit(result.returncode)
 
 

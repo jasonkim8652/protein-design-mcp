@@ -71,10 +71,14 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 import sys
 import time
 from pathlib import Path
+
+try:  # Direct script execution inside engine environments.
+    from _streaming import run_with_stderr_tail
+except ModuleNotFoundError:  # Importing as a module from the scripts package.
+    from engines._streaming import run_with_stderr_tail
 
 _AA_HEADER = "query"
 
@@ -118,7 +122,7 @@ def gpu_failure_hint(*, step: str, used_gpu: bool, stderr: str) -> str:
 
 def _run(binary: str, args: list[str], step: str, used_gpu: bool = False) -> None:
     cmd = [binary, *args]
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    proc = run_with_stderr_tail(cmd)
     if proc.returncode != 0:
         raise MmseqsStepError(
             f"mmseqs {step} exited {proc.returncode}.\n"

@@ -1,5 +1,6 @@
 """Tests for AlphaFold2 pipeline runner using ColabFold - TDD RED phase first."""
 
+import os
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch, mock_open
 import asyncio
@@ -23,8 +24,8 @@ class TestAlphaFold2Config:
     def test_default_config(self):
         """Default config should have sensible values."""
         config = AlphaFold2Config()
-        assert config.backend == "api"  # Default to API mode (no large databases)
-        assert config.msa_mode == "mmseqs2"
+        assert config.backend == os.environ.get("COLABFOLD_BACKEND", "api")
+        assert config.msa_mode == os.environ.get("COLABFOLD_MSA_MODE", "mmseqs2_uniref_env")
         assert config.num_models == 1
         assert config.num_recycles == 3
         assert config.use_amber is False

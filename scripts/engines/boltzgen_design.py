@@ -106,10 +106,9 @@ def main() -> None:
         )
         spec_path.write_text(yaml.safe_dump(spec, sort_keys=False))
 
-    proc = subprocess.run(["boltzgen", "run", str(spec_path), *args.passthrough],
-                          capture_output=True, text=True)
-    sys.stdout.write(proc.stdout)
-    sys.stderr.write(proc.stderr)
+    # Inherit the dispatcher's streams so progress and worker errors remain
+    # visible even if prediction stalls before the child process exits.
+    proc = subprocess.run(["boltzgen", "run", str(spec_path), *args.passthrough])
     if proc.returncode != 0:
         sys.exit(proc.returncode)
 

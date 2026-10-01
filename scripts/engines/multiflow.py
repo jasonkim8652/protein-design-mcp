@@ -37,9 +37,13 @@ from __future__ import annotations
 
 import csv
 import json
-import subprocess
 import sys
 from pathlib import Path
+
+try:  # Direct script execution inside engine environments.
+    from _streaming import run_with_stderr_tail
+except ModuleNotFoundError:  # Importing as a module from the scripts package.
+    from engines._streaming import run_with_stderr_tail
 
 _INFERENCE_SCRIPT = "/opt/engines/multiflow/multiflow/experiments/inference_se3_flows.py"
 _PREDICT_DIR = "predict_out"  # fixed, relative -- see adapters/multiflow.py
@@ -75,9 +79,7 @@ def _collect_self_consistency(predict_dir: Path) -> dict[str, dict]:
 def main() -> None:
     overrides = sys.argv[1:]
     cmd = [sys.executable, "-W", "ignore", _INFERENCE_SCRIPT, "-cn", "inference_unconditional", *overrides]
-    proc = subprocess.run(cmd, capture_output=True, text=True)
-    sys.stdout.write(proc.stdout)
-    sys.stderr.write(proc.stderr)
+    proc = run_with_stderr_tail(cmd)
 
     predict_dir = Path(_PREDICT_DIR)
     samples_written = list(predict_dir.rglob("sample.pdb"))

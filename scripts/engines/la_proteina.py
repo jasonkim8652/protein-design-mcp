@@ -277,11 +277,7 @@ def main() -> None:
             # and every one of its cwd-relative writes (./configs/<subdir>,
             # ./inference/<config_name>, ./tmp, ./tmp_ae) lands in scratch.
             cwd=str(call_workdir),
-            capture_output=True,
-            text=True,
         )
-        sys.stdout.write(proc.stdout)
-        sys.stderr.write(proc.stderr)
         if proc.returncode != 0:
             sys.exit(proc.returncode)
 

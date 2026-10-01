@@ -194,9 +194,7 @@ def main() -> None:
     # /alphafold3_venv already put the venv's own bin/ ahead of everything
     # else for THIS process, and a subprocess inherits that same PATH, so
     # this is the SAME interpreter the venv's own console scripts use.
-    result = subprocess.run(run_alphafold_args, capture_output=True, text=True)
-    sys.stdout.write(result.stdout)
-    sys.stderr.write(result.stderr)
+    result = subprocess.run(run_alphafold_args)
     sys.exit(result.returncode)
 
 

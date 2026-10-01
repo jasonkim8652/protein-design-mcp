@@ -218,12 +218,12 @@ class ESMFoldRunner:
             ValueError: If sequence is invalid
             ESMFoldError: If prediction fails
         """
-        # Clean sequence: remove chain separators, gaps, whitespace
-        sequence = sequence.upper().replace("/", "").replace("-", "").replace(" ", "")
-        # Remove any non-AA characters
-        sequence = "".join(c for c in sequence if c in VALID_AA)
+        # Normalize supported formatting without silently changing invalid inputs.
+        sequence = "".join(
+            c for c in sequence.upper() if not c.isspace() and c not in "/-"
+        )
 
-        if not sequence:
+        if not self._validate_sequence(sequence):
             raise ValueError(
                 f"Invalid sequence. Must contain valid amino acids: {VALID_AA}"
             )

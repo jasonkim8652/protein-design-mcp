@@ -103,9 +103,7 @@ def main() -> None:
     if args.seed is not None:
         cmd += ["--seed", str(args.seed)]
 
-    proc = subprocess.run(cmd, capture_output=True, text=True)
-    sys.stdout.write(proc.stdout)
-    sys.stderr.write(proc.stderr)
+    proc = subprocess.run(cmd)
     if proc.returncode != 0:
         sys.exit(proc.returncode)
 

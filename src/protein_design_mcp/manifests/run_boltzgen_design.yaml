@@ -287,10 +287,11 @@ schema:
   num_workers:
     type: integer
     minimum: 0
-    maximum: 32
-    default: 1
+    maximum: 0
+    default: 0
     description: >-
-      DataLoader worker process count. Raise for a large num_designs if
-      data loading (not GPU compute) is the bottleneck; 1 is a safe default
-      for a single interactive call.
-    example: 1
+      DataLoader worker process count. Defaults to 0 to load in the prediction
+      process. Only 0 is supported to prevent multiprocessing queue stalls
+      when container shared memory fills during tensor transfer; use
+      num_workers=0.
+    example: 0

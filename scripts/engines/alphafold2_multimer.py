@@ -94,9 +94,7 @@ def main() -> None:
         cmd += ["--msa-mode", args.msa_mode]
     cmd += [str(input_path), str(results_dir)]
 
-    proc = subprocess.run(cmd, capture_output=True, text=True)
-    sys.stdout.write(proc.stdout)
-    sys.stderr.write(proc.stderr)
+    proc = subprocess.run(cmd)
     if proc.returncode != 0:
         sys.exit(proc.returncode)
 

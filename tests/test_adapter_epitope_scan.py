@@ -376,3 +376,21 @@ class TestWrapperScriptOnRealFixture:
         assert result["hotspot_tags"] == []
         assert result["n_exposed_residues"] == 0
         assert result["residues"]  # full table still returned
+
+
+def test_cli_marks_mismatched_msa_as_repairable_input_error(tmp_path):
+    import subprocess
+    import sys
+    msa = tmp_path / 'wrong.a3m'
+    msa.write_text('>query\nMKVG\n')
+    result = subprocess.run([
+        sys.executable, str(Path(__file__).parents[1] / 'scripts/engines/epitope_scan.py'),
+        '--target-pdb', str(MINI_PROTEIN_PDB), '--chain', 'A', '--msa', str(msa),
+        '--exposure-threshold-a2', '30', '--conserved-threshold', '0.8',
+        '--top-n-hotspots', '10',
+    ], cwd=tmp_path, capture_output=True, text=True)
+    assert result.returncode == 2
+    assert any(line.startswith('PROTEIN_MCP_ARGUMENT_ERROR:') for line in result.stderr.splitlines())
+    assert 'does not match chain' in result.stderr
+    assert 'MKVGA' in result.stderr
+    assert not (tmp_path / 'results.json').exists()
