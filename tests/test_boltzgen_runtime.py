@@ -87,3 +87,14 @@ def test_design_wrapper_exposes_both_streams_before_engine_exit(tmp_path, return
     assert "engine progress" in visible_stdout
     assert "loader diagnostic" in visible_stderr
     assert proc.returncode == returncode
+
+
+def test_inverse_fold_only_overrides_effective_loader_not_ignored_cli_flag():
+    """Upstream --only_inverse_fold ignores top-level --num_workers entirely."""
+    from protein_design_mcp.adapters.boltzgen_inverse_fold import build_args
+    manifest = next(m for m in load_manifests(manifest_dir())
+                    if m.name == 'run_boltzgen_inverse_fold')
+    params = validate_and_fill(manifest, {'design_spec': 'design.yaml'})
+    argv = build_args(manifest, params)
+    config = argv[argv.index('--config') + 1:]
+    assert config == ['inverse_folding', 'data.num_workers=0']

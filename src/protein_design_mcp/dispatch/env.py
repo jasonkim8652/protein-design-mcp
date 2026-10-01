@@ -19,7 +19,7 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from tempfile import gettempdir
+from tempfile import TemporaryDirectory, gettempdir
 from typing import Any
 
 from protein_design_mcp.manifest.schema import EngineSpec, OutputSpec
@@ -181,6 +181,26 @@ class EnvDispatcher:
         # timeout or cancellation. Keeping pipes preserves descendant lifecycle
         # semantics: the call cannot finish while children still hold them open.
         with contextlib.ExitStack() as log_files:
+            # multiprocessing creates AF_UNIX sockets under tempfile.gettempdir().
+            # Linux limits socket paths to 107 bytes, so a perfectly valid mounted
+            # workspace can make worker queue transport fail silently. Keep all
+            # temporary content in the retained workdir, accessed through a short,
+            # private symlink for the lifetime of this process group only.
+            try:
+                temp_root = workdir / ".engine-tmp"
+                temp_root.mkdir(exist_ok=True)
+                if os.name == "posix" and len(os.fsencode(temp_root)) > 50:
+                    alias_root = Path(log_files.enter_context(
+                        TemporaryDirectory(prefix="pm-", dir="/tmp")
+                    ))
+                    alias = alias_root / "t"
+                    alias.symlink_to(temp_root.resolve(), target_is_directory=True)
+                    temp_root = alias
+            except OSError as exc:
+                raise EngineError(
+                    f"could not prepare engine temporary directory: {exc}",
+                    execution_artifacts=artifacts, error_kind="infrastructure_error",
+                ) from exc
             stdout_target = stderr_target = asyncio.subprocess.PIPE
             if keep_workdir:
                 for name in ("stdout", "stderr"):
@@ -200,6 +220,7 @@ class EnvDispatcher:
                     engine, args, timeout=timeout, outputs=outputs,
                     workdir=workdir, execution_artifacts=artifacts,
                     stdout_target=stdout_target, stderr_target=stderr_target,
+                    temp_root=temp_root,
                 )
             except EngineError as exc:
                 exc.execution_artifacts = artifacts
@@ -209,6 +230,7 @@ class EnvDispatcher:
         self, engine: EngineSpec, args: Sequence[Any], *, timeout: float,
         outputs: Sequence[OutputSpec], workdir: Path,
         execution_artifacts: dict[str, str], stdout_target: Any, stderr_target: Any,
+        temp_root: Path,
     ) -> CompletedRun:
         command = self.build_command(engine, args)
 
@@ -240,6 +262,10 @@ class EnvDispatcher:
             # Applies to wrappers and their Python descendants, even through pipes.
             "PYTHONUNBUFFERED": "1",
             **engine.env_vars,
+            # The alias controls only path spelling; bytes stay in this workdir.
+            "TMPDIR": str(temp_root),
+            "TEMP": str(temp_root),
+            "TMP": str(temp_root),
         }
 
         env_desc = (

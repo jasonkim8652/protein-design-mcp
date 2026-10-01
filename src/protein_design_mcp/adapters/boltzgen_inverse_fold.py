@@ -129,6 +129,11 @@ def build_args(manifest: Manifest, params: dict[str, Any]) -> list[str]:
         str(params["num_workers"]),
         "--devices",
         "1",
+        # Upstream's --only_inverse_fold branch ignores --num_workers.
+        # Configure its actual FromYamlDataModule, not the ordinary folding cfg.
+        "--config",
+        "inverse_folding",
+        f"data.num_workers={params['num_workers']}",
     ]
 
 
