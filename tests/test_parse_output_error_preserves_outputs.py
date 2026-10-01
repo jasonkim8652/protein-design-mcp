@@ -211,3 +211,20 @@ async def test_storage_exhaustion_is_infrastructure_failure(monkeypatch):
     assert result.isError is True
     assert payload['error_kind'] == 'infrastructure_error'
     assert 'No space left on device' in payload['error']
+
+
+@pytest.mark.asyncio
+async def test_adapter_input_refusal_is_argument_validation_before_dispatch(monkeypatch):
+    from protein_design_mcp.validation import ToolInputError
+    manifest = _manifest("run_refused_handoff")
+    def refuse(manifest, params):
+        raise ToolInputError("refold_metrics must describe the complete complex")
+    class MustNotLaunch:
+        async def run(self, *args, **kwargs):
+            pytest.fail("invalid handoff launched an engine")
+    monkeypatch.setattr(app_module, "ADAPTERS", {manifest.name: (refuse, lambda m, r: {})})
+    result = await ServerApp(ToolRegistry([manifest]), dispatcher=MustNotLaunch()).call_tool(manifest.name, {})
+    payload = json.loads(_text(result))
+    assert result.isError is True
+    assert payload["error_kind"] == "argument_validation"
+    assert "complete complex" in payload["error"]

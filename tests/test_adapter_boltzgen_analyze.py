@@ -1,6 +1,8 @@
 import csv
+import shutil
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from protein_design_mcp.adapters.boltzgen_analyze import build_args, parse_output
@@ -10,6 +12,7 @@ from protein_design_mcp.manifest.loader import load_manifests
 from protein_design_mcp.validation import ToolInputError, validate_and_fill
 
 MANIFEST_DIR = manifest_dir()
+FIXTURES = Path(__file__).parent / "fixtures" / "boltzgen"
 
 
 def _manifest():
@@ -21,9 +24,9 @@ def _base_params(**overrides):
         _manifest(),
         {
             "design_spec": "design.yaml",
-            "generated_files": ["a.cif", "a.npz"],
-            "refold_structures": ["a.cif"],
-            "refold_metrics": ["a.npz"],
+            "generated_files": [str(FIXTURES / "generated_designs" / f"design_spec.{ext}") for ext in ("cif", "npz")],
+            "refold_structures": [str(FIXTURES / "refold/design_spec.cif")],
+            "refold_metrics": [str(FIXTURES / "refold/design_spec.npz")],
             **overrides,
         },
     )
@@ -125,22 +128,20 @@ def test_design_refold_params_absent_by_default():
 
 
 def test_build_args_wraps_boltzgen_run_with_analysis_step_only():
-    params = _base_params(generated_files=[
-        "/scratch/design_dir/a.cif", "/scratch/design_dir/a.npz",
-    ])
+    params = _base_params()
     args = build_args(_manifest(), params)
     assert args[0] == str(Path("design.yaml"))
     assert args[args.index("--steps") + 1] == "analysis"
     assert "--protocol" not in args
 
 
-def test_build_args_derives_design_dir_from_staged_files_parent():
-    params = _base_params(generated_files=[
-        "/scratch/design_dir/a.cif", "/scratch/design_dir/a.npz",
-    ])
+def test_build_args_derives_design_dir_from_staged_files_parent(tmp_path):
+    staged = tmp_path / "design_dir"
+    shutil.copytree(FIXTURES / "generated_designs", staged)
+    params = _base_params(generated_files=[str(staged / f"design_spec.{ext}") for ext in ("cif", "npz")])
     args = build_args(_manifest(), params)
     joined = " ".join(args)
-    assert "design_dir=/scratch/design_dir" in joined
+    assert f"design_dir={staged}" in joined
 
 
 def test_build_args_renders_booleans_lowercase():
@@ -205,3 +206,90 @@ def test_parse_output_raises_when_csv_missing(tmp_path):
     run = CompletedRun(returncode=0, stdout="", stderr="", workdir=tmp_path, outputs={})
     with pytest.raises(ValueError, match="aggregate_metrics_csv"):
         parse_output(_manifest(), run)
+
+
+# The content checks must catch monomer handoffs even with matching filenames.
+def _tiny_handoff(tmp_path, *, refold_chains=None, refold_tokens=None):
+    original = [("A", ["ALA", "ARG"]), ("B", ["GLY"])]
+    def cif(path, chains):
+        lines = ["data_test", "loop_", "_entity_poly.entity_id", "_entity_poly.type"]
+        lines += [f"{i} polypeptide(L)" for i, _ in enumerate(chains, 1)]
+        lines += ["loop_", "_struct_asym.id", "_struct_asym.entity_id"]
+        lines += [f"{chain} {i}" for i, (chain, _) in enumerate(chains, 1)]
+        lines += ["loop_", "_entity_poly_seq.entity_id", "_entity_poly_seq.num", "_entity_poly_seq.mon_id"]
+        lines += [f"{i} {j} {res}" for i, (_, seq) in enumerate(chains, 1) for j, res in enumerate(seq, 1)]
+        path.write_text("\n".join(lines) + "\n")
+    generated, refold = tmp_path / "generated", tmp_path / "refold"
+    generated.mkdir()
+    refold.mkdir()
+    cif(generated / "sample.cif", original)
+    cif(refold / "sample.cif", original if refold_chains is None else refold_chains)
+    np.savez(generated / "sample.npz", mol_type=np.zeros(3, dtype=int), design_mask=[1, 1, 0])
+    tokens = [2, 3, 9] if refold_tokens is None else refold_tokens
+    np.savez(refold / "sample.npz", mol_type=np.zeros((1, len(tokens)), dtype=int), res_type=np.eye(33, dtype=int)[tokens][None, :])
+    return _base_params(generated_files=[str(generated / f"sample.{ext}") for ext in ("cif", "npz")], refold_structures=[str(refold / "sample.cif")], refold_metrics=[str(refold / "sample.npz")])
+
+
+def test_preflight_accepts_complete_complex(tmp_path):
+    assert "analysis" in build_args(_manifest(), _tiny_handoff(tmp_path))
+
+
+def test_preflight_rejects_monomer_in_required_complex_inputs(tmp_path):
+    params = _tiny_handoff(tmp_path, refold_chains=[("A", ["ALA", "ARG"])], refold_tokens=[2, 3])
+    with pytest.raises(ToolInputError, match="complete.*complex") as exc:
+        build_args(_manifest(), params)
+    assert "design_refold_structures" in str(exc.value)
+
+
+@pytest.mark.parametrize("chains", [[("A", ["ALA", "ARG"]), ("B", ["ALA"])], [("B", ["GLY"]), ("A", ["ALA", "ARG"])], [("A", ["ALA", "ARG"]), ("C", ["GLY"])]])
+def test_preflight_rejects_changed_target_sequence_chain_order_or_ids(tmp_path, chains):
+    with pytest.raises(ToolInputError, match="complete.*complex"):
+        build_args(_manifest(), _tiny_handoff(tmp_path, refold_chains=chains))
+
+
+@pytest.mark.parametrize("tokens", [[2, 3], [2, 3, 2]])
+def test_preflight_rejects_incompatible_metrics_with_valid_complex_cif(tmp_path, tokens):
+    with pytest.raises(ToolInputError, match="refold_metrics"):
+        build_args(_manifest(), _tiny_handoff(tmp_path, refold_tokens=tokens))
+
+
+@pytest.mark.parametrize("field", ["generated_files", "refold_structures", "refold_metrics"])
+def test_preflight_rejects_mismatched_design_ids(tmp_path, field):
+    params = _tiny_handoff(tmp_path)
+    source = Path(params[field][0])
+    renamed = source.with_name("other" + source.suffix)
+    source.rename(renamed)
+    params[field][0] = str(renamed)
+    with pytest.raises(ToolInputError, match="design IDs"):
+        build_args(_manifest(), params)
+
+
+def test_preflight_rejects_duplicate_design_ids(tmp_path):
+    params = _tiny_handoff(tmp_path)
+    params["refold_structures"] *= 2
+    with pytest.raises(ToolInputError, match="duplicate"):
+        build_args(_manifest(), params)
+
+
+@pytest.mark.parametrize("extra", [{"designfolding_metrics": True}, {"design_refold_structures": ["unused.cif"]}, {"design_refold_metrics": ["unused.npz"]}])
+def test_preflight_requires_paired_design_refold_outputs(tmp_path, extra):
+    params = _tiny_handoff(tmp_path)
+    params.update(extra)
+    with pytest.raises(ToolInputError, match="design_refold_structures.*design_refold_metrics"):
+        build_args(_manifest(), params)
+
+
+def test_preflight_accepts_optional_monomer_with_required_complex(tmp_path):
+    params = _tiny_handoff(tmp_path)
+    monomer = tmp_path / "monomer"
+    monomer.mkdir()
+    mono = _tiny_handoff(monomer, refold_chains=[("A", ["ALA", "ARG"])], refold_tokens=[2, 3])
+    params.update(designfolding_metrics=True, design_refold_structures=mono["refold_structures"], design_refold_metrics=mono["refold_metrics"])
+    assert "designfolding_metrics=true" in build_args(_manifest(), params)
+
+
+def test_preflight_rejects_unreadable_cif_as_input_error(tmp_path):
+    params = _tiny_handoff(tmp_path)
+    Path(params["refold_structures"][0]).write_text("not a cif")
+    with pytest.raises(ToolInputError, match="refold_structures"):
+        build_args(_manifest(), params)

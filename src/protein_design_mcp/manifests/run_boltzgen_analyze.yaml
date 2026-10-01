@@ -53,8 +53,9 @@ summary: >-
   non-covalent contacts, hydrophobic patches, liability scoring) over
   structures `run_boltzgen_fold`/`run_boltzgen_fold` with `with_target: false` already
   produced. Feed it the WHOLE outputs of run_boltzgen_design (or
-  run_boltzgen_inverse_fold) and run_boltzgen_fold -- every file, not just
-  the structures.
+  run_boltzgen_inverse_fold) and the matching complete-complex run_boltzgen_fold
+  outputs -- every file, not just the structures. Design-only folds are optional
+  additional inputs, never substitutes for the complete-complex refold inputs.
 
 doc: |
   ## What this is
@@ -105,13 +106,26 @@ doc: |
   - `generated_files`: the WHOLE `outputs.generated_designs` (from
     `run_boltzgen_design`) or `outputs.inverse_folded_designs` (from
     `run_boltzgen_inverse_fold`) list.
-  - `refold_structures` + `refold_metrics`: `run_boltzgen_fold`'s OWN
-    `refolded_structures` and `refold_metrics` outputs, passed through
-    unfiltered.
+  - `refold_structures` + `refold_metrics`: the matching complete-complex
+    `run_boltzgen_fold` outputs (`with_target: true`), passed through
+    unfiltered. These must preserve ALL original design and target chains,
+    their order, and their full sequences. The CIFs and NPZs must have the
+    same design IDs as `generated_files`. A monomer/design-only refold
+    cannot supply these required inputs, even if its filenames match.
   - `design_refold_structures` + `design_refold_metrics` (optional):
     `run_boltzgen_fold` with `with_target: false`'s own outputs, if you also ran that tool --
     required together with `designfolding_metrics: true` to get
-    `designfolding-*` columns; leave both unset otherwise.
+    `designfolding-*` columns; leave both unset otherwise. These add a
+    design-alone comparison and do not replace the required complete-complex
+    refold inputs. Both optional lists must contain the same design IDs
+    as `generated_files`.
+
+  Input compatibility is checked before analysis launches. Mismatched design
+  IDs, complex chain sequences, or canonical residue tensors return a
+  repairable `argument_validation` error. No files or biological choices
+  are automatically rewritten. Noncanonical residues can use atom-level
+  tokens: their CIF identities and complete-complex molecule-type vector
+  are checked, but their exact token expansion is left to BoltzGen.
 
   ## Important caveats
   - The `designfolding_metrics: true` path (with `design_refold_structures`/
@@ -168,8 +182,11 @@ schema:
       format: path
     required: true
     description: >-
-      `run_boltzgen_fold`'s own `refolded_structures` output, passed
-      through unfiltered.
+      Complete-complex `run_boltzgen_fold` refolded_structures output
+      (`with_target: true`), passed through unfiltered. Must preserve every
+      original design and target chain, chain order, and full sequence,
+      with the same design IDs as generated_files. Design-only/monomer
+      folds belong in design_refold_structures, not here.
     example: ["design_spec_0.cif"]
   refold_metrics:
     type: array
@@ -179,8 +196,11 @@ schema:
       format: path
     required: true
     description: >-
-      `run_boltzgen_fold`'s own `refold_metrics` output, passed through
-      unfiltered -- required to compute `design_iptm`,
+      Complete-complex `run_boltzgen_fold` refold_metrics output, from
+      the same fold call as refold_structures, passed through unfiltered.
+      Must contain all original design and target tokens with matching
+      sequences and design IDs. Design-only metrics belong in
+      design_refold_metrics, not here. Required to compute `design_iptm`,
       `min_interaction_pae`, and every other confidence-based column.
     example: ["design_spec_0.npz"]
   design_refold_structures:
@@ -194,7 +214,8 @@ schema:
       `run_boltzgen_fold` with `with_target: false`'s own `refolded_structures` output, if you
       also ran that tool. Supply together with `design_refold_metrics` and
       set `designfolding_metrics: true` to get `designfolding-*` columns;
-      leave unset otherwise.
+      leave unset otherwise. These optional design-alone outputs do not
+      replace required complete-complex refold_structures/refold_metrics.
     example: ["design_spec_0.cif"]
   design_refold_metrics:
     type: array
@@ -351,8 +372,9 @@ schema:
       Compute the `designfolding-*`-prefixed columns (the design-alone
       self-consistency comparison). Requires `design_refold_structures` and
       `design_refold_metrics` to also be supplied (from
-      `run_boltzgen_fold` with `with_target: false`) -- true without them raises a
-      FileNotFoundError from the underlying engine, not a clean skip.
+      `run_boltzgen_fold` with `with_target: false`). Missing or unpaired
+      optional inputs are rejected before the engine launches. The required
+      complete-complex refold_structures/refold_metrics must still be supplied.
       NOTE: this parameter and the `design_refold_structures`/
       `design_refold_metrics` inputs are covered by this tool's own unit
       tests but have NOT yet been exercised in a live GPU run (the live

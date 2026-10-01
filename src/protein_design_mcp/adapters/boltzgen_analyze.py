@@ -26,8 +26,12 @@ import csv
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+from Bio.PDB.MMCIF2Dict import MMCIF2Dict
+
 from protein_design_mcp.dispatch.env import CompletedRun
 from protein_design_mcp.manifest.schema import Manifest
+from protein_design_mcp.validation import ToolInputError
 
 _BOOLEAN_KEYS = (
     "affinity_metrics",
@@ -51,12 +55,148 @@ def _bool_str(value: bool) -> str:
     return "true" if value else "false"
 
 
+# BoltzGen data.const.tokens: the on-disk res_type one-hot vocabulary.
+_TOKENS = ("<pad> - ALA ARG ASN ASP CYS GLN GLU GLY HIS ILE LEU LYS MET "
+           "PHE PRO SER THR TRP TYR VAL UNK A G C U N DA DG DC DT DN").split()
+_TOKEN_IDS = {name: i for i, name in enumerate(_TOKENS)}
+_POLYMER_TYPES = {"polypeptide(L)": 0, "polydeoxyribonucleotide": 1,
+                  "polyribonucleotide": 2}
+_COMPLEX_HINT = (
+    "Required refold_structures/refold_metrics must match the complete original complex "
+    "(all chains, in order, with identical sequences). Design-only folds belong in optional "
+    "design_refold_structures/design_refold_metrics with designfolding_metrics=true; "
+    "they do not replace the required complete-complex inputs. Supply matching outputs "
+    "for the same generated designs; no inputs have been changed."
+)
+
+
+def _index_files(paths: list[str], field: str, suffix: str) -> dict[str, Path]:
+    result = {}
+    for raw in paths:
+        path = Path(raw)
+        if path.suffix != suffix:
+            raise ToolInputError(f"{field}: expected {suffix} files, got {path.name!r}.")
+        if path.stem in result:
+            raise ToolInputError(f"{field}: duplicate design IDs: {path.stem!r}.")
+        result[path.stem] = path
+    return result
+
+
+def _chains(path: Path, field: str) -> list[tuple[str, str, tuple[str, ...]]]:
+    """Read full declared sequences, including residues without coordinates.
+
+    Entity IDs are local to a CIF; label chain IDs and their ordered sequences
+    carry the cross-file identity. Nonpolymer identities are retained too.
+    """
+    try:
+        data = MMCIF2Dict(str(path))
+        types = dict(zip(data.get("_entity_poly.entity_id", []),
+                         data.get("_entity_poly.type", []), strict=True))
+        sequences: dict[str, list[str]] = {}
+        for entity, residue in zip(data.get("_entity_poly_seq.entity_id", []),
+                                   data.get("_entity_poly_seq.mon_id", []), strict=True):
+            sequences.setdefault(entity, []).append(residue)
+        for entity, residue in zip(data.get("_pdbx_entity_nonpoly.entity_id", []),
+                                   data.get("_pdbx_entity_nonpoly.comp_id", []), strict=True):
+            sequences[entity] = [residue]
+        chains = [(chain, types.get(entity, "nonpolymer"), tuple(sequences[entity]))
+                  for chain, entity in zip(data["_struct_asym.id"],
+                                           data["_struct_asym.entity_id"], strict=True)]
+        if not chains or any(not seq for _, _, seq in chains):
+            raise ValueError("no complete chain sequences")
+        if len({chain for chain, _, _ in chains}) != len(chains):
+            raise ValueError("duplicate chain IDs")
+        return chains
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise ToolInputError(f"{field}: cannot read complete chain sequences from {path}: {exc}") from exc
+
+
+def _check_metrics(path: Path, field: str, chains: list, expected_mol_type=None) -> None:
+    """Check tensor dimensions and canonical polymer identities without pickle.
+
+    Noncanonical residues can be atom-tokenized by the engine, so their exact
+    tensor expansion is not reconstructed here. Their full CIF identities and
+    the complete generated mol_type vector are still checked.
+    """
+    try:
+        with np.load(path, allow_pickle=False) as data:
+            mol_type = data["mol_type"]
+            res_type = data["res_type"]
+        if mol_type.ndim == 2 and mol_type.shape[0] == 1:
+            mol_type = mol_type[0]
+        if res_type.ndim == 3 and res_type.shape[0] == 1:
+            res_type = res_type[0]
+        if mol_type.ndim != 1 or res_type.shape != (len(mol_type), len(_TOKENS)):
+            raise ValueError("invalid mol_type/res_type tensor dimensions")
+        if not np.all((res_type == 0) | (res_type == 1)) or not np.all(res_type.sum(axis=1) == 1):
+            raise ValueError("res_type must contain one-hot residue identities")
+        if expected_mol_type is not None and not np.array_equal(mol_type, expected_mol_type):
+            raise ValueError("token count or molecule types differ from generated_files")
+        actual = res_type.argmax(axis=1)
+        for poly_type, kind in _POLYMER_TYPES.items():
+            residues = [res for _, chain_type, seq in chains if chain_type == poly_type for res in seq]
+            # A noncanonical residue may expand into several tokens. Keep the
+            # CIF comparison authoritative for that polymer type.
+            if any(res not in _TOKEN_IDS for res in residues):
+                continue
+            expected = np.array([_TOKEN_IDS[res] for res in residues], dtype=int)
+            if not np.array_equal(actual[mol_type == kind], expected):
+                raise ValueError(f"res_type sequences differ from the {poly_type} CIF chains")
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise ToolInputError(f"{field}: incompatible metrics for design {path.stem!r}: {exc}. {_COMPLEX_HINT}") from exc
+
+
+def _validate_handoff(params: dict[str, Any]) -> None:
+    optional = (bool(params.get("design_refold_structures")), bool(params.get("design_refold_metrics")))
+    if optional[0] != optional[1] or (params["designfolding_metrics"] and not all(optional)):
+        raise ToolInputError("Supply design_refold_structures and design_refold_metrics together; "
+                             "both are required when designfolding_metrics=true.")
+    generated = params["generated_files"]
+    unexpected = [p for p in generated if Path(p).suffix not in {".cif", ".npz"}]
+    if unexpected:
+        raise ToolInputError("generated_files must contain the original .cif and .npz outputs only.")
+    groups = {
+        "generated CIF": _index_files([p for p in generated if Path(p).suffix == ".cif"], "generated_files", ".cif"),
+        "generated NPZ": _index_files([p for p in generated if Path(p).suffix == ".npz"], "generated_files", ".npz"),
+        "refold_structures": _index_files(params["refold_structures"], "refold_structures", ".cif"),
+        "refold_metrics": _index_files(params["refold_metrics"], "refold_metrics", ".npz"),
+    }
+    if all(optional):
+        for field, suffix in [("design_refold_structures", ".cif"), ("design_refold_metrics", ".npz")]:
+            groups[field] = _index_files(params[field], field, suffix)
+    ids = set(groups["generated CIF"])
+    for field, indexed in groups.items():
+        if not ids or set(indexed) != ids:
+            raise ToolInputError(f"{field}: design IDs must match generated_files exactly; "
+                                 f"missing={sorted(ids - set(indexed))}, extra={sorted(set(indexed) - ids)}.")
+    for design_id in sorted(ids):
+        original = _chains(groups["generated CIF"][design_id], "generated_files")
+        refold = _chains(groups["refold_structures"][design_id], "refold_structures")
+        if original != refold:
+            original_lengths = [(chain, len(seq)) for chain, _, seq in original]
+            refold_lengths = [(chain, len(seq)) for chain, _, seq in refold]
+            raise ToolInputError(f"refold_structures: design {design_id!r} chain sequences differ "
+                                 f"(generated chain lengths={original_lengths}, refold={refold_lengths}). {_COMPLEX_HINT}")
+        try:
+            with np.load(groups["generated NPZ"][design_id], allow_pickle=False) as data:
+                mol_type = data["mol_type"]
+            if mol_type.ndim != 1:
+                raise ValueError("mol_type must be a one-dimensional token vector")
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            raise ToolInputError(f"generated_files: cannot read token metadata for {design_id!r}: {exc}") from exc
+        _check_metrics(groups["refold_metrics"][design_id], "refold_metrics", original, mol_type)
+        if all(optional):
+            design_chains = _chains(groups["design_refold_structures"][design_id], "design_refold_structures")
+            _check_metrics(groups["design_refold_metrics"][design_id], "design_refold_metrics", design_chains)
+
+
 def build_args(manifest: Manifest, params: dict[str, Any]) -> list[str]:
     """Translate validated (and already-staged) parameters into
     ``boltzgen run``'s argv. ``manifest`` is unused -- part of every
     adapter's signature, see ``protein_design_mcp.adapters.boltz``.
     """
     del manifest
+    _validate_handoff(params)
     generated_files = params["generated_files"]
     design_dir = str(Path(generated_files[0]).parent)
 

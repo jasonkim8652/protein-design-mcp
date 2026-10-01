@@ -460,6 +460,8 @@ class ServerApp:
             if run.execution_artifacts:
                 payload = {**payload, "execution_artifacts": run.execution_artifacts}
             return _ok(payload)
+        except ToolInputError as exc:
+            return failure(str(exc), error_kind="argument_validation")
         except EngineError as exc:
             return failure(str(exc), exc.execution_artifacts,
                            getattr(exc, "error_kind", "engine_error"))
