@@ -27,3 +27,24 @@ is preserved. This is an observability fix, not a scientific protocol change.
 Campaign prompts, generator choice, candidate allocation and independent
 AF2/local-MSA/OpenMM scoring remain unchanged. When updating the design backend
 of an existing campaign, keep its evaluator image and evaluation protocol pinned.
+
+## Verified publication
+
+Published immutable image: `jasonkim8652/protein-design-mcp:2.4.4@sha256:bb01fe6f748f9729aba45f9f1e6038266777ae65e789f06702a29d29bcee966e`.
+
+Server source revision: `2d899b1`. Remote manifest config digest
+matches the validated local image, and pulling the immutable reference succeeded.
+
+Registry layer payload: **181.41 GiB**
+(194,785,314,182 bytes). Docker reports **265.76 GiB**
+uncompressed (285,360,819,939 bytes). Shared base layers are reused
+when the previous integrated image is already present; allow additional storage
+for extraction and run artifacts.
+
+Validation includes full server and client regression suites, native CPU
+roundtrips of actual RFdiffusion3 and rebuilt Genie3 artifacts, nonstandard
+chain IDs, and live folding followed by analysis for external RFdiffusion3,
+external Genie3, and a selected native BoltzGen design pair. Each live path
+analyzed one design; all 41 tool definitions were discoverable with the
+configured external assets. Malformed path input returned a bounded, recoverable
+argument error. These smoke checks do not claim campaign completion.

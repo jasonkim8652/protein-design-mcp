@@ -94,16 +94,16 @@ never a scientific choice.
 
 ---
 
-## Running the 2.4.3 integrated image
+## Running the 2.4.4 integrated image
 
 The repaired release is published on Docker Hub. Its verified immutable reference is:
 
 ```text
-jasonkim8652/protein-design-mcp:2.4.3@sha256:0b0a40d409374e0d858292a7c09cd7aa386a9354b8bf3b9be4fda30d1ff3fad0
+jasonkim8652/protein-design-mcp:2.4.4@sha256:bb01fe6f748f9729aba45f9f1e6038266777ae65e789f06702a29d29bcee966e
 ```
 
-The image contains server revision `a85179b`. See the
-[2.4.3 publication and runtime validation record](docs/runtime-recovery-2.4.3.md).
+The image contains server revision `2d899b1`. See the
+[2.4.4 publication and runtime validation record](docs/runtime-recovery-2.4.4.md).
 
 The image contains isolated engine environments, engine code, CUDA toolkit
 components, and redistributable public model weights. Engine executables and
@@ -122,7 +122,7 @@ mkdir -p "$PWD/workspace"
 docker run -i --rm --device=nvidia.com/gpu=0 --shm-size=16g \
   --user "$(id -u):$(id -g)" -e HOME=/tmp \
   -e TMPDIR="$PWD/workspace" -v "$PWD/workspace:$PWD/workspace" \
-  jasonkim8652/protein-design-mcp:2.4.3
+  jasonkim8652/protein-design-mcp:2.4.4
 ```
 
 This starts the MCP stdio server. Keep the input/output workspace mounted at
