@@ -537,3 +537,68 @@ async def test_a_staging_failure_preserves_its_workdir_like_run_does(tmp_path, m
     assert len(workdirs) == 1, "the workdir new_workdir() created must survive the failure"
     assert workdirs[0].is_dir()
     assert str(workdirs[0]) in payload["error"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalid", ["x" * 5000, "bad\x00path", "", "missing.cif"],
+                         ids=["too-long", "null-byte", "empty", "missing"])
+async def test_bad_staged_paths_return_bounded_argument_errors(tmp_path, monkeypatch, invalid):
+    manifest = _staging_manifest()
+    manifest.schema["structure"] = {
+        "type": "array", "items": {"type": "string", "format": "path"},
+        "required": True,
+    }
+    dispatcher = _StagingRecordingDispatcher(tmp_path)
+    monkeypatch.setattr(app_module, "ADAPTERS", {"run_prodigy": (lambda m, p: [], lambda m, r: {})})
+    app = ServerApp(ToolRegistry([manifest]), dispatcher=dispatcher)
+
+    result = await app.call_tool("run_prodigy", {"structure": [invalid]})
+
+    assert result.isError is True
+    payload = json.loads(_text(result))
+    assert payload["error_kind"] == "argument_validation"
+    assert "structure[0]" in payload["error"]
+    assert "outputs" in payload["error"]
+    assert len(payload["error"]) < 1000
+    assert dispatcher.run_args is None
+
+
+@pytest.mark.asyncio
+async def test_bad_scalar_path_is_reported_before_dispatch(tmp_path, monkeypatch):
+    dispatcher = _StagingRecordingDispatcher(tmp_path)
+    monkeypatch.setattr(app_module, "ADAPTERS", {"run_prodigy": (lambda m, p: [], lambda m, r: {})})
+    app = ServerApp(ToolRegistry([_staging_manifest()]), dispatcher=dispatcher)
+
+    result = await app.call_tool("run_prodigy", {"structure": "bad\x00path"})
+
+    assert result.isError is True
+    payload = json.loads(_text(result))
+    assert payload["error_kind"] == "argument_validation"
+    assert "structure" in payload["error"]
+    assert dispatcher.run_args is None
+
+
+@pytest.mark.asyncio
+async def test_staging_disk_failure_is_infrastructure_error(tmp_path, monkeypatch):
+    import errno
+    import protein_design_mcp.staging as staging
+
+    source = tmp_path / "model.pdb"
+    source.write_text("x")
+
+    def storage_failure(*args, **kwargs):
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(staging.shutil, "copy2", storage_failure)
+    dispatcher = _StagingRecordingDispatcher(tmp_path)
+    monkeypatch.setattr(app_module, "ADAPTERS", {"run_prodigy": (lambda m, p: [], lambda m, r: {})})
+    app = ServerApp(ToolRegistry([_staging_manifest()]), dispatcher=dispatcher)
+
+    result = await app.call_tool("run_prodigy", {"structure": str(source)})
+
+    assert result.isError is True
+    payload = json.loads(_text(result))
+    assert payload["error_kind"] == "infrastructure_error"
+    assert "No space left on device" in payload["error"]
+    assert "preserved for diagnosis" in payload["error"]
+    assert dispatcher.run_args is None

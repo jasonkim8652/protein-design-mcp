@@ -22,13 +22,19 @@ verified by diffing ``boltzgen configure --steps folding``'s resolved
 
 from __future__ import annotations
 
+import gzip
+import json
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+from Bio.PDB import MMCIFParser, PDBParser
+from Bio.SeqUtils import seq1
+from protein_design_mcp.validation import ToolInputError
 
 from protein_design_mcp.dispatch.env import CompletedRun
 from protein_design_mcp.manifest.schema import Manifest
+from protein_design_mcp.staging import validate_source_file
 
 # boltzgen.data.const.eval_keys_confidence, minus the ones that duplicate
 # ligand_iptm and minus the raw tensors (coords, res_type, ...) eval_keys
@@ -60,8 +66,55 @@ def build_args(manifest: Manifest, params: dict[str, Any]) -> list[str]:
     adapter's signature, see ``protein_design_mcp.adapters.boltz``.
     """
     del manifest
-    generated_files = params["generated_files"]
-    design_dir = str(Path(generated_files[0]).parent)
+    structure = params.get("structure")
+    native = params.get("generated_files") or params.get("design_spec")
+    if bool(structure) == bool(native):
+        raise ToolInputError("Supply exactly one input mode: structure + design_chains + designed_sequences, or design_spec + generated_files.")
+    if structure:
+        chains = params.get("design_chains") or []
+        sequences = params.get("designed_sequences") or {}
+        if not chains or len(chains) != len(set(chains)) or set(sequences) != set(chains):
+            raise ToolInputError("designed_sequences must map exactly the unique design_chains to their designed amino acid sequences.")
+        parser = PDBParser(QUIET=True) if str(structure).lower().endswith((".pdb", ".pdb.gz")) else MMCIFParser(QUIET=True)
+        try:
+            with (gzip.open(structure, "rt") if str(structure).endswith(".gz") else open(structure)) as handle:
+                models = list(parser.get_structure("input", handle).get_models())
+            if len(models) != 1:
+                raise ValueError("exactly one structure model is required")
+            model = models[0]
+        except Exception as exc:
+            raise ToolInputError(f"Cannot read folding structure: {exc}") from exc
+        if any(r.id[0] != " " or seq1(r.resname) == "X" for r in model.get_residues()):
+            raise ToolInputError("External folding supports canonical protein chains only; use native mode for ligands or modified residues.")
+        for chain in chains:
+            sequence = sequences[chain]
+            if not isinstance(sequence, str) or not sequence or set(sequence) - set("ACDEFGHIKLMNPQRSTVWY"):
+                raise ToolInputError(f"designed_sequences[{chain!r}] must contain canonical uppercase amino acids.")
+            if chain not in model:
+                raise ToolInputError(f"design_chains names missing chain {chain!r}; available: {[c.id for c in model]}")
+            residues = [r for r in model[chain] if r.id[0] == " "]
+            if len(residues) != len(sequence):
+                raise ToolInputError(f"Sequence length for {chain!r} is {len(sequence)}, but structure contains {len(residues)} residues.")
+            if any(not all(atom in r for atom in ("N", "CA", "C", "O")) for r in residues):
+                raise ToolInputError(f"Chain {chain!r} requires a complete N/CA/C/O backbone; rebuild a CA-only trace before folding.")
+        source_args = ["--structure", str(structure), "--design-chains", json.dumps(chains), "--designed-sequences", json.dumps(sequences)]
+        design_dir = "generated_files"
+    else:
+        if params.get("design_chains") or params.get("designed_sequences"):
+            raise ToolInputError("design_chains and designed_sequences apply only with structure.")
+        generated_files = params.get("generated_files")
+        if not generated_files or not params.get("design_spec"):
+            raise ToolInputError("Native mode requires both design_spec and generated_files containing complete .cif/.npz pairs.")
+        pairs = {}
+        for value in generated_files:
+            path = Path(value)
+            if path.suffix not in (".cif", ".npz") or path.suffix in pairs.setdefault(path.stem, set()):
+                raise ToolInputError("generated_files must contain unique .cif/.npz pairs.")
+            pairs[path.stem].add(path.suffix)
+        if any(suffixes != {".cif", ".npz"} for suffixes in pairs.values()) or len({Path(p).parent for p in generated_files}) != 1:
+            raise ToolInputError("generated_files must contain complete matching .cif/.npz pairs in one staged directory.")
+        design_dir = str(Path(generated_files[0]).parent)
+        source_args = [str(validate_source_file(params["design_spec"], "design_spec"))]
     # ONE name, used for both --steps and --config. `--config <step>` binds
     # the overrides to that step alone, and `folding` stays a VALID step name
     # even when it is not the step being run -- so hardcoding it here sent
@@ -70,8 +123,8 @@ def build_args(manifest: Manifest, params: dict[str, Any]) -> list[str]:
     # `intermediate_designs_inverse_folded` default, which does not exist.
     step = "folding" if params["with_target"] else "design_folding"
 
-    return [
-        str(params["design_spec"]),
+    return source_args + [
+        "--passthrough",
         "--output",
         ".",
         "--steps",

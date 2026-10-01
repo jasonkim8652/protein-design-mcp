@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from protein_design_mcp.staging import stage_inputs
+from protein_design_mcp.validation import ToolInputError
 
 
 def test_stages_a_named_path_parameter_into_its_own_subdirectory(tmp_path):
@@ -80,11 +81,11 @@ def test_a_missing_optional_parameter_is_skipped_not_staged(tmp_path):
     assert not (workdir / "optional_path").exists()
 
 
-def test_a_nonexistent_source_file_raises_file_not_found(tmp_path):
+def test_a_nonexistent_source_file_is_a_correctable_input_error(tmp_path):
     workdir = tmp_path / "work"
     workdir.mkdir()
 
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(ToolInputError, match="structure.*does not exist"):
         stage_inputs(["structure"], {"structure": str(tmp_path / "nope.pdb")}, workdir)
 
 
@@ -165,16 +166,67 @@ def test_two_list_items_sharing_a_basename_the_second_overwrites_the_first(tmp_p
     assert len(staged["generated_files"]) == 2
 
 
-def test_a_nonexistent_item_in_a_list_raises_file_not_found(tmp_path):
+def test_a_nonexistent_item_in_a_list_identifies_the_invalid_index(tmp_path):
     workdir = tmp_path / "work"
     workdir.mkdir()
 
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(ToolInputError, match=r"generated_files\[0\].*does not exist"):
         stage_inputs(
             ["generated_files"],
             {"generated_files": [str(tmp_path / "nope.cif")]},
             workdir,
         )
+
+
+@pytest.mark.parametrize("invalid", ["x" * 5000, "bad\x00path", "", "   "],
+                         ids=["too-long", "null-byte", "empty", "blank"])
+def test_malformed_source_paths_have_bounded_correctable_errors(tmp_path, invalid):
+    with pytest.raises(ToolInputError) as caught:
+        stage_inputs(["generated_files"], {"generated_files": [invalid]}, tmp_path / "work")
+
+    message = str(caught.value)
+    assert "generated_files[0]" in message
+    assert "path" in message
+    assert "outputs" in message
+    assert len(message) < 400
+
+
+def test_a_directory_is_rejected_as_a_file_argument(tmp_path):
+    with pytest.raises(ToolInputError, match="structure.*regular file"):
+        stage_inputs(["structure"], {"structure": str(tmp_path)}, tmp_path / "work")
+
+
+@pytest.mark.parametrize("error_number", [5, 13, 28])
+def test_source_storage_failures_are_not_reported_as_bad_arguments(tmp_path, monkeypatch, error_number):
+    source = tmp_path / "model.pdb"
+    source.write_text("x")
+    original_stat = Path.stat
+
+    def fail_source_stat(path, *args, **kwargs):
+        if path == source:
+            raise OSError(error_number, "source storage unavailable")
+        return original_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", fail_source_stat)
+    with pytest.raises(OSError) as caught:
+        stage_inputs(["structure"], {"structure": str(source)}, tmp_path / "work")
+    assert caught.value.errno == error_number
+
+
+def test_destination_copy_failure_is_not_reported_as_bad_arguments(tmp_path, monkeypatch):
+    import errno
+    import protein_design_mcp.staging as staging
+
+    source = tmp_path / "model.pdb"
+    source.write_text("x")
+
+    def storage_failure(*args, **kwargs):
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(staging.shutil, "copy2", storage_failure)
+    with pytest.raises(OSError) as caught:
+        stage_inputs(["structure"], {"structure": str(source)}, tmp_path / "work")
+    assert caught.value.errno == errno.ENOSPC
 
 
 # --- subdirs: several staged names sharing one parent tree, each at its

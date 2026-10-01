@@ -32,7 +32,7 @@ from protein_design_mcp.meta_tools import (
     describe_tool,
     get_job_status,
 )
-from protein_design_mcp.staging import stage_inputs
+from protein_design_mcp.staging import resolve_input_path, stage_inputs
 from protein_design_mcp.validation import ToolInputError, validate_and_fill
 
 logger = logging.getLogger(__name__)
@@ -227,7 +227,7 @@ def _resolve_path_params(manifest: Manifest, params: dict[str, Any]) -> dict[str
     for key, spec in manifest.schema.items():
         value = resolved.get(key)
         if spec.get("format") == "path" and isinstance(value, str):
-            resolved[key] = str(Path(value).resolve())
+            resolved[key] = resolve_input_path(value, key)
         elif (
             spec.get("type") == "array"
             and isinstance(spec.get("items"), dict)
@@ -235,8 +235,8 @@ def _resolve_path_params(manifest: Manifest, params: dict[str, Any]) -> dict[str
             and isinstance(value, list)
         ):
             resolved[key] = [
-                str(Path(item).resolve()) if isinstance(item, str) else item
-                for item in value
+                resolve_input_path(item, f"{key}[{index}]") if isinstance(item, str) else item
+                for index, item in enumerate(value)
             ]
     return resolved
 
@@ -359,7 +359,6 @@ class ServerApp:
             params = validate_and_fill(manifest, arguments)
         except ToolInputError as exc:
             return _error(str(exc))
-        params = _resolve_path_params(manifest, params)
 
         adapter = ADAPTERS.get(manifest.name)
         if adapter is None:
@@ -394,6 +393,7 @@ class ServerApp:
             return _error_payload(details)
 
         try:
+            params = _resolve_path_params(manifest, params)
             # Most engines write wherever their subprocess's cwd is, which
             # the dispatcher already sets to a scratch workdir it creates
             # itself. An engine declared in manifest.engine.stage instead
@@ -422,10 +422,15 @@ class ServerApp:
                         workdir,
                         subdirs=manifest.engine.stage_subdir,
                     )
+                except ToolInputError as exc:
+                    raise ToolInputError(
+                        f"{exc} Working directory preserved for diagnosis: {workdir}"
+                    ) from exc
                 except OSError as exc:
                     raise EngineError(
                         f"could not stage input(s) for {name}: {exc}. "
-                        f"Working directory preserved for diagnosis: {workdir}"
+                        f"Working directory preserved for diagnosis: {workdir}",
+                        error_kind="infrastructure_error",
                     ) from exc
             run = await self._dispatcher.run(
                 manifest.engine,

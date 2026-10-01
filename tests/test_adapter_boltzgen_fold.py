@@ -30,6 +30,37 @@ def _base_params(**overrides):
     )
 
 
+@pytest.fixture
+def native_spec(tmp_path):
+    spec = tmp_path / "design.yaml"
+    spec.write_text("entities: []\n")
+    return str(spec)
+
+
+@pytest.mark.parametrize("source_kind", ["missing", "directory"])
+def test_native_design_spec_must_be_an_existing_file(tmp_path, source_kind):
+    spec = tmp_path / "invalid.yaml"
+    if source_kind == "directory":
+        spec.mkdir()
+    with pytest.raises(ToolInputError, match="design_spec.*path"):
+        build_args(_manifest(), _base_params(design_spec=str(spec)))
+
+
+@pytest.mark.parametrize("error_number", [5, 13])
+def test_native_design_spec_storage_errors_remain_infrastructure_failures(native_spec, monkeypatch, error_number):
+    original_stat = Path.stat
+
+    def storage_failure(path, *args, **kwargs):
+        if str(path) == native_spec:
+            raise OSError(error_number, "source storage unavailable")
+        return original_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", storage_failure)
+    with pytest.raises(OSError) as caught:
+        build_args(_manifest(), _base_params(design_spec=native_spec))
+    assert caught.value.errno == error_number
+
+
 # --- manifest shape ---
 
 
@@ -86,18 +117,18 @@ def test_validation_accepts_boundary_diffusion_samples():
 # --- build_args ---
 
 
-def test_build_args_wraps_boltzgen_run_with_folding_step_only():
-    params = _base_params(generated_files=[
+def test_build_args_wraps_boltzgen_run_with_folding_step_only(native_spec):
+    params = _base_params(design_spec=native_spec, generated_files=[
         "/scratch/generated_files/a.cif", "/scratch/generated_files/a.npz",
     ])
     args = build_args(_manifest(), params)
-    assert args[0] == str(Path("design.yaml"))
+    assert args[0] == native_spec
     assert args[args.index("--steps") + 1] == "folding"
     assert "--protocol" not in args
 
 
-def test_build_args_derives_design_dir_from_staged_files_parent():
-    params = _base_params(generated_files=[
+def test_build_args_derives_design_dir_from_staged_files_parent(native_spec):
+    params = _base_params(design_spec=native_spec, generated_files=[
         "/scratch/generated_files/a.cif", "/scratch/generated_files/a.npz",
     ])
     args = build_args(_manifest(), params)
@@ -106,8 +137,9 @@ def test_build_args_derives_design_dir_from_staged_files_parent():
     assert "output=/scratch/generated_files" in joined
 
 
-def test_build_args_includes_checkpoint_and_sampling_knobs():
+def test_build_args_includes_checkpoint_and_sampling_knobs(native_spec):
     params = _base_params(
+        design_spec=native_spec,
         generated_files=["/s/a.cif", "/s/a.npz"],
         recycling_steps=5, sampling_steps=50, diffusion_samples=2,
     )
@@ -119,14 +151,14 @@ def test_build_args_includes_checkpoint_and_sampling_knobs():
     assert "checkpoint=" not in joined  # not via --config, see next test
 
 
-def test_build_args_passes_checkpoint_moldir_use_kernels_as_top_level_flags():
+def test_build_args_passes_checkpoint_moldir_use_kernels_as_top_level_flags(native_spec):
     """These three MUST be top-level CLI flags, not --config overrides:
     BoltzGen's own CLI resolves a huggingface:repo:file reference to a real
     local path (and 'auto' use_kernels to an actual bool) before embedding
     it into the step's args -- a --config override bypasses that and hands
     the engine the raw unresolved string, which fails hard (verified live:
     "Invalid moldir. Expected directory or zip file: huggingface:...")."""
-    params = _base_params(generated_files=["/s/a.cif", "/s/a.npz"])
+    params = _base_params(design_spec=native_spec, generated_files=["/s/a.cif", "/s/a.npz"])
     args = build_args(_manifest(), params)
     assert args[args.index("--folding_checkpoint") + 1] == (
         "huggingface:boltzgen/boltzgen-1:boltz2_conf_final.ckpt"
@@ -193,9 +225,9 @@ def test_parse_output_raises_when_refold_metrics_missing(tmp_path):
 # --- the --config step must be the step that actually runs ------------------
 
 
-def _args(with_target: bool):
+def _args(with_target: bool, design_spec: str):
     return build_args(None, {
-        "design_spec": "/spec.yaml",
+        "design_spec": design_spec,
         "generated_files": ["/w/designs/d.cif", "/w/designs/d.npz"],
         "with_target": with_target,
         "folding_checkpoint": "ckpt",
@@ -216,7 +248,7 @@ def _steps(args):
     return args[args.index("--steps") + 1]
 
 
-def test_the_config_overrides_target_the_step_being_run():
+def test_the_config_overrides_target_the_step_being_run(native_spec):
     """BoltzGen assigns `--config <step> key=value` to THAT step only, and
     `folding` stays a valid step name even when it is not in `--steps`, so a
     mismatch is accepted in silence.
@@ -233,24 +265,24 @@ def test_the_config_overrides_target_the_step_being_run():
     the `--steps` value became conditional and the `--config` value did not.
     """
     for with_target in (True, False):
-        args = _args(with_target)
+        args = _args(with_target, native_spec)
         assert _config_step(args) == _steps(args), (
             f"with_target={with_target}: overrides go to {_config_step(args)!r} "
             f"but {_steps(args)!r} is what runs"
         )
 
 
-def test_with_target_false_still_selects_design_folding():
-    assert _steps(_args(False)) == "design_folding"
+def test_with_target_false_still_selects_design_folding(native_spec):
+    assert _steps(_args(False, native_spec)) == "design_folding"
 
 
-def test_with_target_true_still_selects_folding():
-    assert _steps(_args(True)) == "folding"
+def test_with_target_true_still_selects_folding(native_spec):
+    assert _steps(_args(True, native_spec)) == "folding"
 
 
-def test_the_design_dir_override_is_present_in_both_modes():
+def test_the_design_dir_override_is_present_in_both_modes(native_spec):
     for with_target in (True, False):
-        args = _args(with_target)
+        args = _args(with_target, native_spec)
         assert "data.design_dir=/w/designs" in args
 
 
@@ -289,3 +321,80 @@ def test_the_output_patterns_collect_both_modes():
             assert any(fnmatch.fnmatch(path, p) for p in patterns.values()), (
                 f"{mode} writes {path}, which no declared output pattern "
                 f"matches: {sorted(patterns.values())}")
+
+
+def _external_pdb(path):
+    rows = []
+    for i, (chain, resname) in enumerate([('A', 'ALA'), ('B', 'GLY')]):
+        for j, atom in enumerate(['N', 'CA', 'C', 'O']):
+            rows.append(f'ATOM  {i * 4 + j + 1:5d} {atom:^4s} {resname} {chain}{1:4d}    {float(i * 10 + j):8.3f}{0.:8.3f}{0.:8.3f}{1.:6.2f}{20.:6.2f}          {atom[0]:>2s}\n')
+    path.write_text(''.join(rows) + 'END\n')
+    return str(path)
+
+
+def test_external_backbone_and_sequence_accepts_both_fold_modes(tmp_path):
+    structure = _external_pdb(tmp_path / 'complex.pdb')
+    for with_target, step in [(True, 'folding'), (False, 'design_folding')]:
+        params = validate_and_fill(_manifest(), {
+            'structure': structure, 'design_chains': ['B'],
+            'designed_sequences': {'B': 'W'}, 'with_target': with_target,
+        })
+        args = build_args(_manifest(), params)
+        assert args[args.index('--structure') + 1] == structure
+        assert args[args.index('--steps') + 1] == step
+        assert args[args.index('--config') + 1] == step
+        assert 'data.design_dir=generated_files' in args
+
+
+@pytest.mark.parametrize('sequences,match', [({'C': 'W'}, 'design_chains'), ({'B': 'WW'}, 'length'), ({'B': 'X'}, 'amino')])
+def test_external_sequence_mapping_rejects_wrong_chain_length_and_alphabet(tmp_path, sequences, match):
+    structure = _external_pdb(tmp_path / 'complex.pdb')
+    params = validate_and_fill(_manifest(), {
+        'structure': structure, 'design_chains': ['B'],
+        'designed_sequences': sequences, 'with_target': True,
+    })
+    with pytest.raises(ToolInputError, match=match):
+        build_args(_manifest(), params)
+
+
+def test_external_ca_trace_requires_backbone_rebuild(tmp_path):
+    structure = Path(_external_pdb(tmp_path / 'complex.pdb'))
+    structure.write_text(''.join(line for line in structure.read_text().splitlines(True) if line[12:16].strip() == 'CA'))
+    params = validate_and_fill(_manifest(), {'structure': str(structure), 'design_chains': ['B'], 'designed_sequences': {'B': 'W'}, 'with_target': True})
+    with pytest.raises(ToolInputError, match='backbone'):
+        build_args(_manifest(), params)
+
+
+def test_native_pair_subset_must_be_complete():
+    params = _base_params(generated_files=['/s/one.cif', '/s/two.npz'])
+    with pytest.raises(ToolInputError, match='pair'):
+        build_args(_manifest(), params)
+
+
+def test_native_and_external_modes_cannot_be_mixed():
+    with pytest.raises(ToolInputError, match='exactly one'):
+        build_args(_manifest(), _base_params(structure='/s/complex.pdb', design_chains=['B'], designed_sequences={'B': 'W'}))
+
+
+def test_external_compressed_cif_from_rfdiffusion_is_accepted(tmp_path):
+    import gzip
+    from Bio.PDB import MMCIFIO, PDBParser
+    pdb = _external_pdb(tmp_path / 'complex.pdb')
+    cif = tmp_path / 'complex.cif'
+    writer = MMCIFIO()
+    writer.set_structure(PDBParser(QUIET=True).get_structure('input', pdb))
+    writer.save(str(cif))
+    compressed = cif.with_suffix('.cif.gz')
+    with gzip.open(compressed, 'wt') as handle:
+        handle.write(cif.read_text())
+    params = validate_and_fill(_manifest(), {'structure': str(compressed), 'design_chains': ['B'], 'designed_sequences': {'B': 'W'}, 'with_target': True})
+    args = build_args(_manifest(), params)
+    assert args[args.index('--structure') + 1] == str(compressed)
+
+
+def test_external_nonprotein_entity_is_rejected_before_dispatch(tmp_path):
+    structure = Path(_external_pdb(tmp_path / 'complex.pdb'))
+    structure.write_text(structure.read_text().replace('ALA A', 'UNK A'))
+    params = validate_and_fill(_manifest(), {'structure': str(structure), 'design_chains': ['B'], 'designed_sequences': {'B': 'W'}, 'with_target': True})
+    with pytest.raises(ToolInputError, match='canonical protein'):
+        build_args(_manifest(), params)

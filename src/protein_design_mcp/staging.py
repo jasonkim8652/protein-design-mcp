@@ -24,10 +24,63 @@ machinery just works. A manifest opts an engine into this via
 
 from __future__ import annotations
 
+import errno
 import shutil
+import stat
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
+
+from protein_design_mcp.validation import ToolInputError
+
+
+_SOURCE_PATH_ERRORS = {
+    errno.ENOENT: "source path does not exist",
+    errno.ENOTDIR: "a source path component is not a directory",
+    errno.ENAMETOOLONG: "source path exceeds the filesystem length limit",
+}
+
+
+def _invalid_path(label: str, reason: str) -> ToolInputError:
+    # Never echo the value: a malformed generated path can contain thousands
+    # of characters, overwhelming the very retry this diagnostic should enable.
+    return ToolInputError(
+        f"{label}: {reason}. Supply an existing file path copied exactly from "
+        "the tool's returned outputs."
+    )
+
+
+def _input_path(value: str, label: str) -> Path:
+    if not value.strip():
+        raise _invalid_path(label, "path must not be empty")
+    if "\x00" in value:
+        raise _invalid_path(label, "path contains a NUL byte")
+    return Path(value)
+
+
+def resolve_input_path(value: str, label: str) -> str:
+    """Resolve a schema path without leaking malformed values in errors."""
+    path = _input_path(value, label)
+    try:
+        return str(path.resolve())
+    except OSError as exc:
+        if exc.errno in _SOURCE_PATH_ERRORS:
+            raise _invalid_path(label, _SOURCE_PATH_ERRORS[exc.errno]) from exc
+        raise
+
+
+def validate_source_file(value: Any, label: str) -> Path:
+    """Validate a file input while preserving infrastructure-related errors."""
+    source = _input_path(str(value), label)
+    try:
+        mode = source.stat().st_mode
+    except OSError as exc:
+        if exc.errno in _SOURCE_PATH_ERRORS:
+            raise _invalid_path(label, _SOURCE_PATH_ERRORS[exc.errno]) from exc
+        raise
+    if not stat.S_ISREG(mode):
+        raise _invalid_path(label, "source path must name a regular file")
+    return source
 
 
 def stage_inputs(
@@ -53,9 +106,10 @@ def stage_inputs(
 
     A name absent from ``params`` (or whose value is ``None`` — an optional
     path parameter the caller didn't supply) is skipped rather than staged.
-    A name whose source file does not exist raises ``FileNotFoundError`` from
-    the underlying ``shutil.copy2`` call, exactly as a missing file already
-    fails at the point an engine subprocess would have tried to read it.
+    Missing, malformed, or non-file source paths raise ``ToolInputError``
+    with the parameter name (and list index), so a caller can correct them.
+    Source permission/I/O failures and destination copy failures remain
+    operating-system errors, not misleading requests to change arguments.
 
     A ``params[name]`` that is a ``list`` (an array-of-``format: path``
     schema parameter — see ``manifest.schema._validate_stage``) stages EVERY
@@ -95,14 +149,14 @@ def stage_inputs(
         dest_dir.mkdir(parents=True, exist_ok=True)
         if isinstance(value, list):
             staged_items = []
-            for item in value:
-                source = Path(str(item))
+            for index, item in enumerate(value):
+                source = validate_source_file(item, f"{name}[{index}]")
                 dest = dest_dir / source.name
                 shutil.copy2(source, dest)
                 staged_items.append(str(dest))
             staged[name] = staged_items
         else:
-            source = Path(str(value))
+            source = validate_source_file(value, name)
             dest = dest_dir / source.name
             shutil.copy2(source, dest)
             staged[name] = str(dest)

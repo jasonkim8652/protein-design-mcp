@@ -52,9 +52,9 @@ summary: >-
   import, pure geometry/dataframe computation (ΔSASA, backbone RMSD,
   non-covalent contacts, hydrophobic patches, liability scoring) over
   structures `run_boltzgen_fold`/`run_boltzgen_fold` with `with_target: false` already
-  produced. Feed it the WHOLE outputs of run_boltzgen_design (or
-  run_boltzgen_inverse_fold) and the matching complete-complex run_boltzgen_fold
-  outputs -- every file, not just the structures. Design-only folds are optional
+  produced. Supply matching complete design CIF/NPZ pairs and complete-complex
+  refold outputs for the same selected design IDs. Design pairs may come from
+  run_boltzgen_design, run_boltzgen_inverse_fold, or run_boltzgen_fold external-input conversion. Design-only folds are optional
   additional inputs, never substitutes for the complete-complex refold inputs.
 
 doc: |
@@ -103,9 +103,10 @@ doc: |
     from. Required only because `boltzgen run` validates every design spec
     it is given before running any step at all; its content does not
     change this step's own numbers.
-  - `generated_files`: the WHOLE `outputs.generated_designs` (from
-    `run_boltzgen_design`) or `outputs.inverse_folded_designs` (from
-    `run_boltzgen_inverse_fold`) list.
+  - `generated_files`: complete CIF/NPZ pairs for the selected design IDs from
+    `outputs.generated_designs` (run_boltzgen_design or run_boltzgen_fold), or
+    `outputs.inverse_folded_designs` (run_boltzgen_inverse_fold). Select the same
+    IDs for every supplied fold/metric list; do not mix different sequences.
   - `refold_structures` + `refold_metrics`: the matching complete-complex
     `run_boltzgen_fold` outputs (`with_target: true`), passed through
     unfiltered. These must preserve ALL original design and target chains,
@@ -158,8 +159,8 @@ schema:
       `boltzgen run` validates every design spec it is given before
       running any step, `--steps analysis` included.
 
-      Use outputs.design_spec_yaml from run_boltzgen_design or
-      run_boltzgen_inverse_fold. The tools create this file internally;
+      Use outputs.design_spec_yaml from run_boltzgen_design,
+      run_boltzgen_inverse_fold, or run_boltzgen_fold. The tools create this file internally;
       the caller does not need to write YAML for this handoff.
     example: design_spec.yaml
   generated_files:
@@ -170,9 +171,10 @@ schema:
       format: path
     required: true
     description: >-
-      The WHOLE `outputs.generated_designs` (from run_boltzgen_design) or
-      `outputs.inverse_folded_designs` (from run_boltzgen_inverse_fold)
-      list -- every `.cif` AND `.npz` path that call returned, unfiltered.
+      Complete matching `.cif` AND `.npz` pairs for the selected design IDs.
+      Use outputs.generated_designs from run_boltzgen_design or run_boltzgen_fold,
+      or outputs.inverse_folded_designs from run_boltzgen_inverse_fold. The
+      refold structures and metrics must cover exactly the same design IDs.
     example: ["design_spec_0.cif", "design_spec_0.npz"]
   refold_structures:
     type: array

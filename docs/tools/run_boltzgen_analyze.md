@@ -9,7 +9,7 @@
 
 ## Summary
 
-Compute CPU metrics over a design and aggregate them into the ranking table `run_boltzgen_filter` reads -- BoltzGen's own `analysis` pipeline step, run in isolation. This step runs no model: no GPU use, no `boltz` import, pure geometry/dataframe computation (ΔSASA, backbone RMSD, non-covalent contacts, hydrophobic patches, liability scoring) over structures `run_boltzgen_fold`/`run_boltzgen_fold` with `with_target: false` already produced. Feed it the WHOLE outputs of run_boltzgen_design (or run_boltzgen_inverse_fold) and the matching complete-complex run_boltzgen_fold outputs -- every file, not just the structures. Design-only folds are optional additional inputs, never substitutes for the complete-complex refold inputs.
+Compute CPU metrics over a design and aggregate them into the ranking table `run_boltzgen_filter` reads -- BoltzGen's own `analysis` pipeline step, run in isolation. This step runs no model: no GPU use, no `boltz` import, pure geometry/dataframe computation (ΔSASA, backbone RMSD, non-covalent contacts, hydrophobic patches, liability scoring) over structures `run_boltzgen_fold`/`run_boltzgen_fold` with `with_target: false` already produced. Supply matching complete design CIF/NPZ pairs and complete-complex refold outputs for the same selected design IDs. Design pairs may come from run_boltzgen_design, run_boltzgen_inverse_fold, or run_boltzgen_fold external-input conversion. Design-only folds are optional additional inputs, never substitutes for the complete-complex refold inputs.
 
 ## What this is
 BoltzGen's `analysis` pipeline step (`boltzgen.task.analyze.analyze.Analyze`),
@@ -56,9 +56,10 @@ its computed top-level values in the same argv concatenation).
   from. Required only because `boltzgen run` validates every design spec
   it is given before running any step at all; its content does not
   change this step's own numbers.
-- `generated_files`: the WHOLE `outputs.generated_designs` (from
-  `run_boltzgen_design`) or `outputs.inverse_folded_designs` (from
-  `run_boltzgen_inverse_fold`) list.
+- `generated_files`: complete CIF/NPZ pairs for the selected design IDs from
+  `outputs.generated_designs` (run_boltzgen_design or run_boltzgen_fold), or
+  `outputs.inverse_folded_designs` (run_boltzgen_inverse_fold). Select the same
+  IDs for every supplied fold/metric list; do not mix different sequences.
 - `refold_structures` + `refold_metrics`: the matching complete-complex
   `run_boltzgen_fold` outputs (`with_target: true`), passed through
   unfiltered. These must preserve ALL original design and target chains,
@@ -103,8 +104,8 @@ job, over the table this tool produces.
 
 | Parameter | Type | Required | Default | Constraints | Description |
 |---|---|---|---|---|---|
-| `design_spec` | string | yes | `—` | pattern: `\.(yaml\|yml)$` | The design specification YAML the designs came from. Its content has no effect on this step's own numbers -- required only because `boltzgen run` validates every design spec it is given before running any step, `--steps analysis` included. Use outputs.design_spec_yaml from run_boltzgen_design or run_boltzgen_inverse_fold. The tools create this file internally; the caller does not need to write YAML for this handoff. |
-| `generated_files` | array | yes | `—` | minItems: `2` | The WHOLE `outputs.generated_designs` (from run_boltzgen_design) or `outputs.inverse_folded_designs` (from run_boltzgen_inverse_fold) list -- every `.cif` AND `.npz` path that call returned, unfiltered. |
+| `design_spec` | string | yes | `—` | pattern: `\.(yaml\|yml)$` | The design specification YAML the designs came from. Its content has no effect on this step's own numbers -- required only because `boltzgen run` validates every design spec it is given before running any step, `--steps analysis` included. Use outputs.design_spec_yaml from run_boltzgen_design, run_boltzgen_inverse_fold, or run_boltzgen_fold. The tools create this file internally; the caller does not need to write YAML for this handoff. |
+| `generated_files` | array | yes | `—` | minItems: `2` | Complete matching `.cif` AND `.npz` pairs for the selected design IDs. Use outputs.generated_designs from run_boltzgen_design or run_boltzgen_fold, or outputs.inverse_folded_designs from run_boltzgen_inverse_fold. The refold structures and metrics must cover exactly the same design IDs. |
 | `refold_structures` | array | yes | `—` | minItems: `1` | Complete-complex `run_boltzgen_fold` refolded_structures output (`with_target: true`), passed through unfiltered. Must preserve every original design and target chain, chain order, and full sequence, with the same design IDs as generated_files. Design-only/monomer folds belong in design_refold_structures, not here. |
 | `refold_metrics` | array | yes | `—` | minItems: `1` | Complete-complex `run_boltzgen_fold` refold_metrics output, from the same fold call as refold_structures, passed through unfiltered. Must contain all original design and target tokens with matching sequences and design IDs. Design-only metrics belong in design_refold_metrics, not here. Required to compute `design_iptm`, `min_interaction_pae`, and every other confidence-based column. |
 | `design_refold_structures` | array | no | `—` | minItems: `1` | `run_boltzgen_fold` with `with_target: false`'s own `refolded_structures` output, if you also ran that tool. Supply together with `design_refold_metrics` and set `designfolding_metrics: true` to get `designfolding-*` columns; leave unset otherwise. These optional design-alone outputs do not replace required complete-complex refold_structures/refold_metrics. |
