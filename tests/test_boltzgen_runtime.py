@@ -22,7 +22,7 @@ from protein_design_mcp.validation import ToolInputError, validate_and_fill
 ])
 @pytest.mark.parametrize("workers, expected", [(None, "0"), (0, "0"), (1, None)])
 def test_gpu_prediction_uses_in_process_loading_and_refuses_unsafe_workers(
-    tool, supplied, workers, expected
+    tool, supplied, workers, expected, tmp_path
 ):
     """A default call must not cross the observed stuck DataLoader queue."""
     manifest = next(m for m in load_manifests(manifest_dir())
@@ -34,6 +34,10 @@ def test_gpu_prediction_uses_in_process_loading_and_refuses_unsafe_workers(
             validate_and_fill(manifest, supplied)
         assert "multiprocessing queue stalls" in str(error.value)
         return
+    if tool == "fold":
+        spec = tmp_path / "design.yaml"
+        spec.write_text("entities: []\n")
+        supplied = {**supplied, "design_spec": str(spec)}
     params = validate_and_fill(manifest, supplied)
     adapter = importlib.import_module(f"protein_design_mcp.adapters.boltzgen_{tool}")
     argv = adapter.build_args(manifest, params)

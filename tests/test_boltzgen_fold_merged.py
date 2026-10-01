@@ -38,8 +38,15 @@ def manifest(manifests):
     return manifests["run_boltzgen_fold"]
 
 
-def _params(manifest, **overrides):
-    base = {"design_spec": "/w/design_spec.yaml",
+@pytest.fixture
+def native_spec(tmp_path):
+    spec = tmp_path / "design_spec.yaml"
+    spec.write_text("entities: []\n")
+    return str(spec)
+
+
+def _params(manifest, native_spec, **overrides):
+    base = {"design_spec": native_spec,
             "generated_files": ["/w/a.cif", "/w/a.npz"],
             "with_target": True}
     base.update(overrides)
@@ -65,18 +72,18 @@ def test_omitting_the_mode_is_refused(manifest):
                                      "generated_files": ["/w/a.cif"]})
 
 
-def test_with_target_true_refolds_in_complex(manifest):
-    args = build_args(manifest, _params(manifest, with_target=True))
+def test_with_target_true_refolds_in_complex(manifest, native_spec):
+    args = build_args(manifest, _params(manifest, native_spec, with_target=True))
     assert args[args.index("--steps") + 1] == "folding"
 
 
-def test_with_target_false_refolds_the_design_alone(manifest):
-    args = build_args(manifest, _params(manifest, with_target=False))
+def test_with_target_false_refolds_the_design_alone(manifest, native_spec):
+    args = build_args(manifest, _params(manifest, native_spec, with_target=False))
     assert args[args.index("--steps") + 1] == "design_folding"
 
 
-def test_exactly_one_steps_flag_is_passed(manifest):
-    args = build_args(manifest, _params(manifest, with_target=True))
+def test_exactly_one_steps_flag_is_passed(manifest, native_spec):
+    args = build_args(manifest, _params(manifest, native_spec, with_target=True))
     assert args.count("--steps") == 1
 
 
