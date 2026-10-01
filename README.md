@@ -94,16 +94,16 @@ never a scientific choice.
 
 ---
 
-## Running the 2.4.0 integrated image
+## Running the 2.4.1 integrated image
 
 The repaired release is published on Docker Hub. Its verified immutable reference is:
 
 ```text
-jasonkim8652/protein-design-mcp:2.4.0@sha256:a67fbee86013fea2cd4972ccd7d12fb8a629b513027b72ad88c228f1a44d0e0c
+jasonkim8652/protein-design-mcp:2.4.1@sha256:87e0db49d2170eff971d79e7d8a71951daddada6934cf4b1a2d3b2ecab4c03d5
 ```
 
-The image contains server revision `9e4a8f4`. See the
-[publication and validation record](docs/integrated-240-validation.md#verified-repaired-publication-2026-09-30).
+The image contains server revision `80c6043`. See the
+[2.4.1 publication and runtime validation record](docs/runtime-recovery-2.4.1.md).
 
 The image contains isolated engine environments, engine code, CUDA toolkit
 components, and redistributable public model weights. Engine executables and
@@ -122,7 +122,7 @@ mkdir -p "$PWD/workspace"
 docker run -i --rm --device=nvidia.com/gpu=0 --shm-size=16g \
   --user "$(id -u):$(id -g)" -e HOME=/tmp \
   -e TMPDIR="$PWD/workspace" -v "$PWD/workspace:$PWD/workspace" \
-  jasonkim8652/protein-design-mcp:2.4.0
+  jasonkim8652/protein-design-mcp:2.4.1
 ```
 
 This starts the MCP stdio server. Keep the input/output workspace mounted at
@@ -174,6 +174,16 @@ this option, successful scratch directories are removed after declared outputs
 are collected. Retained work directories consume additional disk space.
 
 ## Building the image
+
+For the 2.4.1 source-only runtime patch, reuse the immutable published base:
+
+```bash
+docker build -f Dockerfile.runtime-patch \
+  --build-arg SOURCE_REVISION="$(git rev-parse HEAD)" \
+  -t jasonkim8652/protein-design-mcp:2.4.1 .
+```
+
+The following commands describe the integrated 2.4.0 base build.
 
 `Dockerfile.envs` builds the core environments. `Dockerfile.integrated` adds
 curated and relocated engine environments, source and public weights:
