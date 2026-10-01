@@ -175,12 +175,12 @@ are collected. Retained work directories consume additional disk space.
 
 ## Building the image
 
-For the 2.4.4 source-only runtime patch, reuse the immutable published base:
+For the 2.4.5 source-only runtime patch, reuse the immutable published base:
 
 ```bash
 docker build -f Dockerfile.runtime-patch \
   --build-arg SOURCE_REVISION="$(git rev-parse HEAD)" \
-  -t jasonkim8652/protein-design-mcp:2.4.4 .
+  -t jasonkim8652/protein-design-mcp:2.4.5 .
 ```
 
 The following commands describe the integrated 2.4.0 base build.

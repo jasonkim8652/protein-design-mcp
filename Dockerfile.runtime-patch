@@ -1,6 +1,6 @@
 # Reuse the published integrated environments and public model assets.
 # This patch changes server/engine code, not the bundled scientific dependencies.
-ARG BASE_IMAGE=jasonkim8652/protein-design-mcp:2.4.3@sha256:0b0a40d409374e0d858292a7c09cd7aa386a9354b8bf3b9be4fda30d1ff3fad0
+ARG BASE_IMAGE=jasonkim8652/protein-design-mcp:2.4.4@sha256:bb01fe6f748f9729aba45f9f1e6038266777ae65e789f06702a29d29bcee966e
 FROM ${BASE_IMAGE}
 USER root
 COPY pyproject.toml README.md LICENSE /app/
@@ -9,6 +9,6 @@ COPY scripts/ /app/scripts/
 RUN micromamba run -n server pip install --no-cache-dir --no-deps /app \
     && chmod -R a+rX /app
 ARG SOURCE_REVISION=unknown
-LABEL org.opencontainers.image.version="2.4.4" \
+LABEL org.opencontainers.image.version="2.4.5" \
       org.opencontainers.image.revision="${SOURCE_REVISION}"
 USER $MAMBA_USER

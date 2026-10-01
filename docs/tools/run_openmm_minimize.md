@@ -44,7 +44,15 @@ atom clashes that dominate any energy term computed on them directly.
 ## What you must supply
 A PDB or CIF/mmCIF file, optionally gzip-compressed. Multi-chain inputs
 are relaxed as one system. CIF inputs are read directly without a
-coordinate conversion; the minimized output is a PDB file.
+coordinate conversion; the minimized output is a PDB file. Every canonical
+amino-acid residue in every chain must contain its complete nonterminal
+heavy-atom set (backbone and side chains, including partial side chains).
+Hydrogens and terminal OXT may be absent. Incomplete canonical residues
+are rejected before engine dispatch with chain, residue and missing-atom
+diagnostics. Unknown or modified residues remain subject to the engine's
+template and force-field checks. The caller must ensure the structure's
+sequence matches the exact intended design and target sequences; this tool
+does not verify sequence identity or reconstruct missing internal atoms.
 
 ## What you get back
 `initial_potential_energy_kj_mol`, `final_potential_energy_kj_mol`,
@@ -64,7 +72,7 @@ neither convergence nor a correct binding pose or affinity.
 
 | Parameter | Type | Required | Default | Constraints | Description |
 |---|---|---|---|---|---|
-| `input_pdb` | string | yes | `—` | pattern: `\.(pdb\|cif\|mmcif)(\.gz)?$` | Structure to minimise (PDB or CIF/mmCIF, optionally .gz). WHERE THIS COMES FROM -- Any structure to relax -- your own, or one a folding or generation tool returned. |
+| `input_pdb` | string | yes | `—` | pattern: `\.(pdb\|cif\|mmcif)(\.gz)?$` | Structure to minimise (PDB or CIF/mmCIF, optionally .gz). Every canonical residue in every chain requires all nonterminal backbone and side-chain heavy atoms; a partial side chain is incomplete. Hydrogens and terminal OXT may be absent. Missing internal atoms are not reconstructed. The caller must ensure the structure contains the exact intended design and target sequences. Any structure source is acceptable if it meets these requirements; no particular upstream tool is required. |
 | `max_iterations` | integer | no | `500` | minimum: `1`<br>maximum: `10000` | Iteration cap per OpenMM constraint pass in the final physical stage. Two fixed 200-step preparation stages precede it. Constraint restarts may exceed this cap in total. A cap or low energy does not prove convergence. |
 | `forcefield` | string | no | `amber14` | enum: `['amber14', 'charmm36']` | Force field to minimise under. |
 | `platform` | string | no | `CUDA` | enum: `['CUDA', 'Reference', 'CPU']` | Explicit computation platform; failure to initialize is an error, with no fallback. Reference supports CPU-only validation. |

@@ -33,13 +33,14 @@ def test_manifest_sets_its_own_timeout():
     assert _manifest().timeout_s == 1800
 
 
-def test_build_args_names_the_workdir_relative_output():
+def test_build_args_names_the_workdir_relative_output(tmp_path):
+    path = _pdb(tmp_path, [_atom(i + 1, n, "GLY", "A", 1) for i, n in enumerate(["N", "CA", "C", "O"])])
     args = build_args(
         _manifest(),
-        {"input_pdb": "/tmp/in.pdb", "max_iterations": 500,
+        {"input_pdb": str(path), "max_iterations": 500,
          "forcefield": "amber14"},
     )
-    assert "/tmp/in.pdb" in args
+    assert str(path) in args
     assert "minimized.pdb" in args
     assert "500" in args
 
@@ -123,7 +124,7 @@ def test_a_backbone_only_structure_is_refused(tmp_path):
                           "forcefield": "amber14"})
     message = str(excinfo.value)
     assert "HIS" in message
-    assert "side chain" in message or "backbone" in message
+    assert "missing" in message and "CG" in message
 
 
 def test_a_complete_residue_is_accepted(tmp_path):
@@ -151,12 +152,12 @@ def test_glycine_needs_no_side_chain(tmp_path):
         "input_pdb": str(path), "max_iterations": 500, "forcefield": "amber14"})
 
 
-def test_an_unreadable_structure_is_left_to_the_engine(tmp_path):
+def test_an_unreadable_structure_is_an_input_error(tmp_path):
     from protein_design_mcp.adapters.openmm_minimize import build_args
 
     missing = tmp_path / "nope.pdb"
-    assert str(missing) in build_args(None, {
-        "input_pdb": str(missing), "max_iterations": 500, "forcefield": "amber14"})
+    with pytest.raises(ToolInputError, match="input_pdb.*does not exist"):
+        build_args(None, {"input_pdb": str(missing), "max_iterations": 500, "forcefield": "amber14"})
 
 
 @pytest.mark.parametrize("suffix", [".pdb", ".cif", ".mmcif", ".pdb.gz", ".cif.gz", ".mmcif.gz"])
@@ -189,13 +190,14 @@ def test_cif_preflight_accepts_folded_residues_and_refuses_backbone_only(tmp_pat
     if complete:
         assert build_args(None, params) == [str(cif), "minimized.pdb", "--max-iterations", "17", "--forcefield", "charmm36", "--platform", "CUDA", "--precision", "double"]
     else:
-        with pytest.raises(ToolInputError, match="HIS B5.*backbone atoms only"):
+        with pytest.raises(ToolInputError, match="HIS B5.*missing.*CG"):
             build_args(None, params)
     assert cif.read_bytes() == original
 
 
-def test_runtime_arguments_are_explicit_and_validated():
-    params = validate_and_fill(_manifest(), {'input_pdb': '/tmp/in.pdb'})
+def test_runtime_arguments_are_explicit_and_validated(tmp_path):
+    path = _pdb(tmp_path, [_atom(i + 1, n, "GLY", "A", 1) for i, n in enumerate(["N", "CA", "C", "O"])])
+    params = validate_and_fill(_manifest(), {"input_pdb": str(path)})
     assert params['platform'] == 'CUDA'
     assert params['precision'] == 'double'
     args = build_args(_manifest(), params)
@@ -290,3 +292,143 @@ def test_numerical_failure_reports_effective_native_precision(tmp_path, platform
     assert result['precision'] == expected
     assert result['numerical_failure'] is True
     assert result['minimization_diagnostics']['requested_precision'] == requested
+
+
+# Literal, independently specified fixtures: removing ANY heavy atom must fail.
+_CANONICAL_FIXTURES = [
+    ("ALA", "N CA C O CB"),
+    ("ARG", "N CA C O CB CG CD NE CZ NH1 NH2"),
+    ("ASN", "N CA C O CB CG OD1 ND2"),
+    ("ASP", "N CA C O CB CG OD1 OD2"),
+    ("CYS", "N CA C O CB SG"),
+    ("GLN", "N CA C O CB CG CD OE1 NE2"),
+    ("GLU", "N CA C O CB CG CD OE1 OE2"),
+    ("GLY", "N CA C O"),
+    ("HIS", "N CA C O CB CG ND1 CD2 CE1 NE2"),
+    ("ILE", "N CA C O CB CG1 CG2 CD1"),
+    ("LEU", "N CA C O CB CG CD1 CD2"),
+    ("LYS", "N CA C O CB CG CD CE NZ"),
+    ("MET", "N CA C O CB CG SD CE"),
+    ("PHE", "N CA C O CB CG CD1 CD2 CE1 CE2 CZ"),
+    ("PRO", "N CA C O CB CG CD"),
+    ("SER", "N CA C O CB OG"),
+    ("THR", "N CA C O CB OG1 CG2"),
+    ("TRP", "N CA C O CB CG CD1 CD2 NE1 CE2 CE3 CZ2 CZ3 CH2"),
+    ("TYR", "N CA C O CB CG CD1 CD2 CE1 CE2 CZ OH"),
+    ("VAL", "N CA C O CB CG1 CG2"),
+]
+
+
+def _preflight(path):
+    return build_args(None, {"input_pdb": str(path), "max_iterations": 500, "forcefield": "amber14"})
+
+
+@pytest.mark.parametrize("resname,names", _CANONICAL_FIXTURES)
+def test_all_canonical_residues_without_hydrogens_or_oxt_are_complete(tmp_path, resname, names):
+    path = _pdb(tmp_path, [_atom(i + 1, name, resname, "B", 23) for i, name in enumerate(names.split())])
+    assert _preflight(path)[0] == str(path)
+
+
+@pytest.mark.parametrize("resname,names,missing", [
+    (resname, names, atom) for resname, names in _CANONICAL_FIXTURES for atom in names.split()
+])
+def test_any_missing_canonical_heavy_atom_is_an_input_error(tmp_path, resname, names, missing):
+    path = _pdb(tmp_path, [_atom(i + 1, name, resname, "B", 23)
+                           for i, name in enumerate(names.split()) if name != missing])
+    with pytest.raises(ToolInputError) as excinfo:
+        _preflight(path)
+    message = str(excinfo.value)
+    assert f"{resname} B23" in message
+    assert missing in message
+
+
+@pytest.mark.parametrize("suffix", [".pdb", ".pdb.gz", ".cif", ".mmcif", ".cif.gz", ".mmcif.gz"])
+def test_partial_lysine_sidechain_is_refused_in_all_formats_without_mutation(tmp_path, suffix):
+    source = _pdb(tmp_path, [_atom(i + 1, name, "LYS", "B", 23)
+                             for i, name in enumerate(["N", "CA", "C", "O", "CB", "CG"])])
+    path = tmp_path / ("partial" + suffix)
+    if ".pdb" in suffix:
+        path.write_bytes(source.read_bytes())
+    else:
+        _cif_from_pdb(source, path)
+    if suffix.endswith(".gz"):
+        path.write_bytes(gzip.compress(path.read_bytes()))
+    original = path.read_bytes()
+    with pytest.raises(ToolInputError, match="LYS B23.*missing.*CD.*CE.*NZ"):
+        _preflight(path)
+    assert path.read_bytes() == original
+
+
+def test_terminal_oxt_and_hydrogens_are_allowed(tmp_path):
+    path = _pdb(tmp_path, [_atom(i + 1, name, "GLY", "A", 1)
+                           for i, name in enumerate(["N", "CA", "C", "O", "OXT", "H", "HA2", "HA3"])])
+    assert _preflight(path)[0] == str(path)
+
+
+@pytest.mark.parametrize("resname", ["UNK", "MSE", "HID", "HOH"])
+def test_unknown_and_modified_residue_templates_are_left_to_engine(tmp_path, resname):
+    path = _pdb(tmp_path, [_atom(1, "N", resname, "A", 1)])
+    assert _preflight(path)[0] == str(path)
+
+
+@pytest.mark.parametrize("suffix,payload", [
+    (".pdb", b""), (".pdb", b"not a structure"), (".cif", b"not a structure"),
+    (".cif", b"data_empty\n#\n"), (".cif.gz", b"not gzip"),
+    (".pdb", _atom(1, "N", "GLY", "A", 1).replace("0.000", "bad!!").encode()),
+])
+def test_malformed_or_empty_inputs_are_input_errors(tmp_path, suffix, payload):
+    path = tmp_path / ("bad" + suffix)
+    path.write_bytes(payload)
+    with pytest.raises(ToolInputError, match="input_pdb"):
+        _preflight(path)
+
+
+def test_missing_atom_diagnostic_is_bounded_and_identifies_residues(tmp_path):
+    path = _pdb(tmp_path, [_atom(i, "CA", "LYS", "B", i) for i in range(1, 101)])
+    with pytest.raises(ToolInputError) as excinfo:
+        _preflight(path)
+    message = str(excinfo.value)
+    assert "100 residues" in message
+    assert "LYS B1" in message
+    assert "more" in message
+    assert len(message) < 2000
+
+
+def test_residue_insertion_code_survives_diagnostic(tmp_path):
+    line = _atom(1, "CA", "LYS", "B", 23)
+    path = _pdb(tmp_path, [line[:26] + "A" + line[27:]])
+    with pytest.raises(ToolInputError, match="LYS B23A"):
+        _preflight(path)
+
+
+@pytest.mark.parametrize("operation", ["stat", "open"])
+@pytest.mark.parametrize("error_number", [13, 5])
+def test_storage_failures_remain_os_errors(tmp_path, monkeypatch, operation, error_number):
+    import builtins
+    path = _pdb(tmp_path, [_atom(1, "CA", "LYS", "A", 1)])
+
+    def fail(*args, **kwargs):
+        raise OSError(error_number, "storage unavailable")
+
+    with monkeypatch.context() as patch:
+        if operation == "stat":
+            patch.setattr(Path, "stat", fail)
+        else:
+            patch.setattr(builtins, "open", fail)
+        with pytest.raises(OSError) as excinfo:
+            _preflight(path)
+    assert excinfo.value.errno == error_number
+
+
+def test_directory_input_is_an_input_error(tmp_path):
+    directory = tmp_path / "directory.pdb"
+    directory.mkdir()
+    with pytest.raises(ToolInputError, match="regular file"):
+        _preflight(directory)
+
+
+def test_corrupt_gzip_deflate_is_an_input_error(tmp_path):
+    path = tmp_path / "corrupt.pdb.gz"
+    path.write_bytes(gzip.compress(b"structure")[:10] + b"\xff\xff\xff" + b"\x00" * 8)
+    with pytest.raises(ToolInputError, match="input_pdb.*parse"):
+        _preflight(path)

@@ -5,7 +5,7 @@ An MCP server that enables LLM agents to run end-to-end protein binder design pi
 using RFdiffusion, ProteinMPNN, and ESMFold.
 """
 
-__version__ = "2.4.4"
+__version__ = "2.4.5"
 __author__ = "Protein Design MCP Team"
 
 from protein_design_mcp.server import main

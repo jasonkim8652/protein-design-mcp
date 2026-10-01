@@ -65,7 +65,15 @@ doc: |
   ## What you must supply
   A PDB or CIF/mmCIF file, optionally gzip-compressed. Multi-chain inputs
   are relaxed as one system. CIF inputs are read directly without a
-  coordinate conversion; the minimized output is a PDB file.
+  coordinate conversion; the minimized output is a PDB file. Every canonical
+  amino-acid residue in every chain must contain its complete nonterminal
+  heavy-atom set (backbone and side chains, including partial side chains).
+  Hydrogens and terminal OXT may be absent. Incomplete canonical residues
+  are rejected before engine dispatch with chain, residue and missing-atom
+  diagnostics. Unknown or modified residues remain subject to the engine's
+  template and force-field checks. The caller must ensure the structure's
+  sequence matches the exact intended design and target sequences; this tool
+  does not verify sequence identity or reconstruct missing internal atoms.
 
   ## What you get back
   `initial_potential_energy_kj_mol`, `final_potential_energy_kj_mol`,
@@ -87,10 +95,14 @@ schema:
     format: path
     pattern: '\.(pdb|cif|mmcif)(\.gz)?$'
     required: true
-    description: Structure to minimise (PDB or CIF/mmCIF, optionally .gz).
-
-      WHERE THIS COMES FROM -- Any structure to relax -- your own, or one a
-      folding or generation tool returned.
+    description: >-
+      Structure to minimise (PDB or CIF/mmCIF, optionally .gz). Every canonical
+      residue in every chain requires all nonterminal backbone and side-chain
+      heavy atoms; a partial side chain is incomplete. Hydrogens and terminal
+      OXT may be absent. Missing internal atoms are not reconstructed. The
+      caller must ensure the structure contains the exact intended design and
+      target sequences. Any structure source is acceptable if it meets these
+      requirements; no particular upstream tool is required.
     example: model.pdb
   max_iterations:
     type: integer
